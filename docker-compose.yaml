@@ -1,0 +1,107 @@
+services:
+  postgres:
+    image: postgres:latest
+    container_name: relic_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-relic}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-relic}
+      POSTGRES_DB: ${POSTGRES_DB:-relic}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-relic}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: "2"
+
+  redis:
+    image: redis:latest
+    container_name: relic_redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-replace_me} --appendonly yes --appendfsync everysec --save ""
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-replace_me}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1"
+
+  garage-hot:
+    image: dxflrs/garage:v2.0.0
+    container_name: relic_garage_hot
+    volumes:
+      - ./garage-hot.toml:/etc/garage.toml
+      - garage_hot_meta:/var/lib/garage/meta
+      - garage_hot_data:/var/lib/garage/data
+    restart: unless-stopped
+    ports:
+      - "3900:3900"
+      - "3902:3902"
+      - "3903:3903"
+
+  garage-cold:
+    image: dxflrs/garage:v2.0.0
+    container_name: relic_garage_cold
+    volumes:
+      - ./garage-cold.toml:/etc/garage.toml
+      - garage_cold_meta:/var/lib/garage/meta
+      - garage_cold_data:/var/lib/garage/data
+    restart: unless-stopped
+    ports:
+      - "3910:3900"
+      - "3912:3902"
+      - "3913:3903"
+
+  garage-webui-hot:
+    image: khairul169/garage-webui:latest
+    container_name: relic_garage_webui_hot
+    restart: unless-stopped
+    volumes:
+      - ./garage-hot.toml:/etc/garage.toml:ro
+    ports:
+      - "3909:3909"
+    environment:
+      API_BASE_URL: "http://garage-hot:3903"
+      API_ADMIN_KEY: "${GARAGE_ADMIN_TOKEN:-dev_admin_token_for_local_use_only}"
+      S3_ENDPOINT_URL: "http://garage-hot:3900"
+      S3_REGION: "garage"
+    depends_on:
+      - garage-hot
+
+  garage-webui-cold:
+    image: khairul169/garage-webui:latest
+    container_name: relic_garage_webui_cold
+    restart: unless-stopped
+    volumes:
+      - ./garage-cold.toml:/etc/garage.toml:ro
+    ports:
+      - "3919:3909"
+    environment:
+      API_BASE_URL: "http://garage-cold:3903"
+      API_ADMIN_KEY: "${GARAGE_ADMIN_TOKEN:-dev_admin_token_for_local_use_only}"
+      S3_ENDPOINT_URL: "http://garage-cold:3900"
+      S3_REGION: "garage"
+    depends_on:
+      - garage-cold
+
+volumes:
+  postgres_data:
+  redis_data:
+  garage_hot_meta:
+  garage_hot_data:
+  garage_cold_meta:
+  garage_cold_data:
