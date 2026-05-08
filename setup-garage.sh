@@ -5,7 +5,8 @@ HOT_CONTAINER="${HOT_CONTAINER:-relic_garage_hot}"
 COLD_CONTAINER="${COLD_CONTAINER:-relic_garage_cold}"
 ZONE="${GARAGE_ZONE:-dc1}"
 CAPACITY="${GARAGE_CAPACITY:-4G}"
-BUCKET="${S3_BUCKET:-relic}"
+LAKE_BUCKET="${LAKE_BUCKET:-lake}"
+BLOB_BUCKET="${BLOB_BUCKET:-blobs}"
 
 HOT_KEY_NAME="${GARAGE_HOT_KEY_NAME:-relic-hot-app}"
 COLD_KEY_NAME="${GARAGE_COLD_KEY_NAME:-relic-cold-app}"
@@ -130,9 +131,12 @@ S3_COLD_SECRET_KEY="${S3_COLD_SECRET_KEY}"
 S3_COLD_ENDPOINT=http://localhost:3910
 S3_COLD_REGION=garage
 
-S3_BUCKET=${BUCKET}
+S3_LAKE_BUCKET=${LAKE_BUCKET}
+S3_BLOB_BUCKET=${BLOB_BUCKET}
 EOF
 }
+
+
 
 wait_for_garage "$HOT_CONTAINER"
 bootstrap_node "$HOT_CONTAINER"
@@ -143,11 +147,12 @@ bootstrap_node "$COLD_CONTAINER"
 ensure_key "$HOT_CONTAINER" "$HOT_KEY_NAME" S3_HOT_ACCESS_KEY S3_HOT_SECRET_KEY
 ensure_key "$COLD_CONTAINER" "$COLD_KEY_NAME" S3_COLD_ACCESS_KEY S3_COLD_SECRET_KEY
 
-
-ensure_bucket "$HOT_CONTAINER" "$BUCKET"
-ensure_bucket "$COLD_CONTAINER" "$BUCKET"
-allow_key_on_bucket "$HOT_CONTAINER" "$BUCKET" "$HOT_KEY_NAME"
-allow_key_on_bucket "$COLD_CONTAINER" "$BUCKET" "$COLD_KEY_NAME"
+for bucket in "$LAKE_BUCKET" "$BLOB_BUCKET"; do
+  ensure_bucket "$HOT_CONTAINER" "$bucket"
+  ensure_bucket "$COLD_CONTAINER" "$bucket"
+  allow_key_on_bucket "$HOT_CONTAINER" "$bucket" "$HOT_KEY_NAME"
+  allow_key_on_bucket "$COLD_CONTAINER" "$bucket" "$COLD_KEY_NAME"
+done
 
 echo
 echo "Done!"
