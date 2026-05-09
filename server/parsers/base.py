@@ -208,6 +208,29 @@ def maybe_run_toolchain(
             from parsers.toolchains.parquet import parse_parquet
 
             parse_parquet(prefix=prefix)
+        elif is_audio_file(mime_type=mime_type, parser_meta=parser_meta):
+            from parsers.toolchains.audio import parse_audio
+
+            cap = settings.AUDIO_PARSE_MAX_BYTES
+            content = read_blob_bytes_capped(
+                bucket=bucket,
+                bucket_key=blob.bucket_key,
+                size_bytes=blob.size_bytes,
+                max_bytes=cap,
+            )
+            if len(content) < blob.size_bytes:
+                log.info(
+                    "audio_parse_truncated",
+                    file_id=str(file_id),
+                    read_bytes=len(content),
+                    blob_size=blob.size_bytes,
+                    max_bytes=cap,
+                    mime_type=mime_type,
+                )
+            parsed = parse_audio(content=content, existing_meta=parser_meta)
+            merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
+            parser_meta.clear()
+            parser_meta.update(merged)
         elif is_text_file(mime_type=mime_type, parser_meta=parser_meta):
             from parsers.toolchains.text import parse_text
 
@@ -249,6 +272,23 @@ def is_json_file(*, mime_type: str, parser_meta: dict) -> bool:
     }:
         return True
     return parser_meta.get("extension") in {"json", "jsonl", "geojson", "ipynb"}
+
+
+def is_audio_file(*, mime_type: str, parser_meta: dict) -> bool:
+    if mime_type.startswith("audio/"):
+        return True
+    return parser_meta.get("extension") in {
+        "aac",
+        "aif",
+        "aiff",
+        "flac",
+        "m4a",
+        "mp3",
+        "oga",
+        "ogg",
+        "opus",
+        "wav",
+    }
 
 
 def is_text_file(*, mime_type: str, parser_meta: dict) -> bool:

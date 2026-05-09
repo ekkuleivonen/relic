@@ -128,6 +128,12 @@ TEXT_PARSE_MAX_BYTES: int = env.int(
     default=16 * 1024 * 1024,
 )
 
+# Max bytes fetched per audio file for file meta.
+AUDIO_PARSE_MAX_BYTES: int = env.int(
+    "AUDIO_PARSE_MAX_BYTES",
+    default=128 * 1024 * 1024,
+)
+
 REDIS_HOST: str = env.str("REDIS_HOST", default="localhost")
 REDIS_PORT: int = env.int("REDIS_PORT", default=6379)
 REDIS_PASSWORD: str = env.str("REDIS_PASSWORD", default="replace_me")
