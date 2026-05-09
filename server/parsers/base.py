@@ -158,6 +158,29 @@ def maybe_run_toolchain(
             merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
             parser_meta.clear()
             parser_meta.update(merged)
+        elif is_json_file(mime_type=mime_type, parser_meta=parser_meta):
+            from parsers.toolchains.json import parse_json
+
+            cap = settings.JSON_PARSE_MAX_BYTES
+            content = read_blob_bytes_capped(
+                bucket=bucket,
+                bucket_key=blob.bucket_key,
+                size_bytes=blob.size_bytes,
+                max_bytes=cap,
+            )
+            if len(content) < blob.size_bytes:
+                log.info(
+                    "json_parse_truncated",
+                    file_id=str(file_id),
+                    read_bytes=len(content),
+                    blob_size=blob.size_bytes,
+                    max_bytes=cap,
+                    mime_type=mime_type,
+                )
+            parsed = parse_json(content=content, existing_meta=parser_meta)
+            merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
+            parser_meta.clear()
+            parser_meta.update(merged)
         elif mime_type == "application/vnd.apache.parquet":
             from parsers.toolchains.parquet import parse_parquet
 
@@ -169,6 +192,17 @@ def maybe_run_toolchain(
             mime_type=mime_type,
             error=str(exc),
         )
+
+
+def is_json_file(*, mime_type: str, parser_meta: dict) -> bool:
+    if mime_type in {
+        "application/json",
+        "application/geo+json",
+        "application/x-ndjson",
+        "application/jsonl",
+    }:
+        return True
+    return parser_meta.get("extension") in {"json", "jsonl", "geojson", "ipynb"}
 
 
 def read_blob_prefix(*, bucket: Bucket, bucket_key: str) -> bytes:
