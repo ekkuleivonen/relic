@@ -75,18 +75,47 @@ class FileSearchResponse(BaseModel):
     offset: int
 
 
+class FileListResponse(BaseModel):
+    """Paginated folder listing for ``GET /files/``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[FileRead]
+    total: int
+    limit: int
+    offset: int
+
+
 @router.get("/")
 async def list_files(
     db: DbSession,
     current_user: CurrentUser,
     folder_id: uuid.UUID | None = None,
     recursive: bool = False,
-) -> list[FileRead]:
-    return filesystem_service.list_files(
+    limit: int = Query(
+        default=filesystem_service.DEFAULT_LIST_LIMIT,
+        ge=1,
+        le=filesystem_service.MAX_LIST_LIMIT,
+    ),
+    offset: int = Query(default=0, ge=0),
+    sort: str = Query(default="name"),
+    order: str = Query(default="asc"),
+) -> FileListResponse:
+    page = filesystem_service.list_files(
         db,
         current_user,
         folder_id=folder_id,
         recursive=recursive,
+        limit=limit,
+        offset=offset,
+        sort=sort,
+        order=order,
+    )
+    return FileListResponse(
+        items=[FileRead.model_validate(file) for file in page.items],
+        total=page.total,
+        limit=limit,
+        offset=offset,
     )
 
 

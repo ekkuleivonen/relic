@@ -14,6 +14,8 @@ type UpdateFolderInput = {
   id: string
   name?: string
   parent_id?: string
+  min_tier?: number
+  cooldown_days?: number | null
 }
 
 type DeleteFolderInput = {
@@ -55,10 +57,20 @@ export function useUpdateFolder() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, name, parent_id }: UpdateFolderInput) => {
-      const body: Record<string, string> = {}
-      if (name !== undefined) body.name = name
-      if (parent_id !== undefined) body.parent_id = parent_id
+    mutationFn: ({ id, ...rest }: UpdateFolderInput) => {
+      const body: Record<string, unknown> = {}
+      if (rest.name !== undefined) {
+        body.name = rest.name
+      }
+      if (rest.parent_id !== undefined) {
+        body.parent_id = rest.parent_id
+      }
+      if (rest.min_tier !== undefined) {
+        body.min_tier = rest.min_tier
+      }
+      if (rest.cooldown_days !== undefined) {
+        body.cooldown_days = rest.cooldown_days
+      }
       return apiRequest<Folder>(`/folders/${id}`, {
         method: "PATCH",
         body,

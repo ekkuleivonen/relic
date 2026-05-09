@@ -111,6 +111,55 @@ def test_get_folder_tree_returns_nested_filesystem(client, db_session, user, roo
     )
 
 
+def test_get_folder_tree_omits_storage_policy_for_non_admin(
+    client, db_session, user, root_folder
+):
+    photos = add_folder(db_session, root_folder, "photos")
+    photos.cooldown_days = 7
+    photos.min_tier = 2
+    db_session.commit()
+
+    grant_access(db_session, user, root_folder, int(Permission.READ))
+
+    response = client.get("/api/folders/tree")
+
+    assert response.status_code == 200
+    tree = response.json()
+    photos_node = next(c for c in tree["children"] if c["name"] == "photos")
+    assert photos_node.get("min_tier") is None
+    assert photos_node.get("cooldown_days") is None
+
+
+def test_get_folder_tree_includes_storage_policy_for_admin(db_session, root_folder):
+    photos = add_folder(db_session, root_folder, "photos")
+    photos.cooldown_days = 14
+    photos.min_tier = 3
+    db_session.commit()
+
+    admin = UserFactory.build(email="admin-pol@relic.local", role=UserRole.ADMIN)
+    db_session.add(admin)
+    db_session.commit()
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as admin_client:
+            admin_client.cookies.set("relic_session", create_session_token(admin))
+            response = admin_client.get("/api/folders/tree")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    tree = response.json()
+    node = next(c for c in tree["children"] if c["name"] == "photos")
+    assert node["min_tier"] == 3
+    assert node["cooldown_days"] == 14
+    assert node["effective_min_tier"] == 3
+    assert node["effective_cooldown_days"] == 14
+
+
 def test_admin_get_folder_tree_bypasses_folder_access(db_session, root_folder):
     def override_get_db():
         yield db_session
@@ -230,9 +279,13 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
     response = client.get(f"/api/files/?folder_id={photos.id}")
 
     assert response.status_code == 200
-    files = response.json()
-    assert [file["name"] for file in files] == ["image.jpg"]
-    assert files[0]["meta"]["size"] == 1024
+    body = response.json()
+    assert body["total"] == 1
+    assert len(body["items"]) == 1
+    assert [item["name"] for item in body["items"]] == ["image.jpg"]
+    assert body["items"][0]["meta"]["size"] == 1024
+    assert body["limit"] == 50
+    assert body["offset"] == 0
 
 
 def test_list_files_rejects_unreadable_folder(client, db_session, root_folder):
@@ -290,4 +343,56 @@ def test_recursive_list_files_excludes_unreadable_descendants(
     response = client.get(f"/api/files/?folder_id={photos.id}&recursive=true")
 
     assert response.status_code == 200
-    assert [file["name"] for file in response.json()] == ["image.jpg", "raw.nef"]
+    body = response.json()
+    assert body["total"] == 2
+    assert [item["name"] for item in body["items"]] == ["image.jpg", "raw.nef"]
+
+
+def test_list_files_pagination(client, db_session, user, root_folder):
+    photos = add_folder(db_session, root_folder, "photos")
+    grant_access(db_session, user, photos, int(Permission.READ))
+    bucket = BucketFactory.build()
+    db_session.add(bucket)
+    db_session.flush()
+    blob = BlobFactory.build(bucket_id=bucket.id)
+    db_session.add(blob)
+    db_session.flush()
+    names = ["e.bin", "d.bin", "c.bin", "b.bin", "a.bin"]
+    for name in names:
+        db_session.add(
+            File(
+                folder_id=photos.id,
+                blob_id=blob.id,
+                uploaded_by=user.id,
+                name=name,
+                parse_status=PARSE_STATUS_COMPLETED,
+                meta=build_file_meta(file_name=name, size=100, user_meta={}),
+            )
+        )
+    db_session.commit()
+
+    r = client.get(
+        f"/api/files/?folder_id={photos.id}&limit=2&offset=0&sort=name&order=asc"
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 5
+    assert body["limit"] == 2
+    assert body["offset"] == 0
+    assert [item["name"] for item in body["items"]] == ["a.bin", "b.bin"]
+
+    r2 = client.get(f"/api/files/?folder_id={photos.id}&limit=2&offset=4")
+    assert r2.status_code == 200
+    body2 = r2.json()
+    assert len(body2["items"]) == 1
+    assert body2["items"][0]["name"] == "e.bin"
+
+
+def test_list_files_rejects_invalid_sort(client, db_session, user, root_folder):
+    photos = add_folder(db_session, root_folder, "photos")
+    grant_access(db_session, user, photos, int(Permission.READ))
+
+    response = client.get(f"/api/files/?folder_id={photos.id}&sort=nope")
+
+    assert response.status_code == 400
+    assert "sort must be one of" in response.json()["detail"]

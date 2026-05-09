@@ -1,13 +1,25 @@
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import BigInteger, asc, cast, desc, func, nullslast, select
 from sqlalchemy.orm import Session
 
-from managers.exceptions import ResourceNotFound
+from managers.exceptions import BadRequestError, ResourceNotFound
 from models import File, Folder, User
 from schema_plan import Permission
 from services import folder_access as folder_access_service
+
+DEFAULT_LIST_LIMIT = 50
+MAX_LIST_LIMIT = 200
+LIST_SORT_FIELDS = frozenset({"name", "updated_at", "size", "mimetype"})
+LIST_SORT_ORDERS = frozenset({"asc", "desc"})
+
+
+@dataclass(frozen=True)
+class FileListPage:
+    items: list[File]
+    total: int
 
 
 def get_folder_tree(
@@ -22,38 +34,83 @@ def get_folder_tree(
     )
 
 
+def _validate_list_files_params(*, limit: int, offset: int, sort: str, order: str) -> None:
+    if limit < 1 or limit > MAX_LIST_LIMIT:
+        raise BadRequestError(f"limit must be between 1 and {MAX_LIST_LIMIT}")
+    if offset < 0:
+        raise BadRequestError("offset must be >= 0")
+    if sort not in LIST_SORT_FIELDS:
+        raise BadRequestError(f"sort must be one of {sorted(LIST_SORT_FIELDS)}")
+    if order not in LIST_SORT_ORDERS:
+        raise BadRequestError("order must be 'asc' or 'desc'")
+
+
+def _list_files_order_by(sort: str, order: str):
+    order_asc = order == "asc"
+    primary = asc if order_asc else desc
+    tie = asc(File.id) if order_asc else desc(File.id)
+
+    if sort == "name":
+        return primary(File.name), tie
+    if sort == "updated_at":
+        return primary(File.updated_at), tie
+    if sort == "mimetype":
+        col = File.meta["mimetype"].as_string()
+        return nullslast(primary(col)), tie
+    if sort == "size":
+        col = cast(File.meta["size"].as_string(), BigInteger)
+        return nullslast(primary(col)), tie
+    raise BadRequestError(f"unsupported sort {sort!r}")
+
+
 def list_files(
     db: Session,
     current_user: User,
     *,
     folder_id: uuid.UUID | None = None,
     recursive: bool = False,
-) -> list[File]:
-    query = select(File).order_by(File.name)
+    limit: int = DEFAULT_LIST_LIMIT,
+    offset: int = 0,
+    sort: str = "name",
+    order: str = "asc",
+) -> FileListPage:
+    _validate_list_files_params(limit=limit, offset=offset, sort=sort, order=order)
 
     if folder_id is None:
         visible_ids = folder_access_service.visible_folder_ids(db, current_user)
         if not visible_ids:
-            return []
-        return list(db.scalars(query.where(File.folder_id.in_(visible_ids))).all())
+            return FileListPage(items=[], total=0)
+        filters = [File.folder_id.in_(visible_ids)]
+    else:
+        folder = db.get(Folder, folder_id)
+        if not folder:
+            raise ResourceNotFound("Folder not found")
+        folder_access_service.require_folder_permission(
+            db,
+            current_user,
+            folder_id,
+            Permission.READ,
+        )
 
-    folder = db.get(Folder, folder_id)
-    if not folder:
-        raise ResourceNotFound("Folder not found")
-    folder_access_service.require_folder_permission(
-        db,
-        current_user,
-        folder_id,
-        Permission.READ,
+        if recursive:
+            descendant_ids = collect_descendant_folder_ids(db, folder_id)
+            visible_ids = folder_access_service.visible_folder_ids(db, current_user)
+            scoped = [fid for fid in descendant_ids if fid in visible_ids]
+            if not scoped:
+                return FileListPage(items=[], total=0)
+            filters = [File.folder_id.in_(scoped)]
+        else:
+            filters = [File.folder_id == folder_id]
+
+    count_stmt = select(func.count()).select_from(File).where(*filters)
+    total = db.scalar(count_stmt) or 0
+
+    order_parts = _list_files_order_by(sort, order)
+    page_stmt = (
+        select(File).where(*filters).order_by(*order_parts).limit(limit).offset(offset)
     )
-
-    if recursive:
-        folder_ids = collect_descendant_folder_ids(db, folder_id)
-        visible_ids = folder_access_service.visible_folder_ids(db, current_user)
-        folder_ids = [folder_id for folder_id in folder_ids if folder_id in visible_ids]
-        return list(db.scalars(query.where(File.folder_id.in_(folder_ids))).all())
-
-    return list(db.scalars(query.where(File.folder_id == folder_id)).all())
+    items = list(db.scalars(page_stmt).all())
+    return FileListPage(items=items, total=total)
 
 
 def get_tree_root(db: Session, root_id: uuid.UUID | None) -> Folder:

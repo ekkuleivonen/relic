@@ -1,14 +1,9 @@
-import { Copy, FolderPlus, Pencil, Trash2 } from "lucide-react"
+import { Copy, FolderPlus, HardDrive, Pencil, Trash2 } from "lucide-react"
 
 import { useFolderActions } from "@/hooks/use-folder-actions"
-import {
-  ContextMenuItem,
-  ContextMenuSeparator,
-} from "@/components/ui/context-menu"
-import {
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu"
+import { useSession } from "@/hooks/use-session"
+import { ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
+import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { PERM, can } from "@/lib/permissions"
 import type { FolderTreeNode } from "@/types/filesystem"
 
@@ -26,9 +21,12 @@ export function FolderMenuItems({
   onAfterDelete,
 }: FolderMenuItemsProps) {
   const actions = useFolderActions()
+  const sessionQuery = useSession()
+  const isAdmin = sessionQuery.data?.user.role === 2
   const isRoot = folder.parent_id === null
   const canWrite = can(folder.effective_permissions, PERM.WRITE)
   const canDelete = can(folder.effective_permissions, PERM.DELETE)
+  const canEditStoragePolicy = isAdmin
 
   const Item = variant === "context" ? ContextMenuItem : DropdownMenuItem
   const Separator =
@@ -36,6 +34,20 @@ export function FolderMenuItems({
 
   return (
     <>
+      {canEditStoragePolicy ? (
+        <>
+          <Item
+            onSelect={(event) => {
+              event.preventDefault()
+              actions.openStoragePolicy(folder)
+            }}
+          >
+            <HardDrive />
+            <span>Edit storage policy…</span>
+          </Item>
+          <Separator />
+        </>
+      ) : null}
       <Item
         disabled={!canWrite}
         onSelect={(event) => {

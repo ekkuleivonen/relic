@@ -155,7 +155,8 @@ class Folder(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     cooldown_days: Mapped[int | None] = mapped_column(Integer)
-    min_tier: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # NULL = inherit from parent (root should still set an explicit tier in practice).
+    min_tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     parent: Mapped["Folder | None"] = relationship(
         remote_side=[id], back_populates="children"

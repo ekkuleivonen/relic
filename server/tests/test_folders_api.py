@@ -10,7 +10,7 @@ from api.app import app
 from database import get_db
 from file_meta import build_file_meta
 from models import Base, Blob, File, Folder, FolderAccess, PARSE_STATUS_COMPLETED, User
-from schema_plan import Permission, UserRole
+from schema_plan import BucketTier, Permission, UserRole
 from services.auth import create_session_token
 from tests.factories.models import (
     BlobFactory,
@@ -383,6 +383,104 @@ def test_move_conflicts_on_name_collision_at_destination(
     )
 
     assert response.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# STORAGE POLICY (admin PATCH min_tier / cooldown_days)
+# ---------------------------------------------------------------------------
+
+
+def test_non_admin_cannot_patch_storage_policy(
+    client, db_session, user, root_folder
+):
+    grant(db_session, user, root_folder, int(Permission.READ | Permission.WRITE))
+    photos = add_folder(db_session, root_folder, "photos")
+
+    response = client.patch(
+        f"/api/folders/{photos.id}",
+        json={"min_tier": 2},
+    )
+
+    assert response.status_code == 403
+
+
+def test_admin_can_patch_folder_storage_policy(admin_client, db_session, root_folder):
+    photos = add_folder(db_session, root_folder, "photos")
+
+    response = admin_client.patch(
+        f"/api/folders/{photos.id}",
+        json={"min_tier": 3, "cooldown_days": 30},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["min_tier"] == 3
+    assert body["cooldown_days"] == 30
+    assert body["effective_min_tier"] == 3
+    assert body["effective_cooldown_days"] == 30
+    db_session.refresh(photos)
+    assert photos.min_tier == 3
+    assert photos.cooldown_days == 30
+
+
+def test_admin_can_patch_root_storage_policy(admin_client, db_session, root_folder):
+    response = admin_client.patch(
+        f"/api/folders/{root_folder.id}",
+        json={"min_tier": 2, "cooldown_days": 14},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["min_tier"] == 2
+    assert body["cooldown_days"] == 14
+    assert body["effective_min_tier"] == 2
+    assert body["effective_cooldown_days"] == 14
+
+
+def test_admin_can_clear_cooldown_via_patch(admin_client, db_session, root_folder):
+    photos = add_folder(db_session, root_folder, "photos")
+    root_folder.cooldown_days = 30
+    photos.cooldown_days = 7
+    db_session.commit()
+
+    response = admin_client.patch(
+        f"/api/folders/{photos.id}",
+        json={"cooldown_days": None},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["cooldown_days"] is None
+    assert body["effective_cooldown_days"] == 30
+    db_session.refresh(photos)
+    assert photos.cooldown_days is None
+
+
+def test_admin_cannot_set_root_min_tier_to_inherit(admin_client, db_session, root_folder):
+    response = admin_client.patch(
+        f"/api/folders/{root_folder.id}",
+        json={"min_tier": None},
+    )
+    assert response.status_code == 400
+
+
+def test_admin_can_set_child_min_tier_to_inherit(
+    admin_client, db_session, root_folder
+):
+    root_folder.min_tier = int(BucketTier.WARM)
+    photos = add_folder(db_session, root_folder, "photos")
+    photos.min_tier = int(BucketTier.COLD)
+    db_session.commit()
+
+    response = admin_client.patch(
+        f"/api/folders/{photos.id}",
+        json={"min_tier": None},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["min_tier"] is None
+    assert body["effective_min_tier"] == int(BucketTier.WARM)
 
 
 # ---------------------------------------------------------------------------

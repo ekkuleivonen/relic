@@ -195,6 +195,46 @@ def test_put_object_uploads_new_blob_and_creates_file(
     assert file.meta["original_filename"] == "cat.jpg"
 
 
+def test_put_object_resolves_min_tier_for_inherited_folder(
+    db_session, root_folder, monkeypatch
+):
+    physical_cold = add_bucket(db_session, name="cold", tier=BucketTier.COLD)
+    mark_healthy(physical_cold)
+    bucket_folder = Folder(
+        name="archive",
+        parent_id=root_folder.id,
+        cooldown_days=None,
+        min_tier=int(BucketTier.COLD),
+    )
+    db_session.add(bucket_folder)
+    db_session.commit()
+
+    captured: list[BucketTier] = []
+
+    def fake_choose(db, tier, size_bytes):
+        captured.append(tier)
+        return physical_cold
+
+    monkeypatch.setattr("services.objects.choose_bucket", fake_choose)
+    monkeypatch.setattr("services.objects.upload_blob", lambda **kwargs: None)
+
+    user = UserFactory.build(email="user@relic.local", role=UserRole.ADMIN)
+    db_session.add(user)
+    db_session.commit()
+
+    body = b"z"
+    object_service.put_object(
+        db_session,
+        bucket_name="archive",
+        key="2026/a.jpg",
+        body=body,
+        ingest_meta={},
+        current_user=user,
+    )
+
+    assert captured == [BucketTier.COLD]
+
+
 def test_put_object_dedupes_existing_blob(db_session, bucket_folder, monkeypatch):
     physical_bucket = add_bucket(db_session, name="hot")
     mark_healthy(physical_bucket)

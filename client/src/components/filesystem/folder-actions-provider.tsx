@@ -9,6 +9,7 @@ import {
   DeleteFolderDialog,
   DuplicateFolderDialog,
   RenameFolderDialog,
+  StoragePolicyDialog,
 } from "@/components/filesystem/folder-dialogs"
 import type { FolderTreeNode } from "@/types/filesystem"
 
@@ -18,6 +19,7 @@ type DialogState =
   | { kind: "rename"; folder: FolderTreeNode }
   | { kind: "duplicate"; folder: FolderTreeNode }
   | { kind: "delete"; folder: FolderTreeNode; onDeleted?: () => void }
+  | { kind: "storage"; folder: FolderTreeNode }
 
 export function FolderActionsProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = React.useState<DialogState>({ kind: "none" })
@@ -29,6 +31,7 @@ export function FolderActionsProvider({ children }: { children: React.ReactNode 
       openDuplicate: (folder) => setState({ kind: "duplicate", folder }),
       openDelete: (folder, onDeleted) =>
         setState({ kind: "delete", folder, onDeleted }),
+      openStoragePolicy: (folder) => setState({ kind: "storage", folder }),
     }),
     []
   )
@@ -69,6 +72,13 @@ export function FolderActionsProvider({ children }: { children: React.ReactNode 
           onOpenChange={close}
           folder={state.folder}
           onDeleted={state.onDeleted}
+        />
+      )}
+      {state.kind === "storage" && (
+        <StoragePolicyDialog
+          open
+          onOpenChange={close}
+          folder={state.folder}
         />
       )}
     </FolderActionsContext.Provider>

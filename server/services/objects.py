@@ -16,6 +16,7 @@ from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import Blob, Bucket, File, Folder, PARSE_STATUS_PENDING, User
 from schema_plan import BucketTier, Permission
 from services import folder_access as folder_access_service
+from services.folder_storage_policy import effective_min_tier
 from services.placement import choose_bucket
 
 
@@ -89,7 +90,7 @@ def put_object(
     else:
         bucket = choose_bucket(
             db,
-            tier=BucketTier(folder.min_tier),
+            tier=BucketTier(effective_min_tier(db, folder)),
             size_bytes=object_size,
         )
         blob = create_blob(
@@ -180,12 +181,12 @@ def get_or_create_child_folder(
             Permission.WRITE,
         )
 
-    child = Folder(
-        parent_id=parent.id,
-        name=name,
-        cooldown_days=parent.cooldown_days,
-        min_tier=parent.min_tier,
-    )
+        child = Folder(
+            parent_id=parent.id,
+            name=name,
+            cooldown_days=None,
+            min_tier=None,
+        )
     db.add(child)
     db.flush()
     return child

@@ -11,10 +11,8 @@ import { Link, useNavigate, useParams } from "react-router"
 
 import { FileActionsProvider } from "@/components/filesystem/file-actions-provider"
 import { FolderActionsProvider } from "@/components/filesystem/folder-actions-provider"
-import {
-  FolderEntriesTable,
-  type SortState,
-} from "@/components/filesystem/folder-entries-table"
+import { FolderEntriesTable } from "@/components/filesystem/folder-entries-table"
+import { OffsetPaginationBar } from "@/components/pagination-offset"
 import { FolderHeaderActions } from "@/components/filesystem/folder-header-actions"
 import { FileTree } from "@/components/filesystem/file-tree"
 import { SidebarFooter } from "@/components/layout/sidebar-footer"
@@ -33,7 +31,11 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FolderDragStateProvider } from "@/components/filesystem/folder-drag-state-provider"
 import { useFolderDnd } from "@/hooks/use-folder-dnd"
-import { useFolderFiles, useFolderTree } from "@/hooks/use-filesystem"
+import {
+  FOLDER_FILES_PAGE_SIZE,
+  useFolderFiles,
+  useFolderTree,
+} from "@/hooks/use-filesystem"
 import { useNativeFileDrop } from "@/hooks/use-native-file-drop"
 import { extractApiError } from "@/lib/api"
 import { PERM, can } from "@/lib/permissions"
@@ -41,7 +43,9 @@ import { cn } from "@/lib/utils"
 import type {
   FileSystemEntry,
   FileSystemFile,
+  FolderContentsSortState,
   FolderTreeNode,
+  PaginatedFilesResponse,
 } from "@/types/filesystem"
 
 export function FilesystemPage() {
@@ -70,26 +74,52 @@ function FilesystemPageInner() {
         : findFolderByPath(folderTree.data, legacyPathSegments),
     [folderTree.data, legacyPathSegments, routeFolderId]
   )
-  const folderFiles = useFolderFiles(selectedFolder?.id)
+  const [fileOffset, setFileOffset] = React.useState(0)
+  const [sort, setSort] = React.useState<FolderContentsSortState>({
+    key: "name",
+    dir: "asc",
+  })
+
+  /* Pagination offset is driven by folder/sort and server totals; syncing via effects is intentional. */
+  /* eslint-disable react-hooks/set-state-in-effect -- see comment above */
+  React.useEffect(() => {
+    setFileOffset(0)
+  }, [selectedFolder?.id, sort.key, sort.dir])
+
+  const folderFiles = useFolderFiles(selectedFolder?.id, {
+    offset: fileOffset,
+    sort: sort.key,
+    dir: sort.dir,
+    limit: FOLDER_FILES_PAGE_SIZE,
+  })
+
+  React.useEffect(() => {
+    const page = folderFiles.data
+    if (!page || page.total === 0) return
+    if (page.offset >= page.total) {
+      const last = Math.max(
+        0,
+        Math.floor((page.total - 1) / page.limit) * page.limit
+      )
+      setFileOffset(last)
+    }
+  }, [folderFiles.data])
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   const expandedFolderIds = React.useMemo(
     () => getExpandedFolderIds(folderTree.data, selectedFolder?.id),
     [folderTree.data, selectedFolder?.id]
   )
-  const entries = React.useMemo(
-    () =>
-      selectedFolder
-        ? buildFolderEntries(selectedFolder, folderFiles.data ?? [])
-        : [],
-    [folderFiles.data, selectedFolder]
-  )
+  const entries = React.useMemo(() => {
+    const items = folderFiles.data?.items ?? []
+    return selectedFolder ? buildFolderEntries(selectedFolder, items) : []
+  }, [folderFiles.data, selectedFolder])
+  const folderChildCount = selectedFolder?.children.length ?? 0
+  const filesTotal = folderFiles.data?.total ?? 0
   const mainNativeDrop = useNativeFileDrop({
     folderId: selectedFolder?.id ?? "",
     disabled:
       !selectedFolder || !can(selectedFolder.effective_permissions, PERM.WRITE),
-  })
-  const [sort, setSort] = React.useState<SortState>({
-    key: "name",
-    dir: "asc",
   })
 
   React.useEffect(() => {
@@ -117,39 +147,43 @@ function FilesystemPageInner() {
       onDragEnd={dnd.onDragEnd}
     >
       <FolderDragStateProvider state={dnd.dragState}>
-        <div className="min-h-svh bg-background text-foreground">
-          <div className="grid min-h-svh lg:grid-cols-[20rem_1fr]">
-            <aside className="flex flex-col border-b bg-sidebar p-4 lg:border-r lg:border-b-0">
-              <SidebarHeader />
-              <div className="flex-1">
-                {folderTree.isLoading ? (
-                  <TreeSkeleton />
-                ) : folderTree.isError ? (
-                  <ErrorState
-                    title="Could not load folders"
-                    message={extractApiError(folderTree.error)}
-                    onRetry={() => void folderTree.refetch()}
-                  />
-                ) : folderTree.data ? (
-                  <FileTree
-                    key={selectedFolder?.id}
-                    root={folderTree.data}
-                    selectedFolderId={selectedFolder?.id}
-                    expandedFolderIds={expandedFolderIds}
-                  />
-                ) : null}
-              </div>
-              <SidebarFooter />
-            </aside>
+        <div
+          className={cn(
+            "flex min-h-svh flex-col bg-background text-foreground",
+            "lg:grid lg:h-dvh lg:max-h-dvh lg:grid-cols-[20rem_1fr] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden"
+          )}
+        >
+          <aside className="flex min-h-0 flex-col border-b bg-sidebar p-4 lg:min-h-0 lg:border-r lg:border-b-0">
+            <SidebarHeader />
+            <div className="min-h-0 overflow-y-auto lg:flex-1">
+              {folderTree.isLoading ? (
+                <TreeSkeleton />
+              ) : folderTree.isError ? (
+                <ErrorState
+                  title="Could not load folders"
+                  message={extractApiError(folderTree.error)}
+                  onRetry={() => void folderTree.refetch()}
+                />
+              ) : folderTree.data ? (
+                <FileTree
+                  key={selectedFolder?.id}
+                  root={folderTree.data}
+                  selectedFolderId={selectedFolder?.id}
+                  expandedFolderIds={expandedFolderIds}
+                />
+              ) : null}
+            </div>
+            <SidebarFooter />
+          </aside>
 
-            <main
-              {...mainNativeDrop.handlers}
-              className={cn(
-                "min-w-0 p-4 lg:p-8 transition-colors",
-                mainNativeDrop.isOver &&
-                  "ring-2 ring-inset ring-primary/40 bg-primary/5"
-              )}
-            >
+          <main
+            {...mainNativeDrop.handlers}
+            className={cn(
+              "min-h-0 min-w-0 overflow-y-auto p-4 lg:p-8 transition-colors",
+              mainNativeDrop.isOver &&
+                "ring-2 ring-inset ring-primary/40 bg-primary/5"
+            )}
+          >
               <div className="mx-auto max-w-6xl space-y-6">
                 <div className="space-y-3">
                   <FilesystemBreadcrumbs
@@ -180,14 +214,26 @@ function FilesystemPageInner() {
                     <CardTitle>Folder Contents</CardTitle>
                     {selectedFolder && (
                       <div className="text-xs text-muted-foreground">
-                        {entries.length}{" "}
-                        {entries.length === 1 ? "item" : "items"}
+                        {folderFiles.isLoading ? (
+                          <Skeleton className="h-4 w-36" />
+                        ) : folderFiles.isError ? null : (
+                          <>
+                            {folderChildCount.toLocaleString()}{" "}
+                            {folderChildCount === 1 ? "folder" : "folders"}
+                            {" · "}
+                            {filesTotal.toLocaleString()}{" "}
+                            {filesTotal === 1 ? "file" : "files"}
+                          </>
+                        )}
                       </div>
                     )}
                   </CardHeader>
                   <CardContent>
                     {renderContentState({
                       entries,
+                      folderChildCount,
+                      filesTotal,
+                      filesPage: folderFiles.data,
                       folderFilesError: folderFiles.error,
                       isFilesError: folderFiles.isError,
                       isFilesLoading: folderFiles.isLoading,
@@ -196,14 +242,14 @@ function FilesystemPageInner() {
                         folderTree.data !== undefined &&
                         !selectedFolder,
                       onRetryFiles: () => void folderFiles.refetch(),
+                      onFilesOffsetChange: setFileOffset,
                       sort,
                       onSortChange: setSort,
                     })}
                   </CardContent>
                 </Card>
               </div>
-            </main>
-          </div>
+          </main>
         </div>
         <DragOverlay dropAnimation={null}>
           {dnd.activeFolder ? (
@@ -220,22 +266,30 @@ function FilesystemPageInner() {
 
 type ContentStateProps = {
   entries: FileSystemEntry[]
+  folderChildCount: number
+  filesTotal: number
+  filesPage: PaginatedFilesResponse | undefined
   folderFilesError: unknown
   isFilesError: boolean
   isFilesLoading: boolean
   isFolderMissing: boolean
   onRetryFiles: () => void
-  sort: SortState
-  onSortChange: (next: SortState) => void
+  onFilesOffsetChange: (offset: number) => void
+  sort: FolderContentsSortState
+  onSortChange: (next: FolderContentsSortState) => void
 }
 
 function renderContentState({
   entries,
+  folderChildCount,
+  filesTotal,
+  filesPage,
   folderFilesError,
   isFilesError,
   isFilesLoading,
   isFolderMissing,
   onRetryFiles,
+  onFilesOffsetChange,
   sort,
   onSortChange,
 }: ContentStateProps) {
@@ -263,7 +317,7 @@ function renderContentState({
     )
   }
 
-  if (entries.length === 0) {
+  if (folderChildCount === 0 && filesTotal === 0) {
     return (
       <EmptyState
         icon={Database}
@@ -274,11 +328,21 @@ function renderContentState({
   }
 
   return (
-    <FolderEntriesTable
-      entries={entries}
-      sort={sort}
-      onSortChange={onSortChange}
-    />
+    <>
+      <FolderEntriesTable
+        entries={entries}
+        sort={sort}
+        onSortChange={onSortChange}
+      />
+      {filesPage && filesPage.total > filesPage.limit ? (
+        <OffsetPaginationBar
+          total={filesPage.total}
+          limit={filesPage.limit}
+          offset={filesPage.offset}
+          onChange={onFilesOffsetChange}
+        />
+      ) : null}
+    </>
   )
 }
 

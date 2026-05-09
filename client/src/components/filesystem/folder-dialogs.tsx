@@ -1,5 +1,7 @@
 import * as React from "react"
 
+import { toast } from "sonner"
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,11 +24,19 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   useCreateFolder,
   useDeleteFolder,
   useDuplicateFolder,
   useUpdateFolder,
 } from "@/hooks/use-folders"
+import { bucketTiers } from "@/types/buckets"
 import type { FolderTreeNode } from "@/types/filesystem"
 
 type WithOpenChange = {
@@ -153,6 +163,168 @@ export function RenameFolderDialog({ open, onOpenChange, folder }: RenameProps) 
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+type StoragePolicyProps = WithOpenChange & {
+  folder: FolderTreeNode
+}
+
+function StoragePolicyForm({
+  folder,
+  onDone,
+}: {
+  folder: FolderTreeNode
+  onDone: () => void
+}) {
+  const update = useUpdateFolder()
+  const isRoot = folder.parent_id === null
+
+  const [minTierChoice, setMinTierChoice] = React.useState(() => {
+    if (isRoot) {
+      return String(
+        folder.min_tier ?? folder.effective_min_tier ?? 1
+      )
+    }
+    return folder.min_tier != null ? String(folder.min_tier) : "inherit"
+  })
+  const [cooldownInput, setCooldownInput] = React.useState(() =>
+    folder.cooldown_days != null ? String(folder.cooldown_days) : ""
+  )
+
+  const effectiveTierLabel =
+    bucketTiers.find((t) => t.value === folder.effective_min_tier)?.label ??
+    "Hot"
+  const effectiveCooldown =
+    folder.effective_cooldown_days != null
+      ? `${folder.effective_cooldown_days} day${folder.effective_cooldown_days === 1 ? "" : "s"}`
+      : "none"
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    const trimmed = cooldownInput.trim()
+    let cooldown: number | null
+    if (trimmed === "") {
+      cooldown = null
+    } else {
+      const parsed = Number.parseInt(trimmed, 10)
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        return
+      }
+      cooldown = parsed
+    }
+
+    let minTierPayload: number | null
+    if (isRoot) {
+      const parsed = Number.parseInt(minTierChoice, 10)
+      if (!Number.isFinite(parsed) || parsed < 1 || parsed > 4) {
+        return
+      }
+      minTierPayload = parsed
+    } else {
+      minTierPayload =
+        minTierChoice === "inherit" ? null : Number.parseInt(minTierChoice, 10)
+    }
+
+    try {
+      await update.mutateAsync({
+        id: folder.id,
+        min_tier: minTierPayload,
+        cooldown_days: cooldown,
+      })
+      toast.success("Storage policy updated")
+      onDone()
+    } catch {
+      // hook toasts the error
+    }
+  }
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Folder storage policy</DialogTitle>
+        <DialogDescription>
+          Minimum tier and optional cooldown for <code>{folder.path || "/"}</code>.
+          Non-root folders can inherit from parents; overrides apply to this folder
+          and descendants until changed again.
+        </DialogDescription>
+      </DialogHeader>
+      <form className="flex flex-col gap-3" onSubmit={submit}>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="storage-min-tier">Minimum tier</Label>
+          <Select
+            value={minTierChoice}
+            onValueChange={setMinTierChoice}
+            disabled={update.isPending}
+          >
+            <SelectTrigger id="storage-min-tier" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {!isRoot ? (
+                <SelectItem value="inherit">
+                  Inherit ({effectiveTierLabel})
+                </SelectItem>
+              ) : null}
+              {bucketTiers.map((tier) => (
+                <SelectItem key={tier.value} value={String(tier.value)}>
+                  {tier.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="storage-cooldown">Cooldown (days)</Label>
+          <Input
+            id="storage-cooldown"
+            type="text"
+            inputMode="numeric"
+            placeholder="Leave empty to inherit"
+            value={cooldownInput}
+            onChange={(event) => setCooldownInput(event.target.value)}
+            disabled={update.isPending}
+          />
+          <p className="text-muted-foreground text-xs">
+            Effective cooldown today: {effectiveCooldown}. Empty field inherits
+            from a parent when set; otherwise none.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onDone}
+            disabled={update.isPending}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={update.isPending}>
+            Save
+          </Button>
+        </DialogFooter>
+      </form>
+    </>
+  )
+}
+
+export function StoragePolicyDialog({
+  open,
+  onOpenChange,
+  folder,
+}: StoragePolicyProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        {open ? (
+          <StoragePolicyForm
+            key={`${folder.id}-${folder.min_tier ?? "i"}-${folder.cooldown_days ?? ""}-${folder.effective_min_tier ?? ""}-${folder.effective_cooldown_days ?? ""}`}
+            folder={folder}
+            onDone={() => onOpenChange(false)}
+          />
+        ) : null}
       </DialogContent>
     </Dialog>
   )

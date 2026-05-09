@@ -6,9 +6,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
+from managers.exceptions import BadRequestError, ConflictError, PermissionDenied, ResourceNotFound
 from models import Blob, File, Folder, User
-from schema_plan import Permission
+from schema_plan import Permission, UserRole
 from services import folder_access as folder_access_service
 from utils.logging import get_logger
 
@@ -40,8 +40,8 @@ def create_folder(
     folder = Folder(
         parent_id=parent.id,
         name=name,
-        cooldown_days=parent.cooldown_days,
-        min_tier=parent.min_tier,
+        cooldown_days=None,
+        min_tier=None,
     )
     db.add(folder)
     try:
@@ -68,8 +68,12 @@ def update_folder(
     folder_id: uuid.UUID,
     name: str | None = None,
     parent_id: uuid.UUID | None = None,
+    min_tier: int | None = None,
+    cooldown_days: int | None = None,
+    set_min_tier: bool = False,
+    set_cooldown_days: bool = False,
 ) -> FolderResult:
-    """Single endpoint for rename and move (either, both, or neither)."""
+    """Rename, move, and/or change storage policy (policy fields are admin-only)."""
     folder = folder_access_service.require_folder(db, folder_id)
     if folder.parent_id is None:
         if name is not None or parent_id is not None:
@@ -79,9 +83,18 @@ def update_folder(
         db, user, folder.id, Permission.WRITE
     )
 
+    if set_min_tier or set_cooldown_days:
+        if user.role != UserRole.ADMIN:
+            raise PermissionDenied(
+                "Only administrators can change folder storage policy."
+            )
+
+    changed = False
+
     if name is not None:
         name = _validate_name(name)
         folder.name = name
+        changed = True
 
     if parent_id is not None:
         if parent_id == folder.id:
@@ -96,8 +109,21 @@ def update_folder(
             db, user, new_parent.id, Permission.WRITE
         )
         folder.parent_id = new_parent.id
+        changed = True
 
-    if name is None and parent_id is None:
+    if set_min_tier:
+        if folder.parent_id is None and min_tier is None:
+            raise BadRequestError(
+                "The root folder must set an explicit minimum storage tier."
+            )
+        folder.min_tier = min_tier
+        changed = True
+
+    if set_cooldown_days:
+        folder.cooldown_days = cooldown_days
+        changed = True
+
+    if not changed:
         return _build_result(db, user, folder)
 
     try:
@@ -110,8 +136,10 @@ def update_folder(
     log.info(
         "folder_update",
         folder_id=str(folder.id),
-        new_name=name,
-        new_parent_id=str(parent_id) if parent_id is not None else None,
+        name=name if name is not None else None,
+        parent_id=str(parent_id) if parent_id is not None else None,
+        min_tier=min_tier if set_min_tier else None,
+        cooldown_days=cooldown_days if set_cooldown_days else None,
         user_id=str(user.id),
     )
     return _build_result(db, user, folder)

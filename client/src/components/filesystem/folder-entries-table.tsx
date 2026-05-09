@@ -28,16 +28,21 @@ import { useFolderDragState } from "@/hooks/use-folder-drag-state"
 import { formatBytes, formatRelativeTime } from "@/lib/format"
 import { PERM, can } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
-import type { FileSystemEntry } from "@/types/filesystem"
+import type {
+  FileSystemEntry,
+  FolderContentsSortDir,
+  FolderContentsSortKey,
+  FolderContentsSortState,
+} from "@/types/filesystem"
 
-export type SortKey = "name" | "type" | "size" | "updated"
-export type SortDir = "asc" | "desc"
-export type SortState = { key: SortKey; dir: SortDir }
+export type SortKey = FolderContentsSortKey
+export type SortDir = FolderContentsSortDir
+export type SortState = FolderContentsSortState
 
 type FolderEntriesTableProps = {
   entries: FileSystemEntry[]
-  sort: SortState
-  onSortChange: (next: SortState) => void
+  sort: FolderContentsSortState
+  onSortChange: (next: FolderContentsSortState) => void
 }
 
 export function FolderEntriesTable({
@@ -46,7 +51,7 @@ export function FolderEntriesTable({
   onSortChange,
 }: FolderEntriesTableProps) {
   const sorted = React.useMemo(
-    () => sortEntries(entries, sort),
+    () => orderFolderTableEntries(entries, sort),
     [entries, sort]
   )
 
@@ -419,50 +424,17 @@ function RowIcon({ kind }: { kind: "folder" | "blob" }) {
   )
 }
 
-function compareNumbers(a: number | undefined, b: number | undefined): number {
-  if (a === undefined && b === undefined) return 0
-  if (a === undefined) return -1
-  if (b === undefined) return 1
-  return a - b
-}
-
-function sortEntries(
+/** Subfolders are sorted locally; file blobs keep API order (server-side sort + pagination). */
+function orderFolderTableEntries(
   entries: FileSystemEntry[],
-  sort: SortState
+  sort: FolderContentsSortState
 ): FileSystemEntry[] {
   const dirMul = sort.dir === "asc" ? 1 : -1
-  // Folders always grouped above files for "name" sort to feel filesystem-y.
-  const grouped = sort.key === "name"
   const folders = entries.filter((entry) => entry.kind === "folder")
   const files = entries.filter((entry) => entry.kind === "blob")
-
-  const sortBy = (a: FileSystemEntry, b: FileSystemEntry): number => {
-    switch (sort.key) {
-      case "name":
-        return a.name.localeCompare(b.name) * dirMul
-      case "type": {
-        const aType =
-          a.kind === "folder" ? "folder" : a.mime_type || "application/octet-stream"
-        const bType =
-          b.kind === "folder" ? "folder" : b.mime_type || "application/octet-stream"
-        return aType.localeCompare(bType) * dirMul
-      }
-      case "size": {
-        const aSize = a.kind === "folder" ? -1 : a.size
-        const bSize = b.kind === "folder" ? -1 : b.size
-        return compareNumbers(aSize, bSize) * dirMul
-      }
-      case "updated": {
-        const aUpdated = a.updated_at ? Date.parse(a.updated_at) : undefined
-        const bUpdated = b.updated_at ? Date.parse(b.updated_at) : undefined
-        return compareNumbers(aUpdated, bUpdated) * dirMul
-      }
-    }
-  }
-
-  if (grouped) {
-    return [...folders.sort(sortBy), ...files.sort(sortBy)]
-  }
-  return [...entries].sort(sortBy)
+  const folderSorted = [...folders].sort(
+    (a, b) => a.name.localeCompare(b.name) * dirMul
+  )
+  return [...folderSorted, ...files]
 }
 
