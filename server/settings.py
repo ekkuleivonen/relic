@@ -98,6 +98,18 @@ UPLOAD_SPOOL_MAX_MEMORY_BYTES: int = env.int(
 # Parser Queue (arq)
 # =============================================================================
 
+# Max bytes fetched from object storage per image when building parser_meta (S3 Range GET).
+IMAGE_PARSE_MAX_BYTES: int = env.int(
+    "IMAGE_PARSE_MAX_BYTES",
+    default=128 * 1024 * 1024,
+)
+
+# Max bytes fetched per tabular file (CSV / future Parquet) for parser_meta.
+TABULAR_PARSE_MAX_BYTES: int = env.int(
+    "TABULAR_PARSE_MAX_BYTES",
+    default=128 * 1024 * 1024,
+)
+
 REDIS_HOST: str = env.str("REDIS_HOST", default="localhost")
 REDIS_PORT: int = env.int("REDIS_PORT", default=6379)
 REDIS_PASSWORD: str = env.str("REDIS_PASSWORD", default="replace_me")

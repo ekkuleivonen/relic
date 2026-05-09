@@ -1,7 +1,6 @@
 import * as React from "react"
 import {
   Download,
-  File as FileIcon,
   FileQuestion,
   Home,
   MoreHorizontal,
@@ -25,16 +24,18 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useFile, useDownloadFile } from "@/hooks/use-files"
+import { useFile, useDownloadFile, useRenameFile } from "@/hooks/use-files"
 import { useFolderTree } from "@/hooks/use-filesystem"
 import { extractApiError } from "@/lib/api"
 import { formatBytes } from "@/lib/format"
+import { PERM, can } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import type { FileSystemFile, FolderTreeNode } from "@/types/filesystem"
 
@@ -132,39 +133,107 @@ function FileDetailContent({
   root: FolderTreeNode | undefined
 }) {
   const download = useDownloadFile()
+  const rename = useRenameFile()
+  const canRename = Boolean(
+    folder && can(folder.effective_permissions, PERM.WRITE)
+  )
+  const [titleEditing, setTitleEditing] = React.useState(false)
+  const [titleDraft, setTitleDraft] = React.useState(file.name)
+  const renameCommitRef = React.useRef(false)
   const parserFileMeta = file.parser_meta.file ?? {}
   const parserSections = Object.entries(file.parser_meta).filter(
     ([key]) => key !== "file"
   )
   const ingestMeta = Object.entries(file.ingest_meta)
 
+  function beginTitleRename() {
+    setTitleDraft(file.name)
+    setTitleEditing(true)
+  }
+
+  async function commitTitleRename() {
+    if (renameCommitRef.current) return
+    const trimmed = titleDraft.trim()
+    if (!trimmed) {
+      setTitleDraft(file.name)
+      setTitleEditing(false)
+      return
+    }
+    if (trimmed === file.name) {
+      setTitleEditing(false)
+      return
+    }
+    renameCommitRef.current = true
+    try {
+      await rename.mutateAsync({ file_id: file.id, name: trimmed })
+      setTitleEditing(false)
+    } catch {
+      setTitleDraft(file.name)
+    } finally {
+      renameCommitRef.current = false
+    }
+  }
+
+  function cancelTitleRename() {
+    setTitleDraft(file.name)
+    setTitleEditing(false)
+  }
+
   return (
     <>
       <FileBreadcrumbs root={root} folder={folder} file={file} />
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <FileIcon className="size-4" />
-            <span>File</span>
-          </div>
-          <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight">
-            {file.name}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {folder ? (
-              <>
-                In{" "}
-                <Link
-                  to={buildFolderRoute(folder)}
-                  className="font-medium text-foreground hover:underline"
-                >
-                  {folder.path}
-                </Link>
-              </>
+        <div className="min-w-0 flex-1">
+          <h1 className="min-w-0 w-full">
+            {titleEditing ? (
+              <Input
+                value={titleDraft}
+                onChange={(event) => setTitleDraft(event.target.value)}
+                onBlur={() => void commitTitleRename()}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault()
+                    cancelTitleRename()
+                  } else if (event.key === "Enter") {
+                    event.preventDefault()
+                    void commitTitleRename()
+                  }
+                }}
+                disabled={rename.isPending}
+                className="box-border block h-auto min-h-10 w-full min-w-0 border-0 border-b border-transparent bg-transparent px-0 py-1 text-2xl font-semibold leading-tight tracking-tight shadow-none rounded-none md:text-2xl md:leading-tight focus-visible:border-b focus-visible:border-foreground/40 focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-transparent"
+                autoFocus
+                onFocus={(event) => event.target.select()}
+                aria-label="File name"
+              />
+            ) : canRename ? (
+              <button
+                type="button"
+                className="truncate max-w-full text-2xl font-semibold tracking-tight text-left hover:underline decoration-transparent hover:decoration-foreground/40 underline-offset-4"
+                title="Double-click to rename"
+                onClick={(event) => {
+                  if (event.detail >= 2) {
+                    event.preventDefault()
+                    beginTitleRename()
+                  }
+                }}
+                onDoubleClick={(event) => {
+                  event.preventDefault()
+                  beginTitleRename()
+                }}
+              >
+                {file.name}
+              </button>
             ) : (
-              "Folder unavailable"
+              <span className="truncate text-2xl font-semibold tracking-tight">
+                {file.name}
+              </span>
             )}
-          </p>
+          </h1>
+          {!folder ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              Folder unavailable
+            </p>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <Button

@@ -14,6 +14,7 @@ from models import (
     PARSE_STATUS_FAILED,
     PARSE_STATUS_IN_PROGRESS,
 )
+import settings
 from services import objects as object_service
 from utils.logging import get_logger
 
@@ -33,7 +34,14 @@ def parse_file(db: Session, file_id: uuid.UUID) -> File:
         prefix = read_blob_prefix(bucket=bucket, bucket_key=blob.bucket_key)
         parser_meta = build_base_parser_meta(file=file, blob=blob, prefix=prefix)
 
-        maybe_run_toolchain(file_id=file_id, mime_type=parser_meta["file"]["mime_type"], prefix=prefix)
+        maybe_run_toolchain(
+            parser_meta=parser_meta,
+            file_id=file_id,
+            mime_type=parser_meta["file"]["mime_type"],
+            bucket=bucket,
+            blob=blob,
+            prefix=prefix,
+        )
 
         validate_parser_meta(file=file, parser_meta=parser_meta)
         file.parser_meta = parser_meta
@@ -94,16 +102,59 @@ def detect_signature_mime_type(prefix: bytes) -> str | None:
     return None
 
 
-def maybe_run_toolchain(*, file_id: uuid.UUID, mime_type: str, prefix: bytes) -> None:
+def maybe_run_toolchain(
+    *,
+    parser_meta: dict,
+    file_id: uuid.UUID,
+    mime_type: str,
+    bucket: Bucket,
+    blob: Blob,
+    prefix: bytes,
+) -> None:
     try:
         if mime_type.startswith("image/"):
             from parsers.toolchains.image import parse_image
 
-            parse_image(prefix=prefix)
-        if mime_type in {"text/csv", "application/vnd.apache.parquet"}:
-            from parsers.toolchains.tabular import parse_tabular
+            cap = settings.IMAGE_PARSE_MAX_BYTES
+            content = read_blob_bytes_capped(
+                bucket=bucket,
+                bucket_key=blob.bucket_key,
+                size_bytes=blob.size_bytes,
+                max_bytes=cap,
+            )
+            if len(content) < blob.size_bytes:
+                log.info(
+                    "image_parse_truncated",
+                    file_id=str(file_id),
+                    read_bytes=len(content),
+                    blob_size=blob.size_bytes,
+                    max_bytes=cap,
+                )
+            parser_meta["image"] = parse_image(content=content)
+        elif mime_type == "text/csv":
+            from parsers.toolchains.tabular import parse_csv
 
-            parse_tabular(prefix=prefix)
+            cap = settings.TABULAR_PARSE_MAX_BYTES
+            content = read_blob_bytes_capped(
+                bucket=bucket,
+                bucket_key=blob.bucket_key,
+                size_bytes=blob.size_bytes,
+                max_bytes=cap,
+            )
+            if len(content) < blob.size_bytes:
+                log.info(
+                    "tabular_parse_truncated",
+                    file_id=str(file_id),
+                    read_bytes=len(content),
+                    blob_size=blob.size_bytes,
+                    max_bytes=cap,
+                    mime_type=mime_type,
+                )
+            parser_meta["csv"] = parse_csv(content=content)
+        elif mime_type == "application/vnd.apache.parquet":
+            from parsers.toolchains.tabular import parse_parquet
+
+            parse_parquet(prefix=prefix)
     except NotImplementedError as exc:
         log.warning(
             "parser_toolchain_not_implemented",
@@ -122,6 +173,24 @@ def read_blob_prefix(*, bucket: Bucket, bucket_key: str) -> bytes:
         range_header=f"bytes=0-{PREFIX_BYTES - 1}",
     )
     return response["Body"].read(PREFIX_BYTES)
+
+
+def read_blob_bytes_capped(
+    *,
+    bucket: Bucket,
+    bucket_key: str,
+    size_bytes: int,
+    max_bytes: int,
+) -> bytes:
+    if max_bytes <= 0 or size_bytes <= 0:
+        return b""
+    n = min(size_bytes, max_bytes)
+    response = object_service.fetch_blob_bytes(
+        bucket=bucket,
+        bucket_key=bucket_key,
+        range_header=f"bytes=0-{n - 1}",
+    )
+    return response["Body"].read(n)
 
 
 def require_file(db: Session, file_id: uuid.UUID) -> File:
