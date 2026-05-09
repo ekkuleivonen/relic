@@ -5,6 +5,7 @@ the control plane (not the gateway) because they're atomic database
 transactions that don't move bytes — see `api-split.md`.
 """
 
+import os
 import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,6 +15,23 @@ from models import File, PARSE_STATUS_PENDING, User
 from schema_plan import Permission
 from services import folder_access as folder_access_service
 from services import objects as object_service
+
+
+def _with_preserved_extension(original_filename: str, new_filename: str) -> str:
+    """If *new_filename* has no extension, append *original_filename*'s extension."""
+    _, old_ext = os.path.splitext(original_filename)
+    _, new_ext = os.path.splitext(new_filename)
+    if new_ext or not old_ext:
+        return new_filename
+    return f"{new_filename}{old_ext}"
+
+
+def _normalize_requested_file_name(*, current_name: str, requested_name: str) -> str:
+    name = requested_name.strip()
+    validate_filename(name)
+    name = _with_preserved_extension(current_name, name)
+    validate_filename(name)
+    return name
 
 
 def move_file(
@@ -32,8 +50,13 @@ def move_file(
         db, current_user, destination.id, Permission.WRITE
     )
 
-    new_name = name if name is not None else file.name
-    validate_filename(new_name)
+    if name is not None:
+        new_name = _normalize_requested_file_name(
+            current_name=file.name, requested_name=name
+        )
+    else:
+        new_name = file.name
+        validate_filename(new_name)
 
     if file.folder_id == destination.id and file.name == new_name:
         return file
@@ -59,7 +82,9 @@ def rename_file(
     file = object_service.get_file_for_user(
         db, file_id, current_user, Permission.WRITE
     )
-    validate_filename(name)
+    name = _normalize_requested_file_name(
+        current_name=file.name, requested_name=name
+    )
 
     if file.name == name:
         return file

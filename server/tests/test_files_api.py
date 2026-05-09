@@ -273,6 +273,48 @@ def test_rename_file_in_place(
     assert file.meta["original_filename"] == "cat.jpg"
 
 
+def test_rename_restores_extension_when_omitted(
+    client, db_session, user, photos_folder, physical_bucket
+):
+    grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
+    blob = make_blob(db_session, bucket=physical_bucket, content_hash=(17).to_bytes(32, "big"))
+    file = make_file(db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg")
+
+    response = client.patch(
+        f"/api/files/{file.id}",
+        json={"name": "feline"},
+    )
+    assert response.status_code == 200, response.text
+    db_session.refresh(file)
+    assert file.name == "feline.jpg"
+
+
+def test_move_with_new_name_restores_extension_when_omitted(
+    client, db_session, user, photos_folder, archives_folder, physical_bucket
+):
+    grant(
+        db_session,
+        user,
+        photos_folder,
+        int(Permission.READ | Permission.WRITE | Permission.DELETE),
+    )
+    grant(db_session, user, archives_folder, int(Permission.READ | Permission.WRITE))
+    blob = make_blob(db_session, bucket=physical_bucket, content_hash=(18).to_bytes(32, "big"))
+    file = make_file(db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg")
+
+    response = client.post(
+        f"/api/files/{file.id}/move",
+        json={
+            "destination_folder_id": str(archives_folder.id),
+            "name": "feline",
+        },
+    )
+    assert response.status_code == 200, response.text
+    db_session.refresh(file)
+    assert file.name == "feline.jpg"
+    assert file.folder_id == archives_folder.id
+
+
 def test_rename_conflicts_with_existing_name(
     client, db_session, user, photos_folder, physical_bucket
 ):
