@@ -413,8 +413,7 @@ def test_presigned_copy_replace_directive_overrides_meta(
     archived = db_session.scalar(
         select(File).where(File.folder_id == archives_folder.id)
     )
-    assert archived.ingest_meta["album"] == "winter"
-    assert archived.parser_meta == {}
+    assert archived.meta["kvs"]["album"] == "winter"
 
 
 # ---------------------------------------------------------------------------
@@ -440,7 +439,7 @@ def test_presigned_download_streams_bytes(
     assert response.content == b"cat photo"
     digest = hashlib.sha256(b"cat photo").hexdigest()
     assert response.headers["etag"] == f'"{digest}"'
-    assert response.headers["content-type"] == "application/octet-stream"
+    assert response.headers["content-type"] == "image/jpeg"
 
 
 def test_presigned_download_passes_range_header(

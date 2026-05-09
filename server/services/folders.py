@@ -230,8 +230,7 @@ def duplicate_folder(
                     uploaded_by=file.uploaded_by,
                     name=file.name,
                     parse_status=file.parse_status,
-                    ingest_meta=dict(file.ingest_meta),
-                    parser_meta=dict(file.parser_meta),
+                    meta=dict(file.meta),
                 )
             )
             blob_increments[file.blob_id] += 1

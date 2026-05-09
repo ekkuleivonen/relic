@@ -20,20 +20,24 @@ export type FileSystemFile = {
   folder_id: string
   blob_id: string
   uploaded_by: string
+  uploaded_by_name: string | null
   name: string
   parse_status: number
-  ingest_meta: Record<string, unknown>
-  parser_meta: {
-    file?: {
-      original_filename?: string
-      size?: number
-      mime_type?: string
-      extension?: string
-    }
-    [key: string]: unknown
-  }
+  meta: FileMeta
   created_at: string
   updated_at: string
+}
+
+export type FileMeta = {
+  schema_version: string
+  size: number
+  extension: string
+  mimetype: string
+  original_filename: string
+  tags: string[]
+  keywords: string[]
+  summary: string | null
+  kvs: Record<string, string | number | boolean | null>
 }
 
 export type FileSystemEntry =

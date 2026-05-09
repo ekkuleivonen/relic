@@ -198,9 +198,12 @@ class File(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     parse_status: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    ingest_meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
-    parser_meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
 
     folder: Mapped[Folder] = relationship(back_populates="files")
     blob: Mapped[Blob] = relationship(back_populates="files")
     uploader: Mapped[User] = relationship()
+
+    @property
+    def uploaded_by_name(self) -> str | None:
+        return self.uploader.name if self.uploader else None

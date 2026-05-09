@@ -1,13 +1,12 @@
-"""Image parser. Writes richer fields to parser_meta under the ``image`` key.
+"""Image parser. Writes compact discovery metadata under the ``image`` key.
 
-No configuration. Always extracts the same set of fields, with fallbacks
-to capture data from quirky/non-standard image variants where possible.
+No configuration. Extracts deterministic image facts and reduces them to the
+common parser discovery shape: tags, keywords, summary, and compact key-values.
 """
 
 from __future__ import annotations
 
 import io
-import math
 import re
 from datetime import datetime
 from typing import Any
@@ -15,6 +14,7 @@ from typing import Any
 import numpy as np
 from PIL import ExifTags, Image, UnidentifiedImageError
 
+from file_meta import build_file_meta, build_parser_meta
 from utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -28,11 +28,9 @@ except Exception as exc:
 
 # Reverse map: tag name -> tag id, for both standard and EXIF IFD tags.
 _TAG_NAME_TO_ID = {v: k for k, v in ExifTags.TAGS.items()}
-_GPS_TAG_NAME_TO_ID = {v: k for k, v in ExifTags.GPSTAGS.items()}
 
 # Pillow IFD identifiers (these are stable EXIF spec values, not Pillow constants).
 _EXIF_IFD = 0x8769
-_GPS_IFD = 0x8825
 
 # Sample for stat computation; we only need is_grayscale at this point so
 # downscaling aggressively is fine.
@@ -40,55 +38,45 @@ _GRAYSCALE_SAMPLE_PIXELS = 100 * 100
 _GRAYSCALE_RGB_DIFF_THRESHOLD = 5.0
 
 
-def empty_image_meta() -> dict[str, Any]:
-    """Same keys as parse(); all values None (for failed decode or empty input)."""
-    return {
-        "width": None,
-        "height": None,
-        "megapixels": None,
-        "aspect_ratio": None,
-        "format": None,
-        "color_mode": None,
-        "has_alpha": None,
-        "is_animated": None,
-        "is_grayscale": None,
-        "orientation": None,
-        "camera_make": None,
-        "camera_model": None,
-        "datetime_original": None,
-        "gps_latitude": None,
-        "gps_longitude": None,
-    }
+def empty_image_meta(*, existing_meta: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Shape matching parse() output for failed or unavailable image parsing."""
+    base_meta = existing_meta or build_file_meta(file_name="", size=0, user_meta={})
+    return build_parser_meta(
+        existing=base_meta,
+        tags=["image"],
+        keywords=[],
+        kvs={},
+    )
 
 
-def parse_image(*, content: bytes) -> dict[str, Any]:
-    """Parse image bytes for storage in parser_meta. Never raises."""
+def parse_image(*, content: bytes, existing_meta: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Parse image bytes for storage in file meta. Never raises."""
     if not content:
-        return empty_image_meta()
+        return empty_image_meta(existing_meta=existing_meta)
     try:
-        return parse(content)
+        return parse(content, existing_meta=existing_meta)
     except (OSError, UnidentifiedImageError, ValueError) as exc:
         log.warning("image_decode_failed", error=str(exc))
-        return empty_image_meta()
+        return empty_image_meta(existing_meta=existing_meta)
     except Exception as exc:  # pillow / codec edge cases
         log.warning("image_parse_failed", error=str(exc))
-        return empty_image_meta()
+        return empty_image_meta(existing_meta=existing_meta)
 
 
-def parse(content: bytes) -> dict[str, Any]:
-    """Parse image bytes into the catalog meta dict.
+def parse(content: bytes, *, existing_meta: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Parse image bytes into the common discovery meta dict.
 
     Always returns the same set of keys; missing values are None.
     Never raises on missing or malformed metadata - only on undecodable images.
     """
     img = Image.open(io.BytesIO(content))
 
-    result: dict[str, Any] = empty_image_meta()
+    details: dict[str, Any] = {}
 
-    _extract_basic(img, result)
-    _extract_exif(img, result)
+    _extract_basic(img, details)
+    _extract_exif(img, details)
 
-    return result
+    return _build_discovery_meta(details, existing_meta=existing_meta)
 
 
 # ---------------------------------------------------------------------------
@@ -100,8 +88,6 @@ def _extract_basic(img: Image.Image, result: dict[str, Any]) -> None:
     w, h = img.size
     result["width"] = w
     result["height"] = h
-    result["megapixels"] = round(w * h / 1_000_000, 2) if w and h else None
-    result["aspect_ratio"] = _aspect_ratio(w, h)
 
     result["format"] = img.format
     result["color_mode"] = img.mode
@@ -110,12 +96,99 @@ def _extract_basic(img: Image.Image, result: dict[str, Any]) -> None:
     result["is_grayscale"] = _is_grayscale(img)
 
 
-def _aspect_ratio(w: int, h: int) -> str | None:
-    if not w or not h:
-        return None
-    g = math.gcd(w, h)
-    return f"{w // g}:{h // g}"
+def _build_discovery_meta(
+    details: dict[str, Any], *, existing_meta: dict[str, Any] | None
+) -> dict[str, Any]:
+    width = details.get("width")
+    height = details.get("height")
+    image_format = _normalize_token(details.get("format"))
+    color_mode = _normalize_token(details.get("color_mode"))
 
+    tags = ["image"]
+    if image_format:
+        tags.append(image_format)
+    if details.get("is_animated"):
+        tags.append("animated")
+    if details.get("has_alpha"):
+        tags.append("transparent")
+    if details.get("is_grayscale"):
+        tags.append("grayscale")
+    size_tag = _image_size_tag(width, height)
+    if size_tag:
+        tags.append(size_tag)
+
+    keywords = _dedupe(
+        [
+            image_format,
+            color_mode,
+            _normalize_keyword(details.get("camera_make")),
+            _normalize_keyword(details.get("camera_model")),
+        ]
+    )
+
+    kvs: dict[str, Any] = {}
+    if width is not None:
+        kvs["width"] = width
+    if height is not None:
+        kvs["height"] = height
+
+    summary_parts = [
+        tag
+        for tag in [
+            size_tag,
+            "animated" if details.get("is_animated") else None,
+            "transparent" if details.get("has_alpha") else None,
+            "grayscale" if details.get("is_grayscale") else None,
+            image_format,
+        ]
+        if tag
+    ]
+    summary = " ".join([*summary_parts, "image"]).strip() or "image"
+
+    base_meta = existing_meta or build_file_meta(file_name="", size=0, user_meta={})
+    return build_parser_meta(
+        existing=base_meta,
+        tags=[tag for tag in _dedupe(tags) if tag != "image"],
+        keywords=keywords,
+        summary=summary,
+        kvs=kvs,
+    )
+
+
+def _image_size_tag(width: int | None, height: int | None) -> str | None:
+    if not width or not height:
+        return None
+    pixels = width * height
+    if pixels < 512 * 512:
+        return "small"
+    if pixels >= 4_000_000:
+        return "large"
+    return None
+
+
+def _normalize_token(value: Any) -> str | None:
+    if value is None:
+        return None
+    token = str(value).strip().lower()
+    return token or None
+
+
+def _normalize_keyword(value: Any) -> str | None:
+    if value is None:
+        return None
+    keyword = re.sub(r"\s+", " ", str(value).strip().lower())
+    return keyword or None
+
+
+def _dedupe(values: list[str | None]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 def _has_alpha(img: Image.Image) -> bool:
     # The mode-based check covers most cases; the band check catches modes
@@ -164,38 +237,12 @@ def _extract_exif(img: Image.Image, result: dict[str, Any]) -> None:
     if not exif:
         return
 
-    # Orientation lives on the main IFD.
-    result["orientation"] = _get_int(exif, "Orientation")
-
     # Camera make/model: try main IFD first, then the EXIF sub-IFD as fallback.
     # Some software writes these in unexpected places.
     exif_ifd = _safe_ifd(exif, _EXIF_IFD)
 
     result["camera_make"] = _get_str(exif, "Make") or _get_str(exif_ifd, "Make")
     result["camera_model"] = _get_str(exif, "Model") or _get_str(exif_ifd, "Model")
-
-    # DateTimeOriginal is in the EXIF sub-IFD; fall back to DateTimeDigitized
-    # and finally to the main IFD's DateTime (modification time, less ideal
-    # but better than nothing).
-    dt_raw = (
-        _get_str(exif_ifd, "DateTimeOriginal")
-        or _get_str(exif_ifd, "DateTimeDigitized")
-        or _get_str(exif, "DateTime")
-    )
-    result["datetime_original"] = _parse_exif_datetime(dt_raw)
-
-    # GPS lives on its own IFD. Some images have GPS data that doesn't decode
-    # via get_ifd; try both paths.
-    gps_ifd = _safe_ifd(exif, _GPS_IFD)
-    if gps_ifd:
-        result["gps_latitude"] = _parse_gps_coord(
-            gps_ifd.get(_GPS_TAG_NAME_TO_ID.get("GPSLatitude")),
-            gps_ifd.get(_GPS_TAG_NAME_TO_ID.get("GPSLatitudeRef")),
-        )
-        result["gps_longitude"] = _parse_gps_coord(
-            gps_ifd.get(_GPS_TAG_NAME_TO_ID.get("GPSLongitude")),
-            gps_ifd.get(_GPS_TAG_NAME_TO_ID.get("GPSLongitudeRef")),
-        )
 
 
 def _safe_ifd(exif: Any, ifd_id: int) -> Any:
@@ -224,21 +271,6 @@ def _get_str(ifd: Any, tag_name: str) -> str | None:
             return None
     s = str(val).strip().strip("\x00")
     return s or None
-
-
-def _get_int(ifd: Any, tag_name: str) -> int | None:
-    if not ifd:
-        return None
-    tag_id = _TAG_NAME_TO_ID.get(tag_name)
-    if tag_id is None:
-        return None
-    val = ifd.get(tag_id)
-    if val is None:
-        return None
-    try:
-        return int(val)
-    except (TypeError, ValueError):
-        return None
 
 
 def _parse_exif_datetime(raw: str | None) -> str | None:

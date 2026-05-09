@@ -333,7 +333,7 @@ async def get_object(bucket: str, key: str, request: Request, db: DbSession) -> 
 
 
 def build_object_response_headers(result: object_service.GetObjectResult) -> dict[str, str]:
-    file_meta = (result.file.parser_meta or {}).get("file", {})
+    file_meta = result.file.meta or {}
     headers: dict[str, str] = {
         "ETag": f'"{result.blob.content_hash.hex()}"',
         "Last-Modified": result.file.updated_at.strftime(
@@ -341,8 +341,8 @@ def build_object_response_headers(result: object_service.GetObjectResult) -> dic
         ),
         "Content-Length": str(result.blob.size_bytes),
     }
-    if file_meta.get("mime_type"):
-        headers["Content-Type"] = file_meta["mime_type"]
+    if file_meta.get("mimetype"):
+        headers["Content-Type"] = file_meta["mimetype"]
     else:
         headers["Content-Type"] = "application/octet-stream"
     return headers

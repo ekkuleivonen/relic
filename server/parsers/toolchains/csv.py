@@ -1,6 +1,5 @@
-"""CSV parser. Writes basic metadata to parser_meta under the ``csv`` key.
+"""CSV parser. Writes compact discovery metadata under the ``csv`` key.
 
-CSV writes basic metadata to parser_meta under the ``csv`` key. No runtime configuration.
 Robust against real-world CSV: delimiters, encodings, quotes, headers, preamble
 rows, and non-Western text (including Japanese).
 """
@@ -16,6 +15,7 @@ from datetime import datetime
 from typing import IO, Any
 
 from charset_normalizer import from_bytes
+from file_meta import build_file_meta, build_parser_meta
 from utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -23,6 +23,7 @@ log = get_logger(__name__)
 _HEAD_BYTES = 64 * 1024
 _TYPE_SAMPLE_ROWS = 1000
 _CANDIDATE_DELIMITERS = ",;\t|"
+_MAX_KEYWORDS = 50
 
 # How many leading rows to consider skipping when looking for the actual
 # CSV body. Real-world exports often have comment lines, blank rows, or
@@ -55,35 +56,26 @@ _BOOLEAN_TRUE = {"true", "t", "yes", "y", "1"}
 _BOOLEAN_FALSE = {"false", "f", "no", "n", "0"}
 
 
-def empty_csv_meta() -> dict[str, Any]:
-    """Shape matching parse() output; all unknowns null (failed pipeline parse)."""
-    return {
-        "row_count": None,
-        "column_count": None,
-        "columns": None,
-        "column_types": None,
-        "delimiter": None,
-        "quote_char": None,
-        "has_header": None,
-        "encoding": None,
-        "line_terminator": None,
-        "skipped_prefix_rows": None,
-        "empty_cells_pct": None,
-    }
+def empty_csv_meta(*, existing_meta: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Shape matching parse() output for failed or unavailable CSV parsing."""
+    base_meta = existing_meta or build_file_meta(file_name="", size=0, user_meta={})
+    return build_parser_meta(existing=base_meta, tags=["data"], keywords=[], kvs={})
 
 
-def parse_csv(*, content: bytes) -> dict[str, Any]:
+def parse_csv(*, content: bytes, existing_meta: dict[str, Any] | None = None) -> dict[str, Any]:
     """Entry point for the parser worker. Swallows unexpected errors."""
     try:
-        return parse(content)
+        return parse(content, existing_meta=existing_meta)
     except Exception as exc:
         log.warning("csv_parse_failed", error=str(exc))
-        return empty_csv_meta()
+        return empty_csv_meta(existing_meta=existing_meta)
 
 
-def parse(content: bytes | IO[bytes]) -> dict[str, Any]:
-    """Parse CSV bytes (or stream) into the catalog meta dict."""
-    result: dict[str, Any] = {
+def parse(
+    content: bytes | IO[bytes], *, existing_meta: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Parse CSV bytes (or stream) into the common discovery meta dict."""
+    details: dict[str, Any] = {
         "row_count": None,
         "column_count": None,
         "columns": None,
@@ -103,35 +95,112 @@ def parse(content: bytes | IO[bytes]) -> dict[str, Any]:
         full_bytes = content.read()
 
     if not full_bytes:
-        result["row_count"] = 0
-        result["column_count"] = 0
-        result["columns"] = []
-        result["column_types"] = {}
-        result["empty_cells_pct"] = 0.0
-        return result
+        details["row_count"] = 0
+        details["column_count"] = 0
+        details["columns"] = []
+        details["column_types"] = {}
+        details["empty_cells_pct"] = 0.0
+        return _build_discovery_meta(details, existing_meta=existing_meta)
 
     encoding = _detect_encoding(full_bytes)
-    result["encoding"] = encoding
+    details["encoding"] = encoding
 
-    result["line_terminator"] = _detect_line_terminator(full_bytes[:_HEAD_BYTES])
+    details["line_terminator"] = _detect_line_terminator(full_bytes[:_HEAD_BYTES])
 
     try:
         text = full_bytes.decode(encoding, errors="replace")
     except (LookupError, UnicodeDecodeError):
         text = full_bytes.decode("latin-1", errors="replace")
-        result["encoding"] = "latin-1"
+        details["encoding"] = "latin-1"
 
     dialect, has_header, skip_prefix = _detect_dialect(text)
-    result["delimiter"] = dialect.delimiter
-    result["quote_char"] = (
+    details["delimiter"] = dialect.delimiter
+    details["quote_char"] = (
         dialect.quotechar if dialect.quoting != csv.QUOTE_NONE else None
     )
-    result["has_header"] = has_header
-    result["skipped_prefix_rows"] = skip_prefix
+    details["has_header"] = has_header
+    details["skipped_prefix_rows"] = skip_prefix
 
-    _extract_rows(text, dialect, has_header, skip_prefix, result)
+    _extract_rows(text, dialect, has_header, skip_prefix, details)
 
+    return _build_discovery_meta(details, existing_meta=existing_meta)
+
+
+def _build_discovery_meta(
+    details: dict[str, Any], *, existing_meta: dict[str, Any] | None
+) -> dict[str, Any]:
+    row_count = details.get("row_count")
+    column_count = details.get("column_count")
+    columns = details.get("columns") or []
+    column_types = details.get("column_types") or {}
+
+    tags = ["data"]
+    if row_count == 0 or column_count == 0:
+        tags.append("empty")
+    else:
+        tags.append("table")
+    if column_count and column_count >= 50:
+        tags.append("wide")
+    if row_count and row_count >= 10_000:
+        tags.append("tall")
+
+    keywords = _dedupe(
+        [
+            *[column for column in columns if not _is_generated_column(column)],
+            *[column_types[column] for column in columns if column in column_types],
+        ],
+        limit=_MAX_KEYWORDS,
+    )
+
+    kvs: dict[str, Any] = {}
+    if row_count is not None:
+        kvs["row_count"] = row_count
+    if column_count is not None:
+        kvs["column_count"] = column_count
+
+    summary = _csv_summary(row_count=row_count, column_count=column_count)
+
+    base_meta = existing_meta or build_file_meta(file_name="", size=0, user_meta={})
+    return build_parser_meta(
+        existing=base_meta,
+        tags=tags,
+        keywords=keywords,
+        summary=summary,
+        kvs=kvs,
+    )
+
+
+def _csv_summary(*, row_count: int | None, column_count: int | None) -> str | None:
+    if row_count is None or column_count is None:
+        return None
+    if row_count == 0 or column_count == 0:
+        return "empty CSV table"
+    return f"CSV table with {row_count} rows and {column_count} columns"
+
+
+def _dedupe(values: list[str | None], *, limit: int) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        keyword = _normalize_keyword(value)
+        if not keyword or keyword in seen:
+            continue
+        seen.add(keyword)
+        result.append(keyword)
+        if len(result) >= limit:
+            break
     return result
+
+
+def _normalize_keyword(value: str | None) -> str | None:
+    if value is None:
+        return None
+    keyword = re.sub(r"\s+", " ", str(value).strip().lower())
+    return keyword or None
+
+
+def _is_generated_column(column: str) -> bool:
+    return re.fullmatch(r"col_\d+", column) is not None
 
 
 # ---------------------------------------------------------------------------

@@ -1,12 +1,11 @@
 import mimetypes
 import uuid
-from pathlib import PurePosixPath
 
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 import settings
-from file_meta import ParserMeta
+from file_meta import build_file_meta, merge_parser_meta, validate_file_meta_dict
 from managers.exceptions import ResourceNotFound
 from models import (
     Blob,
@@ -38,14 +37,14 @@ def parse_file(db: Session, file_id: uuid.UUID) -> File:
         maybe_run_toolchain(
             parser_meta=parser_meta,
             file_id=file_id,
-            mime_type=parser_meta["file"]["mime_type"],
+            mime_type=parser_meta["mimetype"],
             bucket=bucket,
             blob=blob,
             prefix=prefix,
         )
 
         validate_parser_meta(parser_meta=parser_meta)
-        file.parser_meta = parser_meta
+        file.meta = parser_meta
         file.parse_status = PARSE_STATUS_COMPLETED
         db.commit()
         db.refresh(file)
@@ -57,20 +56,21 @@ def parse_file(db: Session, file_id: uuid.UUID) -> File:
 
 
 def build_base_parser_meta(*, file: File, blob: Blob, prefix: bytes) -> dict:
-    extension = PurePosixPath(file.name).suffix.removeprefix(".").lower()
-    return {
-        "file": {
-            "original_filename": file.ingest_meta.get("original_filename", file.name),
-            "mime_type": detect_mime_type(prefix=prefix, filename=file.name),
-            "size": blob.size_bytes,
-            "extension": extension,
-        }
-    }
+    existing = dict(file.meta)
+    if not existing:
+        existing = build_file_meta(file_name=file.name, size=blob.size_bytes, user_meta={})
+    detected_meta = build_file_meta(
+        file_name=file.name,
+        size=blob.size_bytes,
+        user_meta={},
+        mimetype=detect_mime_type(prefix=prefix, filename=file.name),
+    )
+    return merge_parser_meta(existing=existing, parsed=detected_meta)
 
 
 def validate_parser_meta(*, parser_meta: dict) -> None:
     try:
-        ParserMeta.model_validate(parser_meta)
+        validate_file_meta_dict(parser_meta)
     except ValidationError as exc:
         raise ValueError(f"Parser metadata invalid: {exc}") from exc
 
@@ -131,7 +131,10 @@ def maybe_run_toolchain(
                     blob_size=blob.size_bytes,
                     max_bytes=cap,
                 )
-            parser_meta["image"] = parse_image(content=content)
+            parsed = parse_image(content=content, existing_meta=parser_meta)
+            merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
+            parser_meta.clear()
+            parser_meta.update(merged)
         elif mime_type == "text/csv":
             from parsers.toolchains.csv import parse_csv
 
@@ -151,7 +154,10 @@ def maybe_run_toolchain(
                     max_bytes=cap,
                     mime_type=mime_type,
                 )
-            parser_meta["csv"] = parse_csv(content=content)
+            parsed = parse_csv(content=content, existing_meta=parser_meta)
+            merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
+            parser_meta.clear()
+            parser_meta.update(merged)
         elif mime_type == "application/vnd.apache.parquet":
             from parsers.toolchains.parquet import parse_parquet
 

@@ -27,10 +27,10 @@ class FileRead(BaseModel):
     folder_id: uuid.UUID
     blob_id: uuid.UUID
     uploaded_by: uuid.UUID
+    uploaded_by_name: str | None
     name: str
     parse_status: int
-    ingest_meta: dict
-    parser_meta: dict
+    meta: dict
     created_at: dt.datetime
     updated_at: dt.datetime
 

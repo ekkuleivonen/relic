@@ -153,9 +153,8 @@ def test_presigned_put_creates_file_and_blob(
     assert file.blob_id == blob.id
     assert file.uploaded_by == user.id
     assert file.parse_status == PARSE_STATUS_PENDING
-    assert file.ingest_meta["album"] == "spring"
-    assert file.ingest_meta["original_filename"] == "cat.jpg"
-    assert file.parser_meta == {}
+    assert file.meta["kvs"]["album"] == "spring"
+    assert file.meta["original_filename"] == "cat.jpg"
     assert blob.size_bytes == len(b"cat photo")
     assert uploaded[0]["Bucket"] == "blobs"
 

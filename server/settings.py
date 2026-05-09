@@ -98,13 +98,13 @@ UPLOAD_SPOOL_MAX_MEMORY_BYTES: int = env.int(
 # Parser Queue (arq)
 # =============================================================================
 
-# Max bytes fetched from object storage per image when building parser_meta (S3 Range GET).
+# Max bytes fetched from object storage per image when building file meta (S3 Range GET).
 IMAGE_PARSE_MAX_BYTES: int = env.int(
     "IMAGE_PARSE_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-# Max bytes fetched per tabular file (CSV / future Parquet) for parser_meta.
+# Max bytes fetched per tabular file (CSV / future Parquet) for file meta.
 TABULAR_PARSE_MAX_BYTES: int = env.int(
     "TABULAR_PARSE_MAX_BYTES",
     default=128 * 1024 * 1024,

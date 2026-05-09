@@ -11,7 +11,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from file_meta import dump_ingest_meta, normalize_ingest_meta
+from file_meta import build_file_meta, validate_file_meta_dict
 from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import Blob, Bucket, File, Folder, PARSE_STATUS_PENDING, User
 from schema_plan import BucketTier, Permission
@@ -106,8 +106,11 @@ def put_object(
         uploaded_by=current_user.id,
         name=file_name,
         parse_status=PARSE_STATUS_PENDING,
-        ingest_meta=dump_ingest_meta(file_name=file_name, ingest_meta=ingest_meta),
-        parser_meta={},
+        meta=build_file_meta(
+            file_name=file_name,
+            size=object_size,
+            user_meta=ingest_meta,
+        ),
     )
     db.add(file)
     db.commit()
@@ -402,10 +405,14 @@ def copy_object(
     if blob is None:
         raise ResourceNotFound("Source blob not found")
 
-    copied_ingest_meta = (
-        normalize_ingest_meta(dict(source_file.ingest_meta))
+    copied_meta = (
+        validate_file_meta_dict(dict(source_file.meta)).model_dump(mode="json")
         if metadata_directive == METADATA_DIRECTIVE_COPY
-        else dump_ingest_meta(file_name=dest_file_name, ingest_meta=ingest_meta)
+        else build_file_meta(
+            file_name=dest_file_name,
+            size=blob.size_bytes,
+            user_meta=ingest_meta,
+        )
     )
 
     new_file = File(
@@ -414,8 +421,7 @@ def copy_object(
         uploaded_by=current_user.id,
         name=dest_file_name,
         parse_status=PARSE_STATUS_PENDING,
-        ingest_meta=copied_ingest_meta,
-        parser_meta={},
+        meta=copied_meta,
     )
     db.add(new_file)
     blob.refcount += 1

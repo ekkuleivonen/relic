@@ -1,4 +1,4 @@
-"""Parquet parser. Writes basic metadata to parser_meta under the ``parquet`` key.
+"""Parquet parser. Writes compact discovery metadata into file meta.
 
 No configuration. Always extracts the same set of fields, with fallbacks
 to capture data from quirky/non-standard parquet variants where possible.

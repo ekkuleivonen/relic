@@ -6,6 +6,7 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
+from file_meta import build_file_meta
 from models import Base, File, Folder, FolderAccess, PARSE_STATUS_COMPLETED, User
 from schema_plan import BucketTier, Permission, UserRole
 from services.auth import create_session_token
@@ -202,15 +203,12 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
                 uploaded_by=user.id,
                 name="image.jpg",
                 parse_status=PARSE_STATUS_COMPLETED,
-                ingest_meta={"original_filename": "image.jpg"},
-                parser_meta={
-                    "file": {
-                        "original_filename": "image.jpg",
-                        "size": 1024,
-                        "mime_type": "image/jpeg",
-                        "extension": "jpg",
-                    }
-                },
+                meta=build_file_meta(
+                    file_name="image.jpg",
+                    size=1024,
+                    user_meta={},
+                    mimetype="image/jpeg",
+                ),
             ),
             File(
                 folder_id=docs.id,
@@ -218,15 +216,12 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
                 uploaded_by=user.id,
                 name="notes.txt",
                 parse_status=PARSE_STATUS_COMPLETED,
-                ingest_meta={"original_filename": "notes.txt"},
-                parser_meta={
-                    "file": {
-                        "original_filename": "notes.txt",
-                        "size": 12,
-                        "mime_type": "text/plain",
-                        "extension": "txt",
-                    }
-                },
+                meta=build_file_meta(
+                    file_name="notes.txt",
+                    size=12,
+                    user_meta={},
+                    mimetype="text/plain",
+                ),
             ),
         ]
     )
@@ -237,7 +232,7 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
     assert response.status_code == 200
     files = response.json()
     assert [file["name"] for file in files] == ["image.jpg"]
-    assert files[0]["parser_meta"]["file"]["size"] == 1024
+    assert files[0]["meta"]["size"] == 1024
 
 
 def test_list_files_rejects_unreadable_folder(client, db_session, root_folder):
@@ -270,8 +265,7 @@ def test_recursive_list_files_excludes_unreadable_descendants(
                 uploaded_by=user.id,
                 name="image.jpg",
                 parse_status=PARSE_STATUS_COMPLETED,
-                ingest_meta={"original_filename": "image.jpg"},
-                parser_meta={"file": {"size": 1024}},
+                meta=build_file_meta(file_name="image.jpg", size=1024, user_meta={}),
             ),
             File(
                 folder_id=raw.id,
@@ -279,8 +273,7 @@ def test_recursive_list_files_excludes_unreadable_descendants(
                 uploaded_by=user.id,
                 name="raw.nef",
                 parse_status=PARSE_STATUS_COMPLETED,
-                ingest_meta={"original_filename": "raw.nef"},
-                parser_meta={"file": {"size": 2048}},
+                meta=build_file_meta(file_name="raw.nef", size=2048, user_meta={}),
             ),
             File(
                 folder_id=docs.id,
@@ -288,8 +281,7 @@ def test_recursive_list_files_excludes_unreadable_descendants(
                 uploaded_by=user.id,
                 name="notes.txt",
                 parse_status=PARSE_STATUS_COMPLETED,
-                ingest_meta={"original_filename": "notes.txt"},
-                parser_meta={"file": {"size": 12}},
+                meta=build_file_meta(file_name="notes.txt", size=12, user_meta={}),
             ),
         ]
     )

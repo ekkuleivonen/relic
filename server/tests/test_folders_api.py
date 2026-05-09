@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
+from file_meta import build_file_meta
 from models import Base, Blob, File, Folder, FolderAccess, PARSE_STATUS_COMPLETED, User
 from schema_plan import Permission, UserRole
 from services.auth import create_session_token
@@ -111,8 +112,7 @@ def add_file(db_session, folder: Folder, name: str, blob: Blob, user: User) -> F
         uploaded_by=user.id,
         name=name,
         parse_status=PARSE_STATUS_COMPLETED,
-        ingest_meta={"original_filename": name},
-        parser_meta={"file": {"original_filename": name, "size": 1}},
+        meta=build_file_meta(file_name=name, size=blob.size_bytes, user_meta={}),
     )
     db_session.add(file)
     db_session.commit()

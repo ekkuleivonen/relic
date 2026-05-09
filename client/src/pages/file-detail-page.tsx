@@ -69,9 +69,9 @@ function FileDetailPageInner() {
   )
 
   return (
-    <div className="min-h-svh bg-background text-foreground">
-      <div className="grid min-h-svh lg:grid-cols-[20rem_1fr]">
-        <aside className="flex flex-col border-b bg-sidebar p-4 lg:border-r lg:border-b-0">
+    <div className="h-svh overflow-hidden bg-background text-foreground">
+      <div className="grid h-full min-h-0 lg:grid-cols-[20rem_1fr]">
+        <aside className="flex min-h-0 flex-col overflow-hidden border-b bg-sidebar p-4 lg:border-r lg:border-b-0">
           <SidebarHeader />
           <div className="flex-1">
             {folderTree.isLoading ? (
@@ -93,7 +93,7 @@ function FileDetailPageInner() {
           <SidebarFooter />
         </aside>
 
-        <main className="min-w-0 p-4 lg:p-8">
+        <main className="min-h-0 min-w-0 overflow-y-auto p-4 lg:p-8">
           <div className="mx-auto max-w-4xl space-y-6">
             {fileQuery.isLoading ? (
               <FileDetailSkeleton />
@@ -140,11 +140,7 @@ function FileDetailContent({
   const [titleEditing, setTitleEditing] = React.useState(false)
   const [titleDraft, setTitleDraft] = React.useState(file.name)
   const renameCommitRef = React.useRef(false)
-  const parserFileMeta = file.parser_meta.file ?? {}
-  const parserSections = Object.entries(file.parser_meta).filter(
-    ([key]) => key !== "file"
-  )
-  const ingestMeta = Object.entries(file.ingest_meta)
+  const kvEntries = Object.entries(file.meta.kvs)
 
   function beginTitleRename() {
     setTitleDraft(file.name)
@@ -271,25 +267,26 @@ function FileDetailContent({
           label="Status"
           value={formatParseStatus(file.parse_status)}
         />
-        <StatCard label="Size" value={formatBytes(parserFileMeta.size)} />
-        <StatCard
-          label="Type"
-          value={parserFileMeta.mime_type || "Pending parser"}
-        />
+        <StatCard label="Size" value={formatBytes(file.meta.size)} />
+        <StatCard label="Type" value={file.meta.mimetype || "Unknown"} />
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>File Details</CardTitle>
+        <CardHeader className="gap-2 sm:flex sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle>File Metadata</CardTitle>
+          <Badge variant="outline">schema {file.meta.schema_version}</Badge>
         </CardHeader>
         <CardContent className="space-y-4">
           <DetailGrid
             rows={[
               ["File ID", file.id],
               ["Blob ID", file.blob_id],
-              ["Uploaded by", file.uploaded_by],
-              ["Original name", parserFileMeta.original_filename ?? file.name],
-              ["Extension", parserFileMeta.extension ?? "—"],
+              ["Uploaded by", file.uploaded_by_name ?? file.uploaded_by],
+              ["Original filename", file.meta.original_filename ?? file.name],
+              ["Extension", file.meta.extension || "—"],
+              ["MIME type", file.meta.mimetype || "—"],
+              ["Size", formatBytes(file.meta.size)],
+              ["Summary", file.meta.summary || "—"],
               ["Created", formatDateTime(file.created_at)],
               ["Updated", formatDateTime(file.updated_at)],
             ]}
@@ -299,50 +296,29 @@ function FileDetailContent({
 
       <Card>
         <CardHeader className="gap-2 sm:flex sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>Ingest Metadata</CardTitle>
-          <Badge variant="outline">{ingestMeta.length} fields</Badge>
+          <CardTitle>Tags & Keywords</CardTitle>
+          <Badge variant="outline">
+            {file.meta.tags.length + file.meta.keywords.length} terms
+          </Badge>
         </CardHeader>
-        <CardContent>
-          {ingestMeta.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No upload-time metadata is attached to this file.
-            </p>
-          ) : (
-            <DetailGrid rows={ingestMeta.map(([key, value]) => [key, value])} />
-          )}
+        <CardContent className="space-y-5">
+          <TokenGroup label="Tags" values={file.meta.tags} tone="tag" />
+          <TokenGroup label="Keywords" values={file.meta.keywords} tone="keyword" />
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className="gap-2 sm:flex sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>Parser Metadata</CardTitle>
-          <Badge variant="outline">{parserSections.length + 1} sections</Badge>
+          <CardTitle>Key Values</CardTitle>
+          <Badge variant="outline">{kvEntries.length} fields</Badge>
         </CardHeader>
-        <CardContent className="space-y-6">
-          {Object.keys(file.parser_meta).length === 0 ? (
+        <CardContent>
+          {kvEntries.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Parser metadata is pending.
+              No key/value metadata is attached to this file.
             </p>
           ) : (
-            <>
-              <section>
-                <h3 className="mb-3 text-sm font-medium">file</h3>
-                <DetailGrid
-                  rows={Object.entries(parserFileMeta).map(([key, value]) => [
-                    key,
-                    value,
-                  ])}
-                />
-              </section>
-              {parserSections.map(([section, value]) => (
-                <section key={section}>
-                  <h3 className="mb-3 text-sm font-medium">{section}</h3>
-                  <pre className="overflow-auto rounded-md bg-muted p-3 text-xs">
-                    {JSON.stringify(value, null, 2)}
-                  </pre>
-                </section>
-              ))}
-            </>
+            <KeyValueCollection entries={kvEntries} />
           )}
         </CardContent>
       </Card>
@@ -419,10 +395,67 @@ function DetailGrid({ rows }: { rows: Array<[string, unknown]> }) {
       {rows.map(([label, value]) => (
         <React.Fragment key={label}>
           <dt className="text-muted-foreground">{label}</dt>
-          <dd className="break-all font-mono text-xs">{formatDetailValue(value)}</dd>
+          <dd className="break-all text-sm">{formatDetailValue(value)}</dd>
         </React.Fragment>
       ))}
     </dl>
+  )
+}
+
+function TokenGroup({
+  label,
+  values,
+  tone,
+}: {
+  label: string
+  values: string[]
+  tone: "tag" | "keyword"
+}) {
+  return (
+    <section>
+      <h3 className="mb-3 text-sm font-medium">{label}</h3>
+      {values.length === 0 ? (
+        <p className="text-sm text-muted-foreground">None yet.</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {values.map((value) => (
+            <div
+              key={value}
+              className={cn(
+                "rounded-full border px-2.5 py-1 text-xs font-medium",
+                tone === "tag"
+                  ? "border-primary/20 bg-primary/10 text-primary"
+                  : "border-muted-foreground/20 bg-muted text-muted-foreground"
+              )}
+            >
+              {value}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function KeyValueCollection({
+  entries,
+}: {
+  entries: Array<[string, string | number | boolean | null]>
+}) {
+  return (
+    <div className="divide-y rounded-md border">
+      {entries.map(([key, value]) => (
+        <div
+          key={key}
+          className="grid gap-1 px-3 py-2 text-sm sm:grid-cols-[12rem_1fr] sm:gap-4"
+        >
+          <div className="font-medium text-muted-foreground">{key}</div>
+          <div className="break-words font-mono text-xs">
+            {formatDetailValue(value)}
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 

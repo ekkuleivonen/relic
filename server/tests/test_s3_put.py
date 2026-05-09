@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
+from file_meta import build_file_meta
 from managers.exceptions import ConflictError, ResourceNotFound
 from models import Base, Blob, Bucket, File, Folder, FolderAccess, PARSE_STATUS_PENDING
 from schema_plan import BucketTier, Permission, UserRole
@@ -190,8 +191,8 @@ def test_put_object_uploads_new_blob_and_creates_file(
     assert file.blob_id == blob.id
     assert file.uploaded_by == user.id
     assert file.parse_status == PARSE_STATUS_PENDING
-    assert file.ingest_meta["album"] == "spring"
-    assert file.parser_meta == {}
+    assert file.meta["kvs"]["album"] == "spring"
+    assert file.meta["original_filename"] == "cat.jpg"
 
 
 def test_put_object_dedupes_existing_blob(db_session, bucket_folder, monkeypatch):
@@ -248,8 +249,7 @@ def test_put_object_rejects_existing_file_name(
             blob_id=blob.id,
             uploaded_by=owner.id,
             name="cat.jpg",
-            ingest_meta={"original_filename": "cat.jpg"},
-            parser_meta={},
+            meta=build_file_meta(file_name="cat.jpg", size=blob.size_bytes, user_meta={}),
         )
     )
     db_session.commit()

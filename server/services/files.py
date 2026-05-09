@@ -44,7 +44,6 @@ def move_file(
     file.name = new_name
     if name is not None:
         file.parse_status = PARSE_STATUS_PENDING
-        file.parser_meta = {}
     db.commit()
     db.refresh(file)
     return file
@@ -69,7 +68,6 @@ def rename_file(
 
     file.name = name
     file.parse_status = PARSE_STATUS_PENDING
-    file.parser_meta = {}
     db.commit()
     db.refresh(file)
     return file

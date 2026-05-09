@@ -6,6 +6,7 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
+from file_meta import build_file_meta
 from models import Base, Blob, File, Folder, FolderAccess, PARSE_STATUS_COMPLETED
 from schema_plan import BucketTier, Permission
 from services.auth import create_session_token
@@ -107,23 +108,20 @@ def grant(db_session, user, folder, permissions: int) -> FolderAccess:
     return access
 
 
-def make_file(db_session, *, folder, blob, name, user, parser_meta=None):
-    parser_meta = parser_meta or {
-        "file": {
-            "original_filename": name,
-            "size": 9,
-            "mime_type": "image/jpeg",
-            "extension": "jpg",
-        }
-    }
+def make_file(db_session, *, folder, blob, name, user, meta=None):
+    meta = meta or build_file_meta(
+        file_name=name,
+        size=9,
+        user_meta={},
+        mimetype="image/jpeg",
+    )
     file = File(
         folder_id=folder.id,
         blob_id=blob.id,
         uploaded_by=user.id,
         name=name,
         parse_status=PARSE_STATUS_COMPLETED,
-        ingest_meta={"original_filename": name},
-        parser_meta=parser_meta,
+        meta=meta,
     )
     db_session.add(file)
     db_session.commit()
@@ -272,7 +270,7 @@ def test_rename_file_in_place(
     db_session.refresh(file)
     assert file.name == "feline.jpg"
     assert file.parse_status == 1
-    assert file.parser_meta == {}
+    assert file.meta["original_filename"] == "cat.jpg"
 
 
 def test_rename_conflicts_with_existing_name(
