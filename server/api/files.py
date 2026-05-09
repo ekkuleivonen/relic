@@ -1,4 +1,11 @@
+import datetime as dt
+import uuid
+
 from fastapi import APIRouter, Request, Response
+from pydantic import BaseModel, ConfigDict
+
+from database import DbSession
+from services import filesystem as filesystem_service
 
 router = APIRouter()
 
@@ -10,8 +17,26 @@ manage the metadata records and handle queries.
 """
 
 
+class FileRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    id: uuid.UUID
+    folder_id: uuid.UUID
+    blob_id: uuid.UUID
+    name: str
+    meta: dict
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    accessed_at: dt.datetime
+
+
 @router.get("/")
-async def list_files(request: Request) -> Response:
+async def list_files(
+    request: Request,
+    db: DbSession,
+    folder_id: uuid.UUID | None = None,
+    recursive: bool = False,
+) -> list[FileRead]:
     """
     GET /files -> list files matching query.
     Query params:
@@ -23,7 +48,7 @@ async def list_files(request: Request) -> Response:
       ?order=created_at:desc  sort
     Returns files the caller has READ on (via folder ACL walk).
     """
-    raise NotImplementedError
+    return filesystem_service.list_files(db, folder_id=folder_id, recursive=recursive)
 
 
 @router.post("/")

@@ -1,5 +1,8 @@
 from fastapi import APIRouter, Request, Response
 
+from database import DbSession
+from services import objects as object_service
+
 router = APIRouter()
 
 """
@@ -69,7 +72,7 @@ async def list_objects_v2(bucket: str, request: Request) -> Response:
 
 
 @router.put("/{bucket}/{key:path}")
-async def put_object(bucket: str, key: str, request: Request) -> Response:
+async def put_object(bucket: str, key: str, request: Request, db: DbSession) -> Response:
     """
     PUT /{bucket}/{key} -> PutObject
 
@@ -89,7 +92,24 @@ async def put_object(bucket: str, key: str, request: Request) -> Response:
 
     Response body is empty per S3 convention.
     """
-    raise NotImplementedError
+    result = object_service.put_object(
+        db,
+        bucket_name=bucket,
+        key=key,
+        body=await request.body(),
+        content_type=request.headers.get("content-type"),
+        user_metadata=extract_user_metadata(request),
+    )
+    return Response(status_code=200, headers={"ETag": f'"{result.etag}"'})
+
+
+def extract_user_metadata(request: Request) -> dict[str, str]:
+    prefix = "x-amz-meta-"
+    return {
+        header_name.removeprefix(prefix): header_value
+        for header_name, header_value in request.headers.items()
+        if header_name.startswith(prefix)
+    }
 
 
 @router.head("/{bucket}/{key:path}")
@@ -141,7 +161,6 @@ async def delete_object(bucket: str, key: str, request: Request) -> Response:
     raise NotImplementedError
 
 
-@router.put("/{bucket}/{key:path}", name="copy_object")
 async def copy_object(bucket: str, key: str, request: Request) -> Response:
     """
     PUT /{bucket}/{key} with x-amz-copy-source header -> CopyObject

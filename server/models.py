@@ -139,6 +139,7 @@ class Folder(Base, TimestampMixin):
             text("(parent_id IS NULL)"),
             unique=True,
             postgresql_where=text("parent_id IS NULL"),
+            sqlite_where=text("parent_id IS NULL"),
         ),
     )
 

@@ -3,11 +3,11 @@ import { Navigate, Route, Routes } from "react-router"
 import { AdminLayout } from "@/components/layout/admin-layout"
 import { AdminPlaceholderPage } from "@/pages/admin/admin-placeholder-page"
 import { BucketsPage } from "@/pages/admin/buckets-page"
+import { FilesystemPage } from "@/pages/filesystem-page"
 
 export function App() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/admin/buckets" replace />} />
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<Navigate to="/admin/buckets" replace />} />
         <Route path="buckets" element={<BucketsPage />} />
@@ -57,6 +57,7 @@ export function App() {
           }
         />
       </Route>
+      <Route path="*" element={<FilesystemPage />} />
     </Routes>
   )
 }

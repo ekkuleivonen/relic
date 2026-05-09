@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, Response
 
-router = APIRouter(prefix="/users", tags=["users"])
+router = APIRouter()
 
 """
 User management. Admin-only for create/delete/list; users can read and

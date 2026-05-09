@@ -1,4 +1,10 @@
+import uuid
+
 from fastapi import APIRouter, Request, Response
+from pydantic import BaseModel, ConfigDict
+
+from database import DbSession
+from services import filesystem as filesystem_service
 
 router = APIRouter()
 
@@ -31,14 +37,25 @@ async def create_folder(request: Request) -> Response:
     raise NotImplementedError
 
 
+class FolderTreeRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    id: uuid.UUID
+    name: str
+    parent_id: uuid.UUID | None
+    children: list["FolderTreeRead"]
+
+
 @router.get("/tree")
-async def get_folder_tree(request: Request) -> Response:
+async def get_folder_tree(
+    request: Request, db: DbSession, root_id: uuid.UUID | None = None
+) -> FolderTreeRead:
     """
     GET /folders/tree -> nested tree of all visible folders.
     Convenience for UI navigation; equivalent to walking list_folders.
     Query params: ?root_id=<uuid> to subtree from a specific folder.
     """
-    raise NotImplementedError
+    return filesystem_service.get_folder_tree(db, root_id)
 
 
 @router.get("/{folder_id}")
