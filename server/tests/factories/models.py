@@ -1,6 +1,6 @@
 import factory
 
-from models import Blob, Bucket, Folder, FolderAccess, User
+from models import AccessKey, Blob, Bucket, Folder, FolderAccess, User
 from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier, Permission, UserRole
 from utils.passwords import hash_password
 
@@ -37,6 +37,18 @@ class UserFactory(factory.Factory):
     email = factory.Sequence(lambda n: f"user-{n}@relic.local")
     password_hash = factory.LazyFunction(lambda: hash_password("password"))
     role = UserRole.USER
+
+
+class AccessKeyFactory(factory.Factory):
+    class Meta:
+        model = AccessKey
+
+    user_id = None
+    name = factory.Sequence(lambda n: f"access-key-{n}")
+    key_id = factory.Sequence(lambda n: f"RK{n:032X}")
+    secret_hash = factory.Sequence(lambda n: n.to_bytes(32, "big"))
+    last_used_at = None
+    revoked_at = None
 
 
 class FolderFactory(factory.Factory):

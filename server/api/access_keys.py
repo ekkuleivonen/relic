@@ -1,4 +1,13 @@
-from fastapi import APIRouter, Request, Response
+import datetime as dt
+import uuid
+
+from fastapi import APIRouter, Response, status
+from pydantic import BaseModel, ConfigDict, Field
+
+from api.users import UserRead
+from database import DbSession
+from services import access_keys as access_key_service
+from services.access_keys import AccessKeyRow, CreatedAccessKey
 
 router = APIRouter()
 
@@ -10,49 +19,109 @@ Secret is shown ONCE at creation, then only the hash is stored.
 """
 
 
+class AccessKeyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: uuid.UUID
+    name: str = Field(min_length=1, max_length=255)
+
+
+class AccessKeyRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID
+    user: UserRead
+    name: str
+    key_id: str
+    last_used_at: dt.datetime | None
+    revoked_at: dt.datetime | None
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+    @classmethod
+    def from_row(cls, row: AccessKeyRow) -> "AccessKeyRead":
+        return cls(
+            id=row.access_key.id,
+            user=UserRead.model_validate(row.user),
+            name=row.access_key.name,
+            key_id=row.access_key.key_id,
+            last_used_at=row.access_key.last_used_at,
+            revoked_at=row.access_key.revoked_at,
+            created_at=row.access_key.created_at,
+            updated_at=row.access_key.updated_at,
+        )
+
+
+class AccessKeyCreated(AccessKeyRead):
+    secret_access_key: str
+
+    @classmethod
+    def from_created(cls, created: CreatedAccessKey) -> "AccessKeyCreated":
+        row = created.row
+        return cls(
+            id=row.access_key.id,
+            user=UserRead.model_validate(row.user),
+            name=row.access_key.name,
+            key_id=row.access_key.key_id,
+            secret_access_key=created.secret_access_key,
+            last_used_at=row.access_key.last_used_at,
+            revoked_at=row.access_key.revoked_at,
+            created_at=row.access_key.created_at,
+            updated_at=row.access_key.updated_at,
+        )
+
+
 @router.get("/")
-async def list_access_keys(request: Request) -> Response:
+async def list_access_keys(db: DbSession) -> list[AccessKeyRead]:
     """
     GET /access-keys -> list keys.
     Self sees own keys; admin sees all (?user_id= filter).
     Never returns the secret, only key_id, name, last_used_at, revoked_at.
     """
-    raise NotImplementedError
+    return [AccessKeyRead.from_row(row) for row in access_key_service.list_access_keys(db)]
 
 
 @router.post("/")
-async def create_access_key(request: Request) -> Response:
+async def create_access_key(
+    payload: AccessKeyCreate, db: DbSession
+) -> AccessKeyCreated:
     """
     POST /access-keys -> mint a new access key.
     Body: { name, user_id? }   (user_id admin-only; defaults to self)
     Returns: { id, key_id, secret_access_key, name, ... }
     The secret is in the response body and CANNOT be retrieved later.
     """
-    raise NotImplementedError
+    created = access_key_service.create_access_key(
+        db,
+        user_id=payload.user_id,
+        name=payload.name,
+    )
+    return AccessKeyCreated.from_created(created)
 
 
 @router.get("/{key_id}")
-async def get_access_key(key_id: str, request: Request) -> Response:
+async def get_access_key(key_id: str, db: DbSession) -> AccessKeyRead:
     """
     GET /access-keys/{id} -> metadata for one key.
     Self for own; admin for any. Secret never included.
     """
-    raise NotImplementedError
+    return AccessKeyRead.from_row(access_key_service.get_access_key_by_key_id(db, key_id))
 
 
 @router.post("/{key_id}/revoke")
-async def revoke_access_key(key_id: str, request: Request) -> Response:
+async def revoke_access_key(key_id: str, db: DbSession) -> AccessKeyRead:
     """
     POST /access-keys/{id}/revoke -> set revoked_at to now.
     Idempotent. Revoked keys are kept for audit; use DELETE to remove.
     """
-    raise NotImplementedError
+    return AccessKeyRead.from_row(access_key_service.revoke_access_key(db, key_id))
 
 
 @router.delete("/{key_id}")
-async def delete_access_key(key_id: str, request: Request) -> Response:
+async def delete_access_key(key_id: str, db: DbSession) -> Response:
     """
     DELETE /access-keys/{id} -> hard delete the key row.
     Self for own; admin for any.
     """
-    raise NotImplementedError
+    access_key_service.delete_access_key(db, key_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
