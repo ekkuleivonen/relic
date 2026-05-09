@@ -1,6 +1,8 @@
-import { Folder, LogOut, Settings } from "lucide-react"
+import * as React from "react"
+import { Folder, LogOut, Moon, Settings, Sun } from "lucide-react"
 import { Link, useNavigate } from "react-router"
 
+import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -17,6 +19,8 @@ export function SidebarFooter({ adminAction = "admin" }: SidebarFooterProps) {
   const navigate = useNavigate()
   const sessionQuery = useSession()
   const logout = useLogout()
+  const { setTheme } = useTheme()
+  const isDark = useResolvedDarkMode()
   const user = sessionQuery.data?.user
   const isAdmin = user?.role === 2
 
@@ -70,6 +74,24 @@ export function SidebarFooter({ adminAction = "admin" }: SidebarFooterProps) {
                 type="button"
                 variant="outline"
                 size="icon-sm"
+                onClick={() => setTheme(isDark ? "light" : "dark")}
+              >
+                {isDark ? <Sun /> : <Moon />}
+                <span className="sr-only">
+                  Switch to {isDark ? "light" : "dark"} mode
+                </span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              Switch to {isDark ? "light" : "dark"} mode
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon-sm"
                 onClick={() => void handleLogout()}
                 disabled={logout.isPending}
               >
@@ -83,4 +105,23 @@ export function SidebarFooter({ adminAction = "admin" }: SidebarFooterProps) {
       </div>
     </div>
   )
+}
+
+function useResolvedDarkMode() {
+  const [isDark, setIsDark] = React.useState(
+    () => document.documentElement.classList.contains("dark")
+  )
+
+  React.useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains("dark"))
+    })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    })
+    return () => observer.disconnect()
+  }, [])
+
+  return isDark
 }
