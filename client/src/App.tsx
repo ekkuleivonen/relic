@@ -4,6 +4,7 @@ import { AdminLayout } from "@/components/layout/admin-layout"
 import { RequireSession } from "@/components/layout/route-guards"
 import { AdminPlaceholderPage } from "@/pages/admin/admin-placeholder-page"
 import { BucketsPage } from "@/pages/admin/buckets-page"
+import { FolderAccessPage } from "@/pages/admin/folder-access-page"
 import { UsersPage } from "@/pages/admin/users-page"
 import { FilesystemPage } from "@/pages/filesystem-page"
 import { LoginPage } from "@/pages/login-page"
@@ -26,15 +27,7 @@ export function App() {
               />
             }
           />
-          <Route
-            path="folders"
-            element={
-              <AdminPlaceholderPage
-                title="Folders"
-                description="Manage virtual folders, schemas, policies, and ACLs."
-              />
-            }
-          />
+          <Route path="folders" element={<FolderAccessPage />} />
           <Route
             path="files"
             element={
@@ -56,6 +49,7 @@ export function App() {
         </Route>
       </Route>
       <Route element={<RequireSession />}>
+        <Route path="/f/:folderId" element={<FilesystemPage />} />
         <Route path="*" element={<FilesystemPage />} />
       </Route>
     </Routes>

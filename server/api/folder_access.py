@@ -1,0 +1,89 @@
+import datetime as dt
+import uuid
+
+from fastapi import APIRouter, Response, status
+from pydantic import BaseModel, ConfigDict, Field
+
+from api.users import UserRead
+from database import DbSession
+from services import folder_access as folder_access_service
+from services.folder_access import FolderAccessRow
+
+router = APIRouter()
+
+"""
+Folder access management. Admin-only.
+
+A FolderAccess row grants a user permissions on a folder; permissions
+recurse to descendant folders. There is one row per (user, folder).
+"""
+
+
+class FolderAccessGrant(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: uuid.UUID
+    folder_id: uuid.UUID
+    permissions: int = Field(gt=0)
+
+
+class FolderAccessRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID
+    user: UserRead
+    folder_id: uuid.UUID
+    folder_path: str
+    permissions: int
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+    @classmethod
+    def from_row(cls, row: FolderAccessRow) -> "FolderAccessRead":
+        return cls(
+            id=row.access.id,
+            user=UserRead.model_validate(row.user),
+            folder_id=row.access.folder_id,
+            folder_path=row.folder_path,
+            permissions=row.access.permissions,
+            created_at=row.access.created_at,
+            updated_at=row.access.updated_at,
+        )
+
+
+@router.get("/")
+async def list_folder_access(db: DbSession) -> list[FolderAccessRead]:
+    """
+    GET /folder-access -> all grants across the filesystem.
+    Returns a flat list with embedded user info and resolved folder paths.
+    """
+    rows = folder_access_service.list_folder_access(db)
+    return [FolderAccessRead.from_row(row) for row in rows]
+
+
+@router.post("/")
+async def create_folder_access(
+    payload: FolderAccessGrant, db: DbSession
+) -> FolderAccessRead:
+    """
+    POST /folder-access -> grant a user permissions on a folder.
+    Body: { user_id, folder_id, permissions }
+    Idempotent: an existing row for the same (user, folder) is updated.
+    """
+    row = folder_access_service.grant_folder_access(
+        db,
+        user_id=payload.user_id,
+        folder_id=payload.folder_id,
+        permissions=payload.permissions,
+    )
+    return FolderAccessRead.from_row(row)
+
+
+@router.delete("/{access_id}")
+async def delete_folder_access(access_id: uuid.UUID, db: DbSession) -> Response:
+    """
+    DELETE /folder-access/{access_id} -> revoke an explicit grant.
+    Inherited permissions from ancestor folders remain in effect.
+    """
+    folder_access_service.revoke_folder_access(db, access_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

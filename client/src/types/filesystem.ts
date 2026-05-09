@@ -2,6 +2,8 @@ export type FolderTreeNode = {
   id: string
   name: string
   parent_id: string | null
+  path: string
+  effective_permissions: number
   children: FolderTreeNode[]
 }
 

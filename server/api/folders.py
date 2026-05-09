@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, ConfigDict
 
+from api.dependencies import CurrentUser
 from database import DbSession
 from services import filesystem as filesystem_service
 
@@ -43,19 +44,24 @@ class FolderTreeRead(BaseModel):
     id: uuid.UUID
     name: str
     parent_id: uuid.UUID | None
+    path: str
+    effective_permissions: int
     children: list["FolderTreeRead"]
 
 
 @router.get("/tree")
 async def get_folder_tree(
-    request: Request, db: DbSession, root_id: uuid.UUID | None = None
+    request: Request,
+    db: DbSession,
+    current_user: CurrentUser,
+    root_id: uuid.UUID | None = None,
 ) -> FolderTreeRead:
     """
     GET /folders/tree -> nested tree of all visible folders.
     Convenience for UI navigation; equivalent to walking list_folders.
     Query params: ?root_id=<uuid> to subtree from a specific folder.
     """
-    return filesystem_service.get_folder_tree(db, root_id)
+    return filesystem_service.get_folder_tree(db, current_user, root_id)
 
 
 @router.get("/{folder_id}")
@@ -107,8 +113,8 @@ async def grant_folder_access(folder_id: str, request: Request) -> Response:
     """
     POST /folders/{id}/access -> grant a user permissions on this folder.
     Body: { user_id, permissions }
-    permissions is an integer bitfield (READ=1, WRITE=2, DELETE=4, ENRICH=8,
-    ADMIN=16). Idempotent - existing rule for the same user is updated.
+    permissions is an integer bitfield (READ=1, WRITE=2, DELETE=4, ENRICH=8).
+    Idempotent - existing rule for the same user is updated.
     Caller needs ADMIN permission.
     """
     raise NotImplementedError

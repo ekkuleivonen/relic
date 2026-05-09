@@ -65,7 +65,7 @@ def bucket_payload(name: str = "garage-hot") -> dict:
 
 
 def test_create_and_list_buckets(client):
-    create_response = client.post("/buckets/", json=bucket_payload())
+    create_response = client.post("/api/buckets/", json=bucket_payload())
 
     assert create_response.status_code == 200
     created = create_response.json()
@@ -77,29 +77,29 @@ def test_create_and_list_buckets(client):
     assert created["object_count"] == 0
     assert created["current_size_bytes"] == 0
 
-    list_response = client.get("/buckets/")
+    list_response = client.get("/api/buckets/")
 
     assert list_response.status_code == 200
     assert [bucket["name"] for bucket in list_response.json()] == ["garage-hot"]
 
 
 def test_create_bucket_rejects_duplicate_name(client):
-    assert client.post("/buckets/", json=bucket_payload()).status_code == 200
+    assert client.post("/api/buckets/", json=bucket_payload()).status_code == 200
 
-    response = client.post("/buckets/", json=bucket_payload())
+    response = client.post("/api/buckets/", json=bucket_payload())
 
     assert response.status_code == 409
 
 
 def test_get_and_update_bucket(client):
-    bucket_id = client.post("/buckets/", json=bucket_payload()).json()["id"]
+    bucket_id = client.post("/api/buckets/", json=bucket_payload()).json()["id"]
 
-    get_response = client.get(f"/buckets/{bucket_id}")
+    get_response = client.get(f"/api/buckets/{bucket_id}")
     assert get_response.status_code == 200
     assert get_response.json()["region"] == "garage"
 
     update_response = client.patch(
-        f"/buckets/{bucket_id}",
+        f"/api/buckets/{bucket_id}",
         json={
             "name": "garage-hot-renamed",
             "bucket": "blobs-renamed",
@@ -117,7 +117,7 @@ def test_get_and_update_bucket(client):
 
 
 def test_bucket_credentials_are_encrypted_at_rest(client, db_session):
-    bucket_id = uuid.UUID(client.post("/buckets/", json=bucket_payload()).json()["id"])
+    bucket_id = uuid.UUID(client.post("/api/buckets/", json=bucket_payload()).json()["id"])
     bucket_row = db_session.get(Bucket, bucket_id)
 
     assert bucket_row.key_id.startswith("GK")
@@ -127,20 +127,20 @@ def test_bucket_credentials_are_encrypted_at_rest(client, db_session):
 
 
 def test_delete_bucket(client):
-    bucket_id = client.post("/buckets/", json=bucket_payload()).json()["id"]
+    bucket_id = client.post("/api/buckets/", json=bucket_payload()).json()["id"]
 
-    delete_response = client.delete(f"/buckets/{bucket_id}")
+    delete_response = client.delete(f"/api/buckets/{bucket_id}")
 
     assert delete_response.status_code == 204
-    assert client.get(f"/buckets/{bucket_id}").status_code == 404
+    assert client.get(f"/api/buckets/{bucket_id}").status_code == 404
 
 
 def test_delete_bucket_with_blobs_returns_conflict(client, db_session):
-    bucket_id = uuid.UUID(client.post("/buckets/", json=bucket_payload()).json()["id"])
+    bucket_id = uuid.UUID(client.post("/api/buckets/", json=bucket_payload()).json()["id"])
     db_session.add(BlobFactory(bucket_id=bucket_id))
     db_session.commit()
 
-    response = client.delete(f"/buckets/{bucket_id}")
+    response = client.delete(f"/api/buckets/{bucket_id}")
 
     assert response.status_code == 409
     assert response.json()["detail"]["blob_count"] == 1
@@ -168,9 +168,9 @@ def test_probe_bucket_updates_operation_latencies(client, monkeypatch):
         return FakeS3Client()
 
     monkeypatch.setattr("services.buckets.boto3.client", fake_client)
-    bucket_id = client.post("/buckets/", json=bucket_payload()).json()["id"]
+    bucket_id = client.post("/api/buckets/", json=bucket_payload()).json()["id"]
 
-    response = client.post(f"/buckets/{bucket_id}/probe")
+    response = client.post(f"/api/buckets/{bucket_id}/probe")
 
     assert response.status_code == 200
     body = response.json()

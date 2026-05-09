@@ -4,6 +4,7 @@ import uuid
 from fastapi import APIRouter, Request, Response
 from pydantic import BaseModel, ConfigDict
 
+from api.dependencies import CurrentUser
 from database import DbSession
 from services import filesystem as filesystem_service
 
@@ -34,6 +35,7 @@ class FileRead(BaseModel):
 async def list_files(
     request: Request,
     db: DbSession,
+    current_user: CurrentUser,
     folder_id: uuid.UUID | None = None,
     recursive: bool = False,
 ) -> list[FileRead]:
@@ -48,7 +50,12 @@ async def list_files(
       ?order=created_at:desc  sort
     Returns files the caller has READ on (via folder ACL walk).
     """
-    return filesystem_service.list_files(db, folder_id=folder_id, recursive=recursive)
+    return filesystem_service.list_files(
+        db,
+        current_user,
+        folder_id=folder_id,
+        recursive=recursive,
+    )
 
 
 @router.post("/")

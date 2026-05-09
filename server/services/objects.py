@@ -10,8 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
-from models import Blob, Bucket, File, Folder
-from schema_plan import BucketTier
+from models import Blob, Bucket, File, Folder, User
+from schema_plan import BucketTier, Permission
+from services import folder_access as folder_access_service
 from services.placement import choose_bucket
 
 
@@ -30,8 +31,21 @@ def put_object(
     body: bytes,
     content_type: str | None,
     user_metadata: dict[str, str],
+    current_user: User | None = None,
 ) -> PutObjectResult:
-    folder, file_name = resolve_object_path(db, bucket_name=bucket_name, key=key)
+    folder, file_name = resolve_object_path(
+        db,
+        bucket_name=bucket_name,
+        key=key,
+        current_user=current_user,
+    )
+    if current_user is not None:
+        folder_access_service.require_folder_permission(
+            db,
+            current_user,
+            folder.id,
+            Permission.WRITE,
+        )
     ensure_file_name_available(db, folder.id, file_name)
 
     digest = hashlib.sha256(body).digest()
@@ -71,7 +85,13 @@ def put_object(
     return PutObjectResult(file=file, blob=blob, etag=digest_hex)
 
 
-def resolve_object_path(db: Session, *, bucket_name: str, key: str) -> tuple[Folder, str]:
+def resolve_object_path(
+    db: Session,
+    *,
+    bucket_name: str,
+    key: str,
+    current_user: User | None = None,
+) -> tuple[Folder, str]:
     normalized_key = normalize_key(key)
     parts = [part for part in PurePosixPath(normalized_key).parts if part not in ("", ".")]
     if not parts:
@@ -89,7 +109,12 @@ def resolve_object_path(db: Session, *, bucket_name: str, key: str) -> tuple[Fol
 
     parent = bucket_folder
     for folder_name in parts[:-1]:
-        parent = get_or_create_child_folder(db, parent=parent, name=folder_name)
+        parent = get_or_create_child_folder(
+            db,
+            parent=parent,
+            name=folder_name,
+            current_user=current_user,
+        )
     return parent, parts[-1]
 
 
@@ -100,12 +125,26 @@ def normalize_key(key: str) -> str:
     return normalized_key
 
 
-def get_or_create_child_folder(db: Session, *, parent: Folder, name: str) -> Folder:
+def get_or_create_child_folder(
+    db: Session,
+    *,
+    parent: Folder,
+    name: str,
+    current_user: User | None = None,
+) -> Folder:
     child = db.scalar(
         select(Folder).where(Folder.parent_id == parent.id, Folder.name == name)
     )
     if child:
         return child
+
+    if current_user is not None:
+        folder_access_service.require_folder_permission(
+            db,
+            current_user,
+            parent.id,
+            Permission.WRITE,
+        )
 
     child = Folder(
         parent_id=parent.id,

@@ -51,7 +51,7 @@ function TreeNode({
     [node.children]
   )
   const hasChildren = sortedChildren.length > 0
-  const href = buildFolderHref(pathSegments)
+  const href = buildFolderHref(node.id, pathSegments)
   const isSelected = selectedFolderId === node.id
 
   if (!hasChildren) {
@@ -110,10 +110,11 @@ function getNodeLabel(node: FolderTreeNode, pathSegments: string[]) {
   return node.name
 }
 
-function buildFolderHref(pathSegments: string[]) {
+function buildFolderHref(folderId: string, pathSegments: string[]) {
   if (pathSegments.length === 0) {
     return "/"
   }
 
-  return `/${pathSegments.map(encodeURIComponent).join("/")}`
+  return `/f/${encodeURIComponent(folderId)}`
 }
+

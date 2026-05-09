@@ -57,7 +57,7 @@ def user_payload(email: str = "ada@example.com") -> dict:
 
 
 def test_create_and_list_users(client, db_session):
-    create_response = client.post("/users/", json=user_payload())
+    create_response = client.post("/api/users/", json=user_payload())
 
     assert create_response.status_code == 200
     created = create_response.json()
@@ -72,7 +72,7 @@ def test_create_and_list_users(client, db_session):
     assert user.password_hash.startswith("pbkdf2_sha256$")
     assert user.password_hash != "correct horse battery staple"
 
-    list_response = client.get("/users/")
+    list_response = client.get("/api/users/")
 
     assert list_response.status_code == 200
     assert [user["email"] for user in list_response.json()] == [
@@ -82,16 +82,16 @@ def test_create_and_list_users(client, db_session):
 
 
 def test_list_users_allows_local_development_email(client):
-    response = client.get("/users/")
+    response = client.get("/api/users/")
 
     assert response.status_code == 200
     assert "admin@relic.local" in [user["email"] for user in response.json()]
 
 
 def test_create_user_rejects_duplicate_email(client):
-    assert client.post("/users/", json=user_payload()).status_code == 200
+    assert client.post("/api/users/", json=user_payload()).status_code == 200
 
-    response = client.post("/users/", json=user_payload())
+    response = client.post("/api/users/", json=user_payload())
 
     assert response.status_code == 409
     assert response.json()["detail"] == "User email already exists"
@@ -108,7 +108,7 @@ def test_update_user_mutable_fields(client, db_session):
     db_session.commit()
 
     response = client.patch(
-        f"/users/{user.id}",
+        f"/api/users/{user.id}",
         json={
             "name": "Grace Hopper",
             "email": "grace@example.com",
@@ -137,7 +137,7 @@ def test_delete_user(client, db_session):
     db_session.add(user)
     db_session.commit()
 
-    response = client.delete(f"/users/{user.id}")
+    response = client.delete(f"/api/users/{user.id}")
 
     assert response.status_code == 204
     assert db_session.get(User, user.id) is None

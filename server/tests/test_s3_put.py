@@ -10,11 +10,12 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
-from managers.exceptions import ConflictError
-from models import Base, Blob, Bucket, File, Folder
-from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier
+from managers.exceptions import ConflictError, ResourceNotFound
+from models import Base, Blob, Bucket, File, Folder, FolderAccess
+from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier, Permission, UserRole
+from services import objects as object_service
 from services.placement import choose_bucket
-from tests.factories.models import BlobFactory, BucketFactory
+from tests.factories.models import BlobFactory, BucketFactory, UserFactory
 
 
 @pytest.fixture()
@@ -242,3 +243,84 @@ def test_put_object_rejects_existing_file_name(
 
     assert response.status_code == 409
     assert response.json()["detail"] == "File already exists"
+
+
+def test_put_object_with_user_requires_write_permission(db_session, bucket_folder):
+    user = UserFactory.build(email="user@relic.local")
+    db_session.add(user)
+    db_session.commit()
+
+    with pytest.raises(ResourceNotFound):
+        object_service.put_object(
+            db_session,
+            bucket_name="photos",
+            key="cat.jpg",
+            body=b"cat",
+            content_type="image/jpeg",
+            user_metadata={},
+            current_user=user,
+        )
+
+
+def test_put_object_with_admin_user_bypasses_folder_access(
+    db_session, bucket_folder, monkeypatch
+):
+    physical_bucket = add_bucket(db_session, name="hot")
+    mark_healthy(physical_bucket)
+    admin = UserFactory.build(email="admin@relic.local", role=UserRole.ADMIN)
+    db_session.add(admin)
+    db_session.commit()
+
+    class FakeS3Client:
+        def put_object(self, Bucket, Key, Body):
+            return None
+
+    monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
+
+    result = object_service.put_object(
+        db_session,
+        bucket_name="photos",
+        key="cat.jpg",
+        body=b"cat",
+        content_type="image/jpeg",
+        user_metadata={},
+        current_user=admin,
+    )
+
+    assert result.file.name == "cat.jpg"
+
+
+def test_put_object_with_user_allows_inherited_write(
+    db_session, bucket_folder, monkeypatch
+):
+    physical_bucket = add_bucket(db_session, name="hot")
+    mark_healthy(physical_bucket)
+    user = UserFactory.build(email="user@relic.local")
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(
+        FolderAccess(
+            user_id=user.id,
+            folder_id=bucket_folder.id,
+            permissions=int(Permission.READ | Permission.WRITE),
+        )
+    )
+    db_session.commit()
+
+    class FakeS3Client:
+        def put_object(self, Bucket, Key, Body):
+            return None
+
+    monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
+
+    result = object_service.put_object(
+        db_session,
+        bucket_name="photos",
+        key="2026/cat.jpg",
+        body=b"cat",
+        content_type="image/jpeg",
+        user_metadata={},
+        current_user=user,
+    )
+
+    assert result.file.name == "cat.jpg"

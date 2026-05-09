@@ -41,7 +41,6 @@ class Permission(enum.IntFlag):
     WRITE = 2
     DELETE = 4
     ENRICH = 8  # for parsers/transformers updating meta
-    ADMIN = 16  # manage folder itself: schema, ACLs, child folders
 
 
 class BucketTier(enum.IntEnum):

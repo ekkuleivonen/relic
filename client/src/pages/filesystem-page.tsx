@@ -7,7 +7,7 @@ import {
   Home,
   RefreshCw,
 } from "lucide-react"
-import { Link, useParams } from "react-router"
+import { Link, useNavigate, useParams } from "react-router"
 
 import { FileTree } from "@/components/filesystem/file-tree"
 import { SidebarFooter } from "@/components/layout/sidebar-footer"
@@ -35,31 +35,41 @@ import type {
 
 export function FilesystemPage() {
   const params = useParams()
-  const pathSegments = React.useMemo(
+  const navigate = useNavigate()
+  const routeFolderId = params.folderId
+  const legacyPathSegments = React.useMemo(
     () => parsePathSegments(params["*"] ?? ""),
     [params]
   )
   const folderTree = useFolderTree()
   const selectedFolder = React.useMemo(
-    () => findFolderByPath(folderTree.data, pathSegments),
-    [folderTree.data, pathSegments]
+    () =>
+      routeFolderId
+        ? findFolderById(folderTree.data, routeFolderId)
+        : findFolderByPath(folderTree.data, legacyPathSegments),
+    [folderTree.data, legacyPathSegments, routeFolderId]
   )
   const folderFiles = useFolderFiles(selectedFolder?.id)
   const expandedFolderIds = React.useMemo(
-    () => getExpandedFolderIds(folderTree.data, pathSegments),
-    [folderTree.data, pathSegments]
+    () => getExpandedFolderIds(folderTree.data, selectedFolder?.id),
+    [folderTree.data, selectedFolder?.id]
   )
   const entries = React.useMemo(
     () =>
       selectedFolder
         ? buildFolderEntries(
             selectedFolder,
-            folderFiles.data ?? [],
-            pathSegments
+            folderFiles.data ?? []
           )
         : [],
-    [folderFiles.data, pathSegments, selectedFolder]
+    [folderFiles.data, selectedFolder]
   )
+
+  React.useEffect(() => {
+    if (!routeFolderId && selectedFolder && legacyPathSegments.length > 0) {
+      navigate(buildFolderRoute(selectedFolder), { replace: true })
+    }
+  }, [legacyPathSegments.length, navigate, routeFolderId, selectedFolder])
 
   return (
     <div className="min-h-svh bg-background text-foreground">
@@ -90,7 +100,11 @@ export function FilesystemPage() {
         <main className="min-w-0 p-4 lg:p-8">
           <div className="mx-auto max-w-6xl space-y-6">
             <div className="space-y-3">
-              <FilesystemBreadcrumbs pathSegments={pathSegments} />
+              <FilesystemBreadcrumbs
+                root={folderTree.data}
+                selectedFolder={selectedFolder}
+                fallbackPathSegments={legacyPathSegments}
+              />
               <div>
                 <h1 className="text-2xl font-semibold tracking-tight">
                   {selectedFolder?.name || "Filesystem"}
@@ -183,12 +197,25 @@ function renderContentState({
   return <EntryList entries={entries} />
 }
 
-function FilesystemBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
+function FilesystemBreadcrumbs({
+  root,
+  selectedFolder,
+  fallbackPathSegments,
+}: {
+  root: FolderTreeNode | undefined
+  selectedFolder: FolderTreeNode | undefined
+  fallbackPathSegments: string[]
+}) {
+  const pathSegments = selectedFolder
+    ? parsePathSegments(selectedFolder.path)
+    : fallbackPathSegments
+  const parts = buildBreadcrumbParts(root, selectedFolder, pathSegments)
+
   return (
     <Breadcrumb>
       <BreadcrumbList>
         <BreadcrumbItem>
-          {pathSegments.length === 0 ? (
+          {selectedFolder?.parent_id === null || pathSegments.length === 0 ? (
             <BreadcrumbPage className="inline-flex items-center gap-1">
               <Home className="size-3.5" />
               Root
@@ -202,25 +229,22 @@ function FilesystemBreadcrumbs({ pathSegments }: { pathSegments: string[] }) {
             </BreadcrumbLink>
           )}
         </BreadcrumbItem>
-        {pathSegments.map((segment, index) => {
-          const isLast = index === pathSegments.length - 1
-          const href = buildFolderHref(pathSegments.slice(0, index + 1))
-
-          return (
-            <React.Fragment key={`${segment}-${index}`}>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                {isLast ? (
-                  <BreadcrumbPage>{segment}</BreadcrumbPage>
-                ) : (
-                  <BreadcrumbLink asChild>
-                    <Link to={href}>{segment}</Link>
-                  </BreadcrumbLink>
-                )}
-              </BreadcrumbItem>
-            </React.Fragment>
-          )
-        })}
+        {parts.map((part) => (
+          <React.Fragment key={part.key}>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              {part.current ? (
+                <BreadcrumbPage>{part.label}</BreadcrumbPage>
+              ) : part.href ? (
+                <BreadcrumbLink asChild>
+                  <Link to={part.href}>{part.label}</Link>
+                </BreadcrumbLink>
+              ) : (
+                <span className="text-muted-foreground">{part.label}</span>
+              )}
+            </BreadcrumbItem>
+          </React.Fragment>
+        ))}
       </BreadcrumbList>
     </Breadcrumb>
   )
@@ -345,8 +369,7 @@ function ContentSkeleton() {
 
 function buildFolderEntries(
   folder: FolderTreeNode,
-  files: FileSystemFile[],
-  pathSegments: string[]
+  files: FileSystemFile[]
 ): FileSystemEntry[] {
   const folderEntries = [...folder.children]
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -354,7 +377,7 @@ function buildFolderEntries(
       kind: "folder",
       id: child.id,
       name: child.name,
-      href: buildFolderHref([...pathSegments, child.name]),
+      href: buildFolderRoute(child),
       child_count: child.children.length,
     }))
   const fileEntries = [...files]
@@ -379,36 +402,139 @@ function findFolderByPath(
     return undefined
   }
 
-  return pathSegments.reduce<FolderTreeNode | undefined>((folder, segment) => {
-    if (!folder) {
-      return undefined
-    }
-
-    return folder.children.find((child) => child.name === segment)
-  }, root)
+  const targetPath = buildPathHref(pathSegments)
+  return findFolderByHref(root, targetPath)
 }
 
 function getExpandedFolderIds(
   root: FolderTreeNode | undefined,
-  pathSegments: string[]
+  selectedFolderId: string | undefined
 ) {
-  const ids = new Set<string>()
-  let folder = root
+  const ids = selectedFolderId
+    ? getDisplayedAncestorIds(root, selectedFolderId)
+    : new Set<string>()
+  if (root) {
+    ids.add(root.id)
+  }
+  return ids
+}
 
-  if (folder) {
-    ids.add(folder.id)
+function findFolderByHref(
+  folder: FolderTreeNode | undefined,
+  href: string
+): FolderTreeNode | undefined {
+  if (!folder) {
+    return undefined
   }
 
-  for (const segment of pathSegments) {
-    folder = folder?.children.find((child) => child.name === segment)
-    if (!folder) {
-      break
+  if (buildPathHref(parsePathSegments(folder.path)) === href) {
+    return folder
+  }
+
+  for (const child of folder.children) {
+    const match = findFolderByHref(child, href)
+    if (match) {
+      return match
+    }
+  }
+
+  return undefined
+}
+
+function getDisplayedAncestorIds(
+  folder: FolderTreeNode | undefined,
+  selectedFolderId: string
+): Set<string> {
+  if (!folder) {
+    return new Set()
+  }
+
+  if (folder.id === selectedFolderId) {
+    return new Set([folder.id])
+  }
+
+  for (const child of folder.children) {
+    const ids = getDisplayedAncestorIds(child, selectedFolderId)
+    if (ids.size > 0) {
+      ids.add(folder.id)
+      return ids
+    }
+  }
+
+  return new Set()
+}
+
+function findFolderById(
+  folder: FolderTreeNode | undefined,
+  folderId: string
+): FolderTreeNode | undefined {
+  if (!folder) {
+    return undefined
+  }
+
+  if (folder.id === folderId) {
+    return folder
+  }
+
+  for (const child of folder.children) {
+    const match = findFolderById(child, folderId)
+    if (match) {
+      return match
+    }
+  }
+
+  return undefined
+}
+
+type BreadcrumbPart = {
+  key: string
+  label: string
+  current: boolean
+  href?: string
+}
+
+function buildBreadcrumbParts(
+  root: FolderTreeNode | undefined,
+  selectedFolder: FolderTreeNode | undefined,
+  pathSegments: string[]
+): BreadcrumbPart[] {
+  const parts: BreadcrumbPart[] = []
+  let hiddenInserted = false
+
+  for (let index = 0; index < pathSegments.length; index += 1) {
+    const segment = pathSegments[index]
+    const isLast = index === pathSegments.length - 1
+    const visibleFolder = findFolderByPath(root, pathSegments.slice(0, index + 1))
+
+    if (!visibleFolder) {
+      if (!hiddenInserted) {
+        parts.push({
+          key: `hidden-${index}`,
+          label: "…",
+          current: false,
+        })
+        hiddenInserted = true
+      }
+      continue
     }
 
-    ids.add(folder.id)
+    parts.push({
+      key: visibleFolder.id,
+      label: segment,
+      current: isLast,
+      href: isLast ? undefined : buildFolderRoute(visibleFolder),
+    })
   }
 
-  return ids
+  if (parts.length === 0 && selectedFolder && selectedFolder.parent_id !== null) {
+    parts.push({
+      key: selectedFolder.id,
+      label: selectedFolder.name,
+      current: true,
+    })
+  }
+
+  return parts
 }
 
 function parsePathSegments(path: string) {
@@ -418,12 +544,20 @@ function parsePathSegments(path: string) {
     .map((segment) => decodeURIComponent(segment))
 }
 
-function buildFolderHref(pathSegments: string[]) {
+function buildPathHref(pathSegments: string[]) {
   if (pathSegments.length === 0) {
     return "/"
   }
 
   return `/${pathSegments.map(encodeURIComponent).join("/")}`
+}
+
+function buildFolderRoute(folder: FolderTreeNode) {
+  if (folder.parent_id === null) {
+    return "/"
+  }
+
+  return `/f/${encodeURIComponent(folder.id)}`
 }
 
 function formatBytes(bytes: number | undefined) {

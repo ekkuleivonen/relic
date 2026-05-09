@@ -1,0 +1,359 @@
+import uuid
+from dataclasses import dataclass
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from managers.exceptions import BadRequestError, ResourceNotFound
+from models import Folder, FolderAccess, User
+from schema_plan import Permission, UserRole
+from utils.logging import get_logger
+
+log = get_logger(__name__)
+
+
+PERMISSION_MASK = (
+    Permission.READ
+    | Permission.WRITE
+    | Permission.DELETE
+    | Permission.ENRICH
+)
+ALL_PERMISSIONS = int(PERMISSION_MASK)
+
+
+@dataclass(frozen=True)
+class FolderAccessRow:
+    """A FolderAccess row enriched with the user object and the folder path."""
+
+    access: FolderAccess
+    user: User
+    folder_path: str
+
+
+def list_folder_access(db: Session) -> list[FolderAccessRow]:
+    rows = list(
+        db.execute(
+            select(FolderAccess, User)
+            .join(User, User.id == FolderAccess.user_id)
+            .order_by(User.email, FolderAccess.folder_id)
+        ).all()
+    )
+    folder_ids = {row.FolderAccess.folder_id for row in rows}
+    paths = compute_folder_paths(db, folder_ids)
+    return [
+        FolderAccessRow(
+            access=row.FolderAccess,
+            user=row.User,
+            folder_path=paths[row.FolderAccess.folder_id],
+        )
+        for row in rows
+    ]
+
+
+def grant_folder_access(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    folder_id: uuid.UUID,
+    permissions: int,
+) -> FolderAccessRow:
+    """Insert or update an access grant. Idempotent on (user_id, folder_id)."""
+    validate_permissions(permissions)
+    user = require_user(db, user_id)
+    folder = require_folder(db, folder_id)
+
+    existing = db.scalar(
+        select(FolderAccess).where(
+            FolderAccess.user_id == user_id,
+            FolderAccess.folder_id == folder_id,
+        )
+    )
+    if existing:
+        existing.permissions = int(permissions)
+        access = existing
+        action = "updated"
+    else:
+        access = FolderAccess(
+            user_id=user_id,
+            folder_id=folder_id,
+            permissions=int(permissions),
+        )
+        db.add(access)
+        action = "created"
+
+    db.commit()
+    db.refresh(access)
+
+    log.info(
+        "folder_access_grant",
+        action=action,
+        user_id=str(user_id),
+        folder_id=str(folder_id),
+        permissions=int(permissions),
+    )
+    return FolderAccessRow(
+        access=access,
+        user=user,
+        folder_path=resolve_folder_path(db, folder),
+    )
+
+
+def revoke_folder_access(db: Session, access_id: uuid.UUID) -> None:
+    access = db.get(FolderAccess, access_id)
+    if not access:
+        raise ResourceNotFound("Folder access grant not found")
+
+    db.delete(access)
+    db.commit()
+    log.info(
+        "folder_access_revoke",
+        access_id=str(access_id),
+        user_id=str(access.user_id),
+        folder_id=str(access.folder_id),
+    )
+
+
+def get_effective_permissions(db: Session, user: User, folder_id: uuid.UUID) -> int:
+    folder = require_folder(db, folder_id)
+    if user.role == UserRole.ADMIN:
+        return ALL_PERMISSIONS
+
+    ancestor_ids = collect_ancestor_folder_ids(db, folder.id)
+    grants = db.scalars(
+        select(FolderAccess).where(
+            FolderAccess.user_id == user.id,
+            FolderAccess.folder_id.in_(ancestor_ids),
+        )
+    ).all()
+
+    permissions = 0
+    for grant in grants:
+        permissions |= grant.permissions
+    return permissions
+
+
+def require_folder_permission(
+    db: Session,
+    user: User,
+    folder_id: uuid.UUID,
+    required: Permission,
+) -> int:
+    permissions = get_effective_permissions(db, user, folder_id)
+    if not permissions & int(required):
+        raise ResourceNotFound("Folder not found")
+    return permissions
+
+
+def visible_folder_ids(db: Session, user: User) -> set[uuid.UUID]:
+    folders = db.execute(select(Folder.id, Folder.parent_id)).all()
+    if user.role == UserRole.ADMIN:
+        return {folder_id for folder_id, _ in folders}
+
+    children_by_parent: dict[uuid.UUID | None, list[uuid.UUID]] = {}
+    for folder_id, parent_id in folders:
+        children_by_parent.setdefault(parent_id, []).append(folder_id)
+
+    direct_grants = db.scalars(
+        select(FolderAccess).where(FolderAccess.user_id == user.id)
+    ).all()
+    visible: set[uuid.UUID] = set()
+    queue = [
+        grant.folder_id
+        for grant in direct_grants
+        if grant.permissions & int(Permission.READ)
+    ]
+
+    while queue:
+        folder_id = queue.pop(0)
+        if folder_id in visible:
+            continue
+        visible.add(folder_id)
+        queue.extend(children_by_parent.get(folder_id, []))
+
+    return visible
+
+
+def filter_visible_tree(
+    db: Session,
+    user: User,
+    *,
+    root_id: uuid.UUID | None = None,
+) -> Folder:
+    root = get_tree_root(db, root_id)
+    visible_ids = visible_folder_ids(db, user)
+    if root_id is not None and user.role != UserRole.ADMIN and root.id not in visible_ids:
+        raise ResourceNotFound("Root folder not found")
+
+    permissions_by_folder = effective_permissions_by_folder(db, user)
+    paths = compute_folder_paths(db, {folder_id for folder_id, _ in db.execute(select(Folder.id, Folder.parent_id)).all()})
+    folders = list(db.scalars(select(Folder).order_by(Folder.name)).all())
+    children_by_parent: dict[uuid.UUID | None, list[Folder]] = {}
+    for folder in folders:
+        folder.path = paths[folder.id]
+        children_by_parent.setdefault(folder.parent_id, []).append(folder)
+
+    root.path = paths[root.id]
+    root.effective_permissions = permissions_by_folder.get(root.id, 0)
+    root.children = build_visible_children(root, children_by_parent, visible_ids, permissions_by_folder)
+    return root
+
+
+def effective_permissions_by_folder(
+    db: Session,
+    user: User,
+) -> dict[uuid.UUID, int]:
+    folders = db.execute(select(Folder.id, Folder.parent_id)).all()
+    if user.role == UserRole.ADMIN:
+        return {folder_id: ALL_PERMISSIONS for folder_id, _ in folders}
+
+    children_by_parent: dict[uuid.UUID | None, list[uuid.UUID]] = {}
+    for folder_id, parent_id in folders:
+        children_by_parent.setdefault(parent_id, []).append(folder_id)
+
+    grants_by_folder: dict[uuid.UUID, int] = {}
+    grants = db.scalars(select(FolderAccess).where(FolderAccess.user_id == user.id)).all()
+    for grant in grants:
+        grants_by_folder[grant.folder_id] = (
+            grants_by_folder.get(grant.folder_id, 0) | grant.permissions
+        )
+
+    permissions_by_folder: dict[uuid.UUID, int] = {}
+
+    def walk(folder_id: uuid.UUID, inherited: int) -> None:
+        permissions = inherited | grants_by_folder.get(folder_id, 0)
+        permissions_by_folder[folder_id] = permissions
+        for child_id in children_by_parent.get(folder_id, []):
+            walk(child_id, permissions)
+
+    for root_id in children_by_parent.get(None, []):
+        walk(root_id, 0)
+
+    return permissions_by_folder
+
+
+def collect_ancestor_folder_ids(db: Session, folder_id: uuid.UUID) -> list[uuid.UUID]:
+    rows = db.execute(select(Folder.id, Folder.parent_id)).all()
+    parent_by_folder = {row.id: row.parent_id for row in rows}
+    ancestor_ids = [folder_id]
+    cursor = parent_by_folder.get(folder_id)
+    while cursor is not None:
+        ancestor_ids.append(cursor)
+        cursor = parent_by_folder.get(cursor)
+    return ancestor_ids
+
+
+def get_tree_root(db: Session, root_id: uuid.UUID | None) -> Folder:
+    if root_id is not None:
+        root = db.get(Folder, root_id)
+    else:
+        root = db.scalar(select(Folder).where(Folder.parent_id.is_(None)))
+
+    if not root:
+        raise ResourceNotFound("Root folder not found")
+
+    return root
+
+
+def build_visible_children(
+    folder: Folder,
+    children_by_parent: dict[uuid.UUID | None, list[Folder]],
+    visible_ids: set[uuid.UUID],
+    permissions_by_folder: dict[uuid.UUID, int],
+) -> list[Folder]:
+    visible_children: list[Folder] = []
+
+    for child in sorted(children_by_parent.get(folder.id, []), key=lambda item: item.name):
+        child.effective_permissions = permissions_by_folder.get(child.id, 0)
+        child.children = build_visible_children(
+            child,
+            children_by_parent,
+            visible_ids,
+            permissions_by_folder,
+        )
+        if child.id in visible_ids:
+            visible_children.append(child)
+        else:
+            visible_children.extend(child.children)
+
+    return visible_children
+
+
+def validate_permissions(permissions: int) -> None:
+    if permissions <= 0:
+        raise BadRequestError("Permissions must include at least one capability")
+
+    if permissions & ~int(PERMISSION_MASK):
+        raise BadRequestError("Permissions contain unknown bits")
+
+    has_read = bool(permissions & int(Permission.READ))
+    needs_read = bool(
+        permissions & int(Permission.WRITE | Permission.DELETE | Permission.ENRICH)
+    )
+    if needs_read and not has_read:
+        raise BadRequestError(
+            "Write, delete, and enrich grants require read access"
+        )
+
+
+def require_user(db: Session, user_id: uuid.UUID) -> User:
+    user = db.get(User, user_id)
+    if not user:
+        raise ResourceNotFound("User not found")
+    return user
+
+
+def require_folder(db: Session, folder_id: uuid.UUID) -> Folder:
+    folder = db.get(Folder, folder_id)
+    if not folder:
+        raise ResourceNotFound("Folder not found")
+    return folder
+
+
+def compute_folder_paths(
+    db: Session, folder_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, str]:
+    """Resolve full paths for the given folder ids by walking the folder tree once."""
+    if not folder_ids:
+        return {}
+
+    rows = db.execute(select(Folder.id, Folder.parent_id, Folder.name)).all()
+    parent_of: dict[uuid.UUID, uuid.UUID | None] = {}
+    name_of: dict[uuid.UUID, str] = {}
+    for folder_id, parent_id, name in rows:
+        parent_of[folder_id] = parent_id
+        name_of[folder_id] = name
+
+    cache: dict[uuid.UUID, str] = {}
+
+    def path_for(folder_id: uuid.UUID) -> str:
+        if folder_id in cache:
+            return cache[folder_id]
+
+        segments: list[str] = []
+        cursor: uuid.UUID | None = folder_id
+        while cursor is not None and cursor not in cache:
+            segments.append(name_of[cursor])
+            cursor = parent_of[cursor]
+
+        prefix = cache[cursor] if cursor is not None else ""
+        path = prefix
+        for name in reversed(segments):
+            path = format_path_segment(path, name)
+        cache[folder_id] = path
+        return path
+
+    return {folder_id: path_for(folder_id) for folder_id in folder_ids}
+
+
+def resolve_folder_path(db: Session, folder: Folder) -> str:
+    return compute_folder_paths(db, {folder.id})[folder.id]
+
+
+def format_path_segment(prefix: str, name: str) -> str:
+    """Compose a folder path. Root folder (empty name) renders as '/'."""
+    if name == "":
+        return "/"
+    if prefix in ("", "/"):
+        return f"/{name}"
+    return f"{prefix}/{name}"
+

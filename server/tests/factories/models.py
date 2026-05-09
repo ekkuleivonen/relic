@@ -1,7 +1,8 @@
 import factory
 
-from models import Blob, Bucket
-from schema_plan import BucketTier
+from models import Blob, Bucket, Folder, FolderAccess, User
+from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier, Permission, UserRole
+from utils.passwords import hash_password
 
 
 class BucketFactory(factory.Factory):
@@ -26,3 +27,33 @@ class BlobFactory(factory.Factory):
     bucket_key = factory.Sequence(lambda n: f"objects/{n}")
     content_hash = factory.Sequence(lambda n: n.to_bytes(32, "big"))
     refcount = 1
+
+
+class UserFactory(factory.Factory):
+    class Meta:
+        model = User
+
+    name = factory.Sequence(lambda n: f"User {n}")
+    email = factory.Sequence(lambda n: f"user-{n}@relic.local")
+    password_hash = factory.LazyFunction(lambda: hash_password("password"))
+    role = UserRole.USER
+
+
+class FolderFactory(factory.Factory):
+    class Meta:
+        model = Folder
+
+    name = factory.Sequence(lambda n: f"folder-{n}")
+    parent_id = None
+    schema = factory.LazyFunction(lambda: dict(ROOT_FOLDER_SCHEMA))
+    cooldown_days = None
+    min_tier = BucketTier.HOT
+
+
+class FolderAccessFactory(factory.Factory):
+    class Meta:
+        model = FolderAccess
+
+    user_id = None
+    folder_id = None
+    permissions = int(Permission.READ)

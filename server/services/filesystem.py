@@ -5,23 +5,26 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from managers.exceptions import ResourceNotFound
-from models import File, Folder
+from models import File, Folder, User
+from schema_plan import Permission
+from services import folder_access as folder_access_service
 
 
-def get_folder_tree(db: Session, root_id: uuid.UUID | None = None) -> Folder:
-    root = get_tree_root(db, root_id)
-    folders = db.scalars(select(Folder).order_by(Folder.name)).all()
-    children_by_parent: dict[uuid.UUID | None, list[Folder]] = defaultdict(list)
-
-    for folder in folders:
-        children_by_parent[folder.parent_id].append(folder)
-
-    attach_children(root, children_by_parent)
-    return root
+def get_folder_tree(
+    db: Session,
+    current_user: User,
+    root_id: uuid.UUID | None = None,
+) -> Folder:
+    return folder_access_service.filter_visible_tree(
+        db,
+        current_user,
+        root_id=root_id,
+    )
 
 
 def list_files(
     db: Session,
+    current_user: User,
     *,
     folder_id: uuid.UUID | None = None,
     recursive: bool = False,
@@ -29,14 +32,25 @@ def list_files(
     query = select(File).order_by(File.name)
 
     if folder_id is None:
-        return list(db.scalars(query).all())
+        visible_ids = folder_access_service.visible_folder_ids(db, current_user)
+        if not visible_ids:
+            return []
+        return list(db.scalars(query.where(File.folder_id.in_(visible_ids))).all())
 
     folder = db.get(Folder, folder_id)
     if not folder:
         raise ResourceNotFound("Folder not found")
+    folder_access_service.require_folder_permission(
+        db,
+        current_user,
+        folder_id,
+        Permission.READ,
+    )
 
     if recursive:
         folder_ids = collect_descendant_folder_ids(db, folder_id)
+        visible_ids = folder_access_service.visible_folder_ids(db, current_user)
+        folder_ids = [folder_id for folder_id in folder_ids if folder_id in visible_ids]
         return list(db.scalars(query.where(File.folder_id.in_(folder_ids))).all())
 
     return list(db.scalars(query.where(File.folder_id == folder_id)).all())
