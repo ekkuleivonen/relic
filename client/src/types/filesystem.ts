@@ -50,3 +50,17 @@ export type FileSystemEntry =
       mime_type?: string
       updated_at: string
     }
+
+export type PresignUploadRequest = {
+  folder_id: string
+  filename: string
+  file_size: number
+  mime_type: string | null
+  meta: Record<string, string>
+}
+
+export type PresignUploadResponse = {
+  url: string
+  headers: Record<string, string>
+  expires_at: string
+}

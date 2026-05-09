@@ -6,6 +6,7 @@ from pathlib import PurePosixPath
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
+from jsonschema import ValidationError, validate
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -47,6 +48,13 @@ def put_object(
             Permission.WRITE,
         )
     ensure_file_name_available(db, folder.id, file_name)
+    meta = build_file_meta(
+        key=key,
+        body=body,
+        content_type=content_type,
+        user_metadata=user_metadata,
+    )
+    validate_metadata_against_schema(folder, meta)
 
     digest = hashlib.sha256(body).digest()
     digest_hex = digest.hex()
@@ -71,12 +79,7 @@ def put_object(
         folder_id=folder.id,
         blob_id=blob.id,
         name=file_name,
-        meta=build_file_meta(
-            key=key,
-            body=body,
-            content_type=content_type,
-            user_metadata=user_metadata,
-        ),
+        meta=meta,
     )
     db.add(file)
     db.commit()
@@ -225,3 +228,28 @@ def build_file_meta(
         "mime_type": content_type or "application/octet-stream",
         "extension": extension,
     }
+
+
+def build_predicted_file_meta(
+    *,
+    key: str,
+    file_size: int,
+    content_type: str | None,
+    user_metadata: dict[str, str],
+) -> dict:
+    file_name = PurePosixPath(key).name
+    extension = PurePosixPath(file_name).suffix
+    return {
+        **user_metadata,
+        "original_name": file_name,
+        "file_size": file_size,
+        "mime_type": content_type or "application/octet-stream",
+        "extension": extension,
+    }
+
+
+def validate_metadata_against_schema(folder: Folder, meta: dict) -> None:
+    try:
+        validate(instance=meta, schema=folder.schema)
+    except ValidationError as exc:
+        raise BadRequestError(f"Invalid metadata: {exc.message}") from exc

@@ -1,7 +1,11 @@
 from fastapi import APIRouter, Request, Response
+from xml.sax.saxutils import escape
 
 from database import DbSession
+from managers.exceptions import BadRequestError, ConflictError, DomainError
+from models import User
 from services import objects as object_service
+from services import s3_signing
 
 router = APIRouter()
 
@@ -92,14 +96,29 @@ async def put_object(bucket: str, key: str, request: Request, db: DbSession) -> 
 
     Response body is empty per S3 convention.
     """
-    result = object_service.put_object(
-        db,
-        bucket_name=bucket,
-        key=key,
-        body=await request.body(),
-        content_type=request.headers.get("content-type"),
-        user_metadata=extract_user_metadata(request),
-    )
+    try:
+        verified = s3_signing.verify_signed_request(request)
+        user = db.get(User, verified.user_id)
+        if user is None:
+            return s3_error_response(
+                "InvalidAccessKeyId",
+                "The signed user no longer exists",
+                status_code=403,
+            )
+        result = object_service.put_object(
+            db,
+            bucket_name=bucket,
+            key=key,
+            body=await request.body(),
+            content_type=request.headers.get("content-type"),
+            user_metadata=extract_user_metadata(request),
+            current_user=user,
+        )
+    except s3_signing.S3SigningError as exc:
+        return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
+    except DomainError as exc:
+        return domain_error_response(exc)
+
     return Response(status_code=200, headers={"ETag": f'"{result.etag}"'})
 
 
@@ -109,7 +128,31 @@ def extract_user_metadata(request: Request) -> dict[str, str]:
         header_name.removeprefix(prefix): header_value
         for header_name, header_value in request.headers.items()
         if header_name.startswith(prefix)
+        and header_name != s3_signing.USER_BINDING_HEADER
     }
+
+
+def domain_error_response(exc: DomainError) -> Response:
+    if isinstance(exc, ConflictError):
+        return s3_error_response("Conflict", str(exc.detail), status_code=409)
+    if isinstance(exc, BadRequestError):
+        return s3_error_response("InvalidRequest", str(exc.detail), status_code=400)
+    return s3_error_response("AccessDenied", "Access denied", status_code=403)
+
+
+def s3_error_response(code: str, message: str, *, status_code: int) -> Response:
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<Error>"
+        f"<Code>{escape(code)}</Code>"
+        f"<Message>{escape(message)}</Message>"
+        "</Error>"
+    )
+    return Response(
+        content=body,
+        status_code=status_code,
+        media_type="application/xml",
+    )
 
 
 @router.head("/{bucket}/{key:path}")

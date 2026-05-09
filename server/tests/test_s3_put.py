@@ -120,7 +120,7 @@ def test_choose_bucket_raises_when_no_bucket_has_capacity(db_session):
 
 
 def test_put_object_uploads_new_blob_and_creates_file(
-    client, db_session, bucket_folder, monkeypatch
+    db_session, bucket_folder, monkeypatch
 ):
     physical_bucket = add_bucket(db_session, name="hot")
     mark_healthy(physical_bucket)
@@ -134,16 +134,18 @@ def test_put_object_uploads_new_blob_and_creates_file(
 
     monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
 
-    response = client.put(
-        "/photos/2026/cat.jpg",
-        content=body,
-        headers={"content-type": "image/jpeg", "x-amz-meta-album": "spring"},
+    result = object_service.put_object(
+        db_session,
+        bucket_name="photos",
+        key="2026/cat.jpg",
+        body=body,
+        content_type="image/jpeg",
+        user_metadata={"album": "spring"},
     )
 
-    assert response.status_code == 200
     digest = hashlib.sha256(body).digest()
     digest_hex = digest.hex()
-    assert response.headers["etag"] == f'"{digest_hex}"'
+    assert result.etag == digest_hex
     assert len(uploaded) == 1
     assert uploaded[0]["Bucket"] == "blobs"
     assert uploaded[0]["Body"] == body
@@ -182,7 +184,7 @@ def test_put_object_uploads_new_blob_and_creates_file(
     assert file.meta["album"] == "spring"
 
 
-def test_put_object_dedupes_existing_blob(client, db_session, bucket_folder, monkeypatch):
+def test_put_object_dedupes_existing_blob(db_session, bucket_folder, monkeypatch):
     physical_bucket = add_bucket(db_session, name="hot")
     mark_healthy(physical_bucket)
     body = b"same bytes"
@@ -200,9 +202,16 @@ def test_put_object_dedupes_existing_blob(client, db_session, bucket_folder, mon
 
     monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
 
-    response = client.put("/photos/copy.txt", content=body)
+    result = object_service.put_object(
+        db_session,
+        bucket_name="photos",
+        key="copy.txt",
+        body=body,
+        content_type=None,
+        user_metadata={},
+    )
 
-    assert response.status_code == 200
+    assert result.file.name == "copy.txt"
     db_session.refresh(blob)
     db_session.refresh(physical_bucket)
     assert blob.refcount == 2
@@ -211,7 +220,7 @@ def test_put_object_dedupes_existing_blob(client, db_session, bucket_folder, mon
 
 
 def test_put_object_rejects_existing_file_name(
-    client, db_session, root_folder, bucket_folder, monkeypatch
+    db_session, root_folder, bucket_folder, monkeypatch
 ):
     physical_bucket = add_bucket(db_session, name="hot")
     mark_healthy(physical_bucket)
@@ -239,10 +248,15 @@ def test_put_object_rejects_existing_file_name(
 
     monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
 
-    response = client.put("/photos/cat.jpg", content=b"new")
-
-    assert response.status_code == 409
-    assert response.json()["detail"] == "File already exists"
+    with pytest.raises(ConflictError, match="File already exists"):
+        object_service.put_object(
+            db_session,
+            bucket_name="photos",
+            key="cat.jpg",
+            body=b"new",
+            content_type=None,
+            user_metadata={},
+        )
 
 
 def test_put_object_with_user_requires_write_permission(db_session, bucket_folder):
