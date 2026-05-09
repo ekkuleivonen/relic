@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useLocation } from "react-router"
 
+import { SearchPaletteProvider } from "@/components/search/search-palette-provider"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useSession } from "@/hooks/use-session"
 
@@ -23,7 +24,14 @@ export function RequireSession({ requireAdmin = false }: RequireSessionProps) {
     return <Navigate to="/" replace />
   }
 
-  return <Outlet />
+  // Mount the search palette host inside the auth boundary so Cmd+K and the
+  // sidebar trigger are available everywhere a logged-in user is, without
+  // duplicating the provider in every layout.
+  return (
+    <SearchPaletteProvider>
+      <Outlet />
+    </SearchPaletteProvider>
+  )
 }
 
 function SessionLoading() {

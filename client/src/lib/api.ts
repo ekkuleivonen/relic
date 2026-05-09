@@ -1,6 +1,15 @@
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "/api"
 
+export function resolveServerUrl(pathOrUrl: string) {
+  if (/^[a-z][a-z\d+\-.]*:/i.test(pathOrUrl)) {
+    return pathOrUrl
+  }
+
+  const apiBase = new URL(API_BASE_URL, window.location.origin)
+  return new URL(pathOrUrl, apiBase.origin).toString()
+}
+
 export class ApiError extends Error {
   status: number
   detail: unknown

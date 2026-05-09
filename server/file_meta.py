@@ -82,7 +82,7 @@ def merge_parser_meta(*, existing: dict[str, Any], parsed: dict[str, Any]) -> di
             "schema_version": current["schema_version"],
             "size": current["size"],
             "extension": current["extension"],
-            "mimetype": current["mimetype"],
+            "mimetype": _merge_mimetype(current["mimetype"], parser_meta["mimetype"]),
             "original_filename": current["original_filename"],
             "tags": _merge_lists(current["tags"], parser_meta["tags"]),
             "keywords": _merge_lists(current["keywords"], parser_meta["keywords"]),
@@ -90,6 +90,12 @@ def merge_parser_meta(*, existing: dict[str, Any], parsed: dict[str, Any]) -> di
             "kvs": {**parser_meta["kvs"], **current["kvs"]},
         }
     ).model_dump(mode="json")
+
+
+def _merge_mimetype(current: str, parsed: str) -> str:
+    if current == "application/octet-stream" and parsed != "application/octet-stream":
+        return parsed
+    return current
 
 
 def build_parser_meta(

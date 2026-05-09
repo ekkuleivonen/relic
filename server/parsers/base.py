@@ -79,6 +79,13 @@ def detect_mime_type(*, prefix: bytes, filename: str) -> str:
     signature = detect_signature_mime_type(prefix)
     if signature:
         return signature
+    if filename.lower().endswith(".parquet"):
+        return "application/vnd.apache.parquet"
+    lower_fn = filename.lower()
+    if lower_fn.endswith((".htm", ".html")):
+        return "text/html"
+    if lower_fn.endswith(".xhtml"):
+        return "application/xhtml+xml"
     guessed, _ = mimetypes.guess_type(filename)
     return guessed or "application/octet-stream"
 
@@ -100,6 +107,9 @@ def detect_signature_mime_type(prefix: bytes) -> str | None:
         return "application/vnd.apache.parquet"
     if prefix.startswith(b"SQLite format 3\x00"):
         return "application/vnd.sqlite3"
+    head = prefix.lstrip(b"\xef\xbb\xbf \t\r\n").lower()
+    if head.startswith(b"<!doctype html") or head.startswith(b"<html"):
+        return "text/html"
     return None
 
 
@@ -204,10 +214,29 @@ def maybe_run_toolchain(
             merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
             parser_meta.clear()
             parser_meta.update(merged)
-        elif mime_type == "application/vnd.apache.parquet":
+        elif is_parquet_file(mime_type=mime_type, parser_meta=parser_meta):
             from parsers.toolchains.parquet import parse_parquet
 
-            parse_parquet(prefix=prefix)
+            cap = settings.PARQUET_PARSE_MAX_BYTES
+            content = read_blob_bytes_capped(
+                bucket=bucket,
+                bucket_key=blob.bucket_key,
+                size_bytes=blob.size_bytes,
+                max_bytes=cap,
+            )
+            if len(content) < blob.size_bytes:
+                log.info(
+                    "parquet_parse_truncated",
+                    file_id=str(file_id),
+                    read_bytes=len(content),
+                    blob_size=blob.size_bytes,
+                    max_bytes=cap,
+                    mime_type=mime_type,
+                )
+            parsed = parse_parquet(content=content, existing_meta=parser_meta)
+            merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
+            parser_meta.clear()
+            parser_meta.update(merged)
         elif is_audio_file(mime_type=mime_type, parser_meta=parser_meta):
             from parsers.toolchains.audio import parse_audio
 
@@ -228,6 +257,98 @@ def maybe_run_toolchain(
                     mime_type=mime_type,
                 )
             parsed = parse_audio(content=content, existing_meta=parser_meta)
+            merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
+            parser_meta.clear()
+            parser_meta.update(merged)
+        elif is_video_file(mime_type=mime_type, parser_meta=parser_meta):
+            from parsers.toolchains.video import parse_video
+
+            cap = settings.VIDEO_PARSE_MAX_BYTES
+            content = read_blob_bytes_capped(
+                bucket=bucket,
+                bucket_key=blob.bucket_key,
+                size_bytes=blob.size_bytes,
+                max_bytes=cap,
+            )
+            if len(content) < blob.size_bytes:
+                log.info(
+                    "video_parse_truncated",
+                    file_id=str(file_id),
+                    read_bytes=len(content),
+                    blob_size=blob.size_bytes,
+                    max_bytes=cap,
+                    mime_type=mime_type,
+                )
+            parsed = parse_video(content=content, existing_meta=parser_meta)
+            merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
+            parser_meta.clear()
+            parser_meta.update(merged)
+        elif is_office_doc_file(mime_type=mime_type, parser_meta=parser_meta):
+            from parsers.toolchains.office_doc import parse_office_doc
+
+            cap = settings.OFFICE_DOC_PARSE_MAX_BYTES
+            content = read_blob_bytes_capped(
+                bucket=bucket,
+                bucket_key=blob.bucket_key,
+                size_bytes=blob.size_bytes,
+                max_bytes=cap,
+            )
+            if len(content) < blob.size_bytes:
+                log.info(
+                    "office_doc_parse_truncated",
+                    file_id=str(file_id),
+                    read_bytes=len(content),
+                    blob_size=blob.size_bytes,
+                    max_bytes=cap,
+                    mime_type=mime_type,
+                )
+            parsed = parse_office_doc(content=content, existing_meta=parser_meta)
+            merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
+            parser_meta.clear()
+            parser_meta.update(merged)
+        elif is_html_file(mime_type=mime_type, parser_meta=parser_meta):
+            from parsers.toolchains.html import parse_html
+
+            cap = settings.HTML_PARSE_MAX_BYTES
+            content = read_blob_bytes_capped(
+                bucket=bucket,
+                bucket_key=blob.bucket_key,
+                size_bytes=blob.size_bytes,
+                max_bytes=cap,
+            )
+            if len(content) < blob.size_bytes:
+                log.info(
+                    "html_parse_truncated",
+                    file_id=str(file_id),
+                    read_bytes=len(content),
+                    blob_size=blob.size_bytes,
+                    max_bytes=cap,
+                    mime_type=mime_type,
+                )
+            parsed = parse_html(content=content, existing_meta=parser_meta)
+            merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
+            parser_meta.clear()
+            parser_meta.update(merged)
+        elif is_archive_file(mime_type=mime_type, parser_meta=parser_meta):
+            from parsers.toolchains.archive import parse_archive
+
+            cap = settings.ARCHIVE_PARSE_MAX_BYTES
+            content = read_blob_bytes_capped(
+                bucket=bucket,
+                bucket_key=blob.bucket_key,
+                size_bytes=blob.size_bytes,
+                max_bytes=cap,
+            )
+            if len(content) < blob.size_bytes:
+                log.info(
+                    "archive_parse_truncated",
+                    file_id=str(file_id),
+                    read_bytes=len(content),
+                    blob_size=blob.size_bytes,
+                    max_bytes=cap,
+                    mime_type=mime_type,
+                )
+            parsed = parse_archive(content=content, existing_meta=parser_meta)
             merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
             parser_meta.clear()
             parser_meta.update(merged)
@@ -274,6 +395,12 @@ def is_json_file(*, mime_type: str, parser_meta: dict) -> bool:
     return parser_meta.get("extension") in {"json", "jsonl", "geojson", "ipynb"}
 
 
+def is_parquet_file(*, mime_type: str, parser_meta: dict) -> bool:
+    if mime_type == "application/vnd.apache.parquet":
+        return True
+    return parser_meta.get("extension") == "parquet"
+
+
 def is_audio_file(*, mime_type: str, parser_meta: dict) -> bool:
     if mime_type.startswith("audio/"):
         return True
@@ -288,6 +415,56 @@ def is_audio_file(*, mime_type: str, parser_meta: dict) -> bool:
         "ogg",
         "opus",
         "wav",
+    }
+
+
+def is_video_file(*, mime_type: str, parser_meta: dict) -> bool:
+    if mime_type.startswith("video/"):
+        return True
+    return parser_meta.get("extension") in {
+        "avi",
+        "mkv",
+        "mov",
+        "mp4",
+        "webm",
+    }
+
+
+def is_office_doc_file(*, mime_type: str, parser_meta: dict) -> bool:
+    if mime_type in {
+        "application/msword",
+        "application/rtf",
+        "application/vnd.oasis.opendocument.text",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/rtf",
+    }:
+        return True
+    return parser_meta.get("extension") in {"doc", "docx", "odt", "rtf"}
+
+
+def is_html_file(*, mime_type: str, parser_meta: dict) -> bool:
+    if mime_type in {"text/html", "application/xhtml+xml"}:
+        return True
+    return parser_meta.get("extension") in {"htm", "html", "xhtml"}
+
+
+def is_archive_file(*, mime_type: str, parser_meta: dict) -> bool:
+    if mime_type in {
+        "application/gzip",
+        "application/tar",
+        "application/x-7z-compressed",
+        "application/x-rar-compressed",
+        "application/x-tar",
+        "application/zip",
+    }:
+        return True
+    return parser_meta.get("extension") in {
+        "7z",
+        "gz",
+        "rar",
+        "tar",
+        "tgz",
+        "zip",
     }
 
 

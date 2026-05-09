@@ -110,6 +110,12 @@ TABULAR_PARSE_MAX_BYTES: int = env.int(
     default=128 * 1024 * 1024,
 )
 
+# Max bytes fetched per Parquet file for footer metadata.
+PARQUET_PARSE_MAX_BYTES: int = env.int(
+    "PARQUET_PARSE_MAX_BYTES",
+    default=128 * 1024 * 1024,
+)
+
 # Max bytes fetched per structured text file (JSON / JSONL) for file meta.
 JSON_PARSE_MAX_BYTES: int = env.int(
     "JSON_PARSE_MAX_BYTES",
@@ -132,6 +138,30 @@ TEXT_PARSE_MAX_BYTES: int = env.int(
 AUDIO_PARSE_MAX_BYTES: int = env.int(
     "AUDIO_PARSE_MAX_BYTES",
     default=128 * 1024 * 1024,
+)
+
+# Max bytes fetched per video file for file meta.
+VIDEO_PARSE_MAX_BYTES: int = env.int(
+    "VIDEO_PARSE_MAX_BYTES",
+    default=128 * 1024 * 1024,
+)
+
+# Max bytes fetched per archive file for file meta.
+ARCHIVE_PARSE_MAX_BYTES: int = env.int(
+    "ARCHIVE_PARSE_MAX_BYTES",
+    default=128 * 1024 * 1024,
+)
+
+# Max bytes fetched per office document file for file meta.
+OFFICE_DOC_PARSE_MAX_BYTES: int = env.int(
+    "OFFICE_DOC_PARSE_MAX_BYTES",
+    default=128 * 1024 * 1024,
+)
+
+# Max bytes fetched per HTML file for file meta.
+HTML_PARSE_MAX_BYTES: int = env.int(
+    "HTML_PARSE_MAX_BYTES",
+    default=16 * 1024 * 1024,
 )
 
 REDIS_HOST: str = env.str("REDIS_HOST", default="localhost")

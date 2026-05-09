@@ -10,6 +10,7 @@ import { UsersPage } from "@/pages/admin/users-page"
 import { FileDetailPage } from "@/pages/file-detail-page"
 import { FilesystemPage } from "@/pages/filesystem-page"
 import { LoginPage } from "@/pages/login-page"
+import { SearchPage } from "@/pages/search-page"
 
 export function App() {
   return (
@@ -43,6 +44,7 @@ export function App() {
         </Route>
       </Route>
       <Route element={<RequireSession />}>
+        <Route path="/search" element={<SearchPage />} />
         <Route path="/folder/:folderId" element={<FilesystemPage />} />
         <Route path="/file/:fileId" element={<FileDetailPage />} />
         <Route path="*" element={<FilesystemPage />} />

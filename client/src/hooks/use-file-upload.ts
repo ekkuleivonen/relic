@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { filesystemQueryKey } from "@/hooks/use-filesystem"
-import { ApiError, apiRequest, extractApiError } from "@/lib/api"
+import { ApiError, apiRequest, extractApiError, resolveServerUrl } from "@/lib/api"
 import type {
   PresignUploadRequest,
   PresignUploadResponse,
@@ -39,7 +39,7 @@ async function uploadFile({ folder_id, file, meta = {} }: UploadFileInput) {
     method: "POST",
     body: presignPayload,
   })
-  const response = await fetch(signed.url, {
+  const response = await fetch(resolveServerUrl(signed.url), {
     method: "PUT",
     headers: signed.headers,
     body: file,

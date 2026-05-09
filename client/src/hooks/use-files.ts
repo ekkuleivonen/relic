@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { filesystemQueryKey } from "@/hooks/use-filesystem"
-import { ApiError, apiRequest, extractApiError } from "@/lib/api"
+import { ApiError, apiRequest, extractApiError, resolveServerUrl } from "@/lib/api"
 import type {
   FileSystemFile,
   PresignUploadResponse,
@@ -58,7 +58,7 @@ export function useDeleteFile() {
         "/uploads/presign-delete",
         { method: "POST", body: { file_id } }
       )
-      const response = await fetch(signed.url, {
+      const response = await fetch(resolveServerUrl(signed.url), {
         method: "DELETE",
         headers: signed.headers,
       })
@@ -83,7 +83,16 @@ export function useDownloadFile() {
         "/uploads/presign-download",
         { method: "POST", body: { file_id } }
       )
-      triggerBrowserDownload(signed.url, filename)
+      const response = await fetch(resolveServerUrl(signed.url), {
+        headers: signed.headers,
+      })
+      if (!response.ok) {
+        throw await buildGatewayError(response)
+      }
+
+      const url = URL.createObjectURL(await response.blob())
+      triggerBrowserDownload(url, filename)
+      window.setTimeout(() => URL.revokeObjectURL(url), 0)
     },
     onError: (error) => {
       toast.error(extractApiError(error))
@@ -113,7 +122,7 @@ export function useCopyFile() {
         "/uploads/presign-copy",
         { method: "POST", body }
       )
-      const response = await fetch(signed.url, {
+      const response = await fetch(resolveServerUrl(signed.url), {
         method: "PUT",
         headers: signed.headers,
       })

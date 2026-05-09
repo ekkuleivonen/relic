@@ -36,6 +36,7 @@ import { useFolderTree } from "@/hooks/use-filesystem"
 import { extractApiError } from "@/lib/api"
 import { formatBytes } from "@/lib/format"
 import { PERM, can } from "@/lib/permissions"
+import { buildSingleFilterHref } from "@/lib/search-query"
 import { cn } from "@/lib/utils"
 import type { FileSystemFile, FolderTreeNode } from "@/types/filesystem"
 
@@ -279,16 +280,44 @@ function FileDetailContent({
         <CardContent className="space-y-4">
           <DetailGrid
             rows={[
-              ["File ID", file.id],
-              ["Blob ID", file.blob_id],
-              ["Uploaded by", file.uploaded_by_name ?? file.uploaded_by],
-              ["Original filename", file.meta.original_filename ?? file.name],
-              ["Extension", file.meta.extension || "—"],
-              ["MIME type", file.meta.mimetype || "—"],
-              ["Size", formatBytes(file.meta.size)],
-              ["Summary", file.meta.summary || "—"],
-              ["Created", formatDateTime(file.created_at)],
-              ["Updated", formatDateTime(file.updated_at)],
+              { label: "File ID", value: file.id },
+              { label: "Blob ID", value: file.blob_id },
+              {
+                label: "Uploaded by",
+                value: file.uploaded_by_name ?? file.uploaded_by,
+                href: buildSingleFilterHref({
+                  uploaded_by: file.uploaded_by,
+                }),
+                hint: "Find files uploaded by this user",
+              },
+              {
+                label: "Original filename",
+                value: file.meta.original_filename ?? file.name,
+              },
+              {
+                label: "Extension",
+                value: file.meta.extension || "—",
+                href: file.meta.extension
+                  ? buildSingleFilterHref({
+                      extensions: [file.meta.extension],
+                    })
+                  : undefined,
+                hint: "Find files with this extension",
+              },
+              {
+                label: "MIME type",
+                value: file.meta.mimetype || "—",
+                href: file.meta.mimetype
+                  ? buildSingleFilterHref({
+                      mimetypes: [file.meta.mimetype],
+                    })
+                  : undefined,
+                hint: "Find files with this MIME type",
+              },
+              { label: "Size", value: formatBytes(file.meta.size) },
+              { label: "Summary", value: file.meta.summary || "—" },
+              { label: "Created", value: formatDateTime(file.created_at) },
+              { label: "Updated", value: formatDateTime(file.updated_at) },
             ]}
           />
         </CardContent>
@@ -302,8 +331,24 @@ function FileDetailContent({
           </Badge>
         </CardHeader>
         <CardContent className="space-y-5">
-          <TokenGroup label="Tags" values={file.meta.tags} tone="tag" />
-          <TokenGroup label="Keywords" values={file.meta.keywords} tone="keyword" />
+          <TokenGroup
+            label="Tags"
+            values={file.meta.tags}
+            tone="tag"
+            buildHref={(value) =>
+              buildSingleFilterHref({ tags: [value] })
+            }
+            hint="Find files tagged"
+          />
+          <TokenGroup
+            label="Keywords"
+            values={file.meta.keywords}
+            tone="keyword"
+            buildHref={(value) =>
+              buildSingleFilterHref({ keywords: [value] })
+            }
+            hint="Find files with keyword"
+          />
         </CardContent>
       </Card>
 
@@ -389,13 +434,32 @@ function StatCard({ label, value }: { label: string; value: string }) {
   )
 }
 
-function DetailGrid({ rows }: { rows: Array<[string, unknown]> }) {
+type DetailRow = {
+  label: string
+  value: unknown
+  href?: string
+  hint?: string
+}
+
+function DetailGrid({ rows }: { rows: DetailRow[] }) {
   return (
     <dl className="grid gap-3 text-sm sm:grid-cols-[10rem_1fr]">
-      {rows.map(([label, value]) => (
-        <React.Fragment key={label}>
-          <dt className="text-muted-foreground">{label}</dt>
-          <dd className="break-all text-sm">{formatDetailValue(value)}</dd>
+      {rows.map((row) => (
+        <React.Fragment key={row.label}>
+          <dt className="text-muted-foreground">{row.label}</dt>
+          <dd className="break-all text-sm">
+            {row.href ? (
+              <Link
+                to={row.href}
+                title={row.hint}
+                className="hover:underline"
+              >
+                {formatDetailValue(row.value)}
+              </Link>
+            ) : (
+              formatDetailValue(row.value)
+            )}
+          </dd>
         </React.Fragment>
       ))}
     </dl>
@@ -406,10 +470,14 @@ function TokenGroup({
   label,
   values,
   tone,
+  buildHref,
+  hint,
 }: {
   label: string
   values: string[]
   tone: "tag" | "keyword"
+  buildHref?: (value: string) => string
+  hint?: string
 }) {
   return (
     <section>
@@ -418,19 +486,32 @@ function TokenGroup({
         <p className="text-sm text-muted-foreground">None yet.</p>
       ) : (
         <div className="flex flex-wrap gap-2">
-          {values.map((value) => (
-            <div
-              key={value}
-              className={cn(
-                "rounded-full border px-2.5 py-1 text-xs font-medium",
-                tone === "tag"
-                  ? "border-primary/20 bg-primary/10 text-primary"
-                  : "border-muted-foreground/20 bg-muted text-muted-foreground"
-              )}
-            >
-              {value}
-            </div>
-          ))}
+          {values.map((value) => {
+            const className = cn(
+              "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+              tone === "tag"
+                ? "border-primary/20 bg-primary/10 text-primary"
+                : "border-muted-foreground/20 bg-muted text-muted-foreground",
+              buildHref && "hover:border-primary/40 hover:text-primary"
+            )
+            if (buildHref) {
+              return (
+                <Link
+                  key={value}
+                  to={buildHref(value)}
+                  className={className}
+                  title={hint ? `${hint} ${value}` : undefined}
+                >
+                  {value}
+                </Link>
+              )
+            }
+            return (
+              <div key={value} className={className}>
+                {value}
+              </div>
+            )
+          })}
         </div>
       )}
     </section>
