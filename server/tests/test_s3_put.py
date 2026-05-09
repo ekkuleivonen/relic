@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 from api.app import app
 from database import get_db
 from managers.exceptions import ConflictError, ResourceNotFound
-from models import Base, Blob, Bucket, File, Folder, FolderAccess
+from models import Base, Blob, Bucket, File, Folder, FolderAccess, PARSE_STATUS_PENDING
 from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier, Permission, UserRole
 from services import objects as object_service
 from services.placement import choose_bucket
@@ -86,6 +86,13 @@ def mark_healthy(bucket: Bucket, latency: int = 10) -> None:
     bucket.probe_latency_delete_ms = latency
 
 
+def read_body(body):
+    if hasattr(body, "read"):
+        body.seek(0)
+        return body.read()
+    return body
+
+
 def test_choose_bucket_filters_capacity_and_prefers_latency(db_session):
     full = add_bucket(
         db_session,
@@ -130,17 +137,21 @@ def test_put_object_uploads_new_blob_and_creates_file(
 
     class FakeS3Client:
         def put_object(self, Bucket, Key, Body):
+            Body = read_body(Body)
             uploaded.append({"Bucket": Bucket, "Key": Key, "Body": Body})
 
     monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
 
+    user = UserFactory.build(email="user@relic.local", role=UserRole.ADMIN)
+    db_session.add(user)
+    db_session.commit()
     result = object_service.put_object(
         db_session,
         bucket_name="photos",
         key="2026/cat.jpg",
         body=body,
-        content_type="image/jpeg",
-        user_metadata={"album": "spring"},
+        ingest_meta={"album": "spring"},
+        current_user=user,
     )
 
     digest = hashlib.sha256(body).digest()
@@ -166,6 +177,7 @@ def test_put_object_uploads_new_blob_and_creates_file(
     assert blob.bucket_key == uploaded[0]["Key"]
     assert blob.refcount == 1
     assert blob.bucket_id == physical_bucket.id
+    assert blob.size_bytes == len(body)
     db_session.refresh(physical_bucket)
     assert physical_bucket.object_count == 1
     assert physical_bucket.current_size_bytes == len(body)
@@ -178,10 +190,10 @@ def test_put_object_uploads_new_blob_and_creates_file(
     assert file is not None
     assert file.name == "cat.jpg"
     assert file.blob_id == blob.id
-    assert file.meta["file_size"] == len(body)
-    assert file.meta["mime_type"] == "image/jpeg"
-    assert file.meta["extension"] == ".jpg"
-    assert file.meta["album"] == "spring"
+    assert file.uploaded_by == user.id
+    assert file.parse_status == PARSE_STATUS_PENDING
+    assert file.ingest_meta["album"] == "spring"
+    assert file.parser_meta == {}
 
 
 def test_put_object_dedupes_existing_blob(db_session, bucket_folder, monkeypatch):
@@ -202,13 +214,16 @@ def test_put_object_dedupes_existing_blob(db_session, bucket_folder, monkeypatch
 
     monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
 
+    user = UserFactory.build(email="user@relic.local", role=UserRole.ADMIN)
+    db_session.add(user)
+    db_session.commit()
     result = object_service.put_object(
         db_session,
         bucket_name="photos",
         key="copy.txt",
         body=body,
-        content_type=None,
-        user_metadata={},
+        ingest_meta={},
+        current_user=user,
     )
 
     assert result.file.name == "copy.txt"
@@ -225,19 +240,18 @@ def test_put_object_rejects_existing_file_name(
     physical_bucket = add_bucket(db_session, name="hot")
     mark_healthy(physical_bucket)
     blob = BlobFactory(bucket_id=physical_bucket.id)
+    owner = UserFactory.build(email="owner@relic.local", role=UserRole.ADMIN)
+    db_session.add(owner)
     db_session.add(blob)
     db_session.flush()
     db_session.add(
         File(
             folder_id=bucket_folder.id,
             blob_id=blob.id,
+            uploaded_by=owner.id,
             name="cat.jpg",
-            meta={
-                "original_name": "cat.jpg",
-                "file_size": 1,
-                "mime_type": "image/jpeg",
-                "extension": ".jpg",
-            },
+            ingest_meta={"original_filename": "cat.jpg"},
+            parser_meta={},
         )
     )
     db_session.commit()
@@ -254,8 +268,8 @@ def test_put_object_rejects_existing_file_name(
             bucket_name="photos",
             key="cat.jpg",
             body=b"new",
-            content_type=None,
-            user_metadata={},
+            ingest_meta={},
+            current_user=owner,
         )
 
 
@@ -270,8 +284,7 @@ def test_put_object_with_user_requires_write_permission(db_session, bucket_folde
             bucket_name="photos",
             key="cat.jpg",
             body=b"cat",
-            content_type="image/jpeg",
-            user_metadata={},
+            ingest_meta={},
             current_user=user,
         )
 
@@ -296,8 +309,7 @@ def test_put_object_with_admin_user_bypasses_folder_access(
         bucket_name="photos",
         key="cat.jpg",
         body=b"cat",
-        content_type="image/jpeg",
-        user_metadata={},
+        ingest_meta={},
         current_user=admin,
     )
 
@@ -332,8 +344,7 @@ def test_put_object_with_user_allows_inherited_write(
         bucket_name="photos",
         key="2026/cat.jpg",
         body=b"cat",
-        content_type="image/jpeg",
-        user_metadata={},
+        ingest_meta={},
         current_user=user,
     )
 

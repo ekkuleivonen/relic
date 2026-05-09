@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
-from models import Base, Blob, File, Folder, FolderAccess, User
+from models import Base, Blob, File, Folder, FolderAccess, PARSE_STATUS_COMPLETED, User
 from schema_plan import Permission, UserRole
 from services.auth import create_session_token
 from tests.factories.models import (
@@ -104,17 +104,15 @@ def grant(db_session, user: User, folder: Folder, permissions: int) -> None:
     db_session.commit()
 
 
-def add_file(db_session, folder: Folder, name: str, blob: Blob) -> File:
+def add_file(db_session, folder: Folder, name: str, blob: Blob, user: User) -> File:
     file = File(
         folder_id=folder.id,
         blob_id=blob.id,
+        uploaded_by=user.id,
         name=name,
-        meta={
-            "original_name": name,
-            "file_size": 1,
-            "mime_type": "application/octet-stream",
-            "extension": "",
-        },
+        parse_status=PARSE_STATUS_COMPLETED,
+        ingest_meta={"original_filename": name},
+        parser_meta={"file": {"original_filename": name, "size": 1}},
     )
     db_session.add(file)
     db_session.commit()
@@ -460,8 +458,8 @@ def test_delete_recursive_cascades_and_decrements_blob_refcount(
     )
     photos = add_folder(db_session, root_folder, "photos")
     raw = add_folder(db_session, photos, "raw")
-    add_file(db_session, photos, "image.jpg", blob)
-    add_file(db_session, raw, "raw.nef", blob)
+    add_file(db_session, photos, "image.jpg", blob, user)
+    add_file(db_session, raw, "raw.nef", blob, user)
     blob.refcount = 2
     db_session.commit()
 
@@ -485,8 +483,8 @@ def test_delete_recursive_only_decrements_for_this_subtree(
     )
     photos = add_folder(db_session, root_folder, "photos")
     other = add_folder(db_session, root_folder, "other")
-    add_file(db_session, photos, "image.jpg", blob)
-    add_file(db_session, other, "shared.jpg", blob)
+    add_file(db_session, photos, "image.jpg", blob, user)
+    add_file(db_session, other, "shared.jpg", blob, user)
     blob.refcount = 2
     db_session.commit()
 
@@ -507,7 +505,7 @@ def test_duplicate_folder_succeeds_with_read_source_and_write_dest(
 ):
     grant(db_session, user, root_folder, int(Permission.READ | Permission.WRITE))
     photos = add_folder(db_session, root_folder, "photos")
-    add_file(db_session, photos, "image.jpg", blob)
+    add_file(db_session, photos, "image.jpg", blob, user)
     blob.refcount = 1
     db_session.commit()
 
@@ -533,8 +531,8 @@ def test_duplicate_recursive_copies_subtree_and_increments_refcounts(
     grant(db_session, user, root_folder, int(Permission.READ | Permission.WRITE))
     photos = add_folder(db_session, root_folder, "photos")
     raw = add_folder(db_session, photos, "raw")
-    add_file(db_session, photos, "image.jpg", blob)
-    add_file(db_session, raw, "raw.nef", blob)
+    add_file(db_session, photos, "image.jpg", blob, user)
+    add_file(db_session, raw, "raw.nef", blob, user)
     blob.refcount = 2
     db_session.commit()
 

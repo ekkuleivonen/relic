@@ -11,12 +11,19 @@ ROOT_FOLDER_SCHEMA = {
     "title": "FolderSchema",
     "type": "object",
     "properties": {
-        "original_name": {"type": "string"},
-        "file_size": {"type": "integer", "minimum": 0},
-        "mime_type": {"type": "string"},
-        "extension": {"type": "string"},
+        "file": {
+            "type": "object",
+            "properties": {
+                "original_filename": {"type": "string"},
+                "size": {"type": "integer", "minimum": 0},
+                "mime_type": {"type": "string"},
+                "extension": {"type": "string"},
+            },
+            "required": ["original_filename", "size", "mime_type", "extension"],
+            "additionalProperties": True,
+        },
     },
-    "required": ["original_name", "file_size", "mime_type", "extension"],
+    "required": ["file"],
     "additionalProperties": True,  # child folders extend with more fields
 }
 

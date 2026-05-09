@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import { Link } from "react-router"
 
+import { FileContextMenu } from "@/components/filesystem/file-context-menu"
 import { FolderContextMenu } from "@/components/filesystem/folder-context-menu"
 import {
   Table,
@@ -18,9 +19,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { DRAG_TYPE_FILE } from "@/hooks/use-file-dnd"
+import { useNativeFileDrop } from "@/hooks/use-native-file-drop"
 import { DRAG_TYPE_FOLDER } from "@/hooks/use-folder-dnd"
 import { useFolderDragState } from "@/hooks/use-folder-drag-state"
 import { formatBytes, formatRelativeTime } from "@/lib/format"
+import { PERM, can } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import type { FileSystemEntry } from "@/types/filesystem"
 
@@ -151,6 +155,7 @@ type FolderRowProps = {
 
 function FolderRow({ entry }: FolderRowProps) {
   const dragState = useFolderDragState()
+  const canWriteHere = can(entry.node.effective_permissions, PERM.WRITE)
   const draggable = useDraggable({
     id: `table-folder:${entry.id}`,
     data: { type: DRAG_TYPE_FOLDER, folder: entry.node },
@@ -161,7 +166,11 @@ function FolderRow({ entry }: FolderRowProps) {
   const droppable = useDroppable({
     id: `table-folder-drop:${entry.id}`,
     data: { type: DRAG_TYPE_FOLDER, folder: entry.node },
-    disabled: isInvalidTarget,
+    disabled: isInvalidTarget || !canWriteHere,
+  })
+  const nativeDrop = useNativeFileDrop({
+    folderId: entry.id,
+    disabled: !canWriteHere,
   })
 
   const setRefs = React.useCallback(
@@ -174,6 +183,7 @@ function FolderRow({ entry }: FolderRowProps) {
 
   const childCount = entry.child_count
   const typeLabel = `${childCount} ${childCount === 1 ? "subfolder" : "subfolders"}`
+  const showHighlight = droppable.isOver || nativeDrop.isOver
 
   return (
     <FolderContextMenu folder={entry.node} asChild>
@@ -181,12 +191,12 @@ function FolderRow({ entry }: FolderRowProps) {
         ref={setRefs}
         {...draggable.listeners}
         {...draggable.attributes}
-        data-drop-active={droppable.isOver ? "true" : undefined}
+        {...nativeDrop.handlers}
+        data-drop-active={showHighlight ? "true" : undefined}
         className={cn(
           "cursor-pointer",
           draggable.isDragging && "opacity-40",
-          droppable.isOver &&
-            "bg-primary/10 ring-2 ring-inset ring-primary/40"
+          showHighlight && "bg-primary/10 ring-2 ring-inset ring-primary/40"
         )}
       >
         <TableCell className="pl-3">
@@ -221,22 +231,57 @@ type FileRowProps = {
 }
 
 function FileRow({ entry }: FileRowProps) {
+  const draggable = useDraggable({
+    id: `table-file:${entry.id}`,
+    data: {
+      type: DRAG_TYPE_FILE,
+      file: {
+        id: entry.id,
+        folder_id: entry.file.folder_id,
+        name: entry.name,
+      },
+    },
+  })
+
   return (
-    <TableRow>
-      <TableCell className="pl-3">
-        <RowIcon kind="blob" />
-      </TableCell>
-      <TableCell className="font-medium">{entry.name}</TableCell>
-      <TableCell className="text-muted-foreground">
-        {entry.mime_type || "application/octet-stream"}
-      </TableCell>
-      <TableCell className="text-right text-muted-foreground">
-        {formatBytes(entry.size)}
-      </TableCell>
-      <TableCell className="text-right text-muted-foreground pr-3">
-        {formatRelativeTime(entry.updated_at)}
-      </TableCell>
-    </TableRow>
+    <FileContextMenu file={entry.file} folder={entry.folder} asChild>
+      <TableRow
+        ref={draggable.setNodeRef}
+        {...draggable.listeners}
+        {...draggable.attributes}
+        className={cn(
+          "cursor-grab active:cursor-grabbing",
+          draggable.isDragging && "opacity-40"
+        )}
+      >
+        <TableCell className="pl-3">
+          <RowIcon kind="blob" />
+        </TableCell>
+        <TableCell className="font-medium">
+          <Link
+            to={`/file/${encodeURIComponent(entry.id)}`}
+            className="hover:underline"
+            onClick={(event) => {
+              if (draggable.isDragging) {
+                event.preventDefault()
+              }
+            }}
+            draggable={false}
+          >
+            {entry.name}
+          </Link>
+        </TableCell>
+        <TableCell className="text-muted-foreground">
+          {entry.mime_type || "application/octet-stream"}
+        </TableCell>
+        <TableCell className="text-right text-muted-foreground">
+          {formatBytes(entry.size)}
+        </TableCell>
+        <TableCell className="text-right text-muted-foreground pr-3">
+          {formatRelativeTime(entry.updated_at)}
+        </TableCell>
+      </TableRow>
+    </FileContextMenu>
   )
 }
 

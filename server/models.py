@@ -25,6 +25,11 @@ from utils.crypto import decrypt_string, encrypt_string
 JSONType = JSON().with_variant(JSONB, "postgresql")
 GUID = Uuid
 
+PARSE_STATUS_PENDING = 1
+PARSE_STATUS_IN_PROGRESS = 2
+PARSE_STATUS_COMPLETED = 3
+PARSE_STATUS_FAILED = 4
+
 
 class Base(DeclarativeBase):
     pass
@@ -121,6 +126,7 @@ class Blob(Base, TimestampMixin):
     content_hash: Mapped[bytes] = mapped_column(
         LargeBinary(32), nullable=False, unique=True
     )
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     refcount: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     accessed_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
@@ -188,12 +194,14 @@ class File(Base, TimestampMixin):
     blob_id: Mapped[uuid.UUID] = mapped_column(
         GUID(), ForeignKey("blobs.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    meta: Mapped[dict] = mapped_column("meta", JSONType, nullable=False)
-    schema_version_validated: Mapped[int | None] = mapped_column(Integer)
-    accessed_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+    uploaded_by: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
     )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    parse_status: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    ingest_meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    parser_meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
 
     folder: Mapped[Folder] = relationship(back_populates="files")
     blob: Mapped[Blob] = relationship(back_populates="files")
+    uploader: Mapped[User] = relationship()

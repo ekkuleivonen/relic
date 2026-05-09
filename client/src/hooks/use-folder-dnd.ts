@@ -8,6 +8,12 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core"
 
+import {
+  DRAG_TYPE_FILE,
+  isFileMoveAllowed,
+  type FileDragData,
+} from "@/hooks/use-file-dnd"
+import { useMoveFile } from "@/hooks/use-files"
 import { useUpdateFolder } from "@/hooks/use-folders"
 import type { FolderDragState } from "@/hooks/use-folder-drag-state"
 import { PERM, can } from "@/lib/permissions"
@@ -27,6 +33,7 @@ type UseFolderDndArgs = {
 
 export function useFolderDnd({ tree }: UseFolderDndArgs) {
   const update = useUpdateFolder()
+  const moveFile = useMoveFile()
   const [activeFolder, setActiveFolder] = React.useState<FolderTreeNode | null>(
     null
   )
@@ -65,19 +72,34 @@ export function useFolderDnd({ tree }: UseFolderDndArgs) {
   }
 
   function onDragEnd(event: DragEndEvent) {
-    const active = event.active.data.current as FolderDragData | undefined
+    const active = event.active.data.current as
+      | FolderDragData
+      | FileDragData
+      | undefined
     const over = event.over?.data.current as FolderDragData | undefined
     setActiveFolder(null)
 
-    if (!active || active.type !== DRAG_TYPE_FOLDER) return
+    if (!active) return
     if (!over || over.type !== DRAG_TYPE_FOLDER) return
 
-    const source = active.folder
-    const destination = over.folder
-    if (!isMoveAllowed(source, destination, tree)) return
-    if (source.parent_id === destination.id) return
+    if (active.type === DRAG_TYPE_FOLDER) {
+      const source = active.folder
+      const destination = over.folder
+      if (!isMoveAllowed(source, destination, tree)) return
+      if (source.parent_id === destination.id) return
+      update.mutate({ id: source.id, parent_id: destination.id })
+      return
+    }
 
-    update.mutate({ id: source.id, parent_id: destination.id })
+    if (active.type === DRAG_TYPE_FILE) {
+      const destination = over.folder
+      if (!isFileMoveAllowed(active.file, destination)) return
+      if (!can(destination.effective_permissions, PERM.WRITE)) return
+      moveFile.mutate({
+        file_id: active.file.id,
+        destination_folder_id: destination.id,
+      })
+    }
   }
 
   return {

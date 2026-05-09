@@ -19,17 +19,21 @@ export type FileSystemFile = {
   id: string
   folder_id: string
   blob_id: string
+  uploaded_by: string
   name: string
-  meta: {
-    file_size?: number
-    mime_type?: string
-    extension?: string
-    original_name?: string
+  parse_status: number
+  ingest_meta: Record<string, unknown>
+  parser_meta: {
+    file?: {
+      original_filename?: string
+      size?: number
+      mime_type?: string
+      extension?: string
+    }
     [key: string]: unknown
   }
   created_at: string
   updated_at: string
-  accessed_at: string
 }
 
 export type FileSystemEntry =
@@ -49,13 +53,13 @@ export type FileSystemEntry =
       size?: number
       mime_type?: string
       updated_at: string
+      file: FileSystemFile
+      folder: FolderTreeNode
     }
 
 export type PresignUploadRequest = {
   folder_id: string
   filename: string
-  file_size: number
-  mime_type: string | null
   meta: Record<string, string>
 }
 

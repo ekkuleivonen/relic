@@ -33,8 +33,6 @@ async function uploadFile({ folder_id, file, meta = {} }: UploadFileInput) {
   const presignPayload: PresignUploadRequest = {
     folder_id,
     filename: file.name,
-    file_size: file.size,
-    mime_type: file.type || null,
     meta,
   }
   const signed = await apiRequest<PresignUploadResponse>("/uploads/presign", {

@@ -26,6 +26,7 @@ class BlobFactory(factory.Factory):
     bucket_id = None
     bucket_key = factory.Sequence(lambda n: f"objects/{n}")
     content_hash = factory.Sequence(lambda n: n.to_bytes(32, "big"))
+    size_bytes = 1
     refcount = 1
 
 

@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
-from models import Base, Blob, Bucket, File, Folder, FolderAccess
+from models import Base, Blob, Bucket, File, Folder, FolderAccess, PARSE_STATUS_PENDING
 from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier, Permission
 from services.auth import create_session_token
 from tests.factories.models import BucketFactory, UserFactory
@@ -109,8 +109,6 @@ def presign(client: TestClient, folder: Folder, **overrides):
     payload = {
         "folder_id": str(folder.id),
         "filename": "cat.jpg",
-        "file_size": 9,
-        "mime_type": "image/jpeg",
         "meta": {"album": "spring"},
     }
     payload.update(overrides)
@@ -125,6 +123,9 @@ def test_presigned_put_creates_file_and_blob(
 
     class FakeS3Client:
         def put_object(self, Bucket, Key, Body):
+            if hasattr(Body, "read"):
+                Body.seek(0)
+                Body = Body.read()
             uploaded.append({"Bucket": Bucket, "Key": Key, "Body": Body})
 
     monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
@@ -152,9 +153,12 @@ def test_presigned_put_creates_file_and_blob(
     assert file is not None
     assert file.folder_id == photos_folder.id
     assert file.blob_id == blob.id
-    assert file.meta["album"] == "spring"
-    assert file.meta["file_size"] == 9
-    assert file.meta["mime_type"] == "image/jpeg"
+    assert file.uploaded_by == user.id
+    assert file.parse_status == PARSE_STATUS_PENDING
+    assert file.ingest_meta["album"] == "spring"
+    assert file.ingest_meta["original_filename"] == "cat.jpg"
+    assert file.parser_meta == {}
+    assert blob.size_bytes == len(b"cat photo")
     assert uploaded[0]["Bucket"] == "blobs"
 
 
@@ -242,7 +246,7 @@ def test_expired_url_fails(client, db_session, user, photos_folder, monkeypatch)
     assert "SignatureDoesNotMatch" in put_response.text
 
 
-def test_presign_rejects_invalid_metadata(client, db_session, user, photos_folder):
+def test_presign_does_not_validate_parser_metadata(client, db_session, user, photos_folder):
     photos_folder.schema = {
         **ROOT_FOLDER_SCHEMA,
         "properties": {
@@ -255,12 +259,11 @@ def test_presign_rejects_invalid_metadata(client, db_session, user, photos_folde
 
     response = presign(client, photos_folder)
 
-    assert response.status_code == 400
-    assert "metadata" in response.json()["detail"].lower()
+    assert response.status_code == 200
 
 
-def test_gateway_rejects_invalid_metadata_defense_in_depth(
-    client, db_session, user, photos_folder
+def test_gateway_accepts_upload_before_parser_schema_validation(
+    client, db_session, user, photos_folder, physical_bucket, monkeypatch
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     response = presign(client, photos_folder)
@@ -274,14 +277,19 @@ def test_gateway_rejects_invalid_metadata_defense_in_depth(
     }
     db_session.commit()
 
+    class FakeS3Client:
+        def put_object(self, Bucket, Key, Body):
+            return None
+
+    monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
+
     put_response = client.put(
         signed["url"],
         content=b"cat photo",
         headers=signed["headers"],
     )
 
-    assert put_response.status_code == 400
-    assert "InvalidRequest" in put_response.text
+    assert put_response.status_code == 200
 
 
 def test_replayed_url_hits_file_unique_constraint(
@@ -291,6 +299,9 @@ def test_replayed_url_hits_file_unique_constraint(
 
     class FakeS3Client:
         def put_object(self, Bucket, Key, Body):
+            if hasattr(Body, "read"):
+                Body.seek(0)
+                Body = Body.read()
             return None
 
     monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
@@ -340,6 +351,9 @@ def test_server_signed_and_stub_user_key_use_same_gateway_path(
 
     class FakeS3Client:
         def put_object(self, Bucket, Key, Body):
+            if hasattr(Body, "read"):
+                Body.seek(0)
+                Body = Body.read()
             stored.append(Body)
 
     monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())

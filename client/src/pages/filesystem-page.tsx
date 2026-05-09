@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router"
 
+import { FileActionsProvider } from "@/components/filesystem/file-actions-provider"
 import { FolderActionsProvider } from "@/components/filesystem/folder-actions-provider"
 import {
   FolderEntriesTable,
@@ -33,7 +34,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { FolderDragStateProvider } from "@/components/filesystem/folder-drag-state-provider"
 import { useFolderDnd } from "@/hooks/use-folder-dnd"
 import { useFolderFiles, useFolderTree } from "@/hooks/use-filesystem"
+import { useNativeFileDrop } from "@/hooks/use-native-file-drop"
 import { extractApiError } from "@/lib/api"
+import { PERM, can } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import type {
   FileSystemEntry,
@@ -44,7 +47,9 @@ import type {
 export function FilesystemPage() {
   return (
     <FolderActionsProvider>
-      <FilesystemPageInner />
+      <FileActionsProvider>
+        <FilesystemPageInner />
+      </FileActionsProvider>
     </FolderActionsProvider>
   )
 }
@@ -77,6 +82,11 @@ function FilesystemPageInner() {
         : [],
     [folderFiles.data, selectedFolder]
   )
+  const mainNativeDrop = useNativeFileDrop({
+    folderId: selectedFolder?.id ?? "",
+    disabled:
+      !selectedFolder || !can(selectedFolder.effective_permissions, PERM.WRITE),
+  })
   const [sort, setSort] = React.useState<SortState>({
     key: "name",
     dir: "asc",
@@ -132,7 +142,14 @@ function FilesystemPageInner() {
               <SidebarFooter />
             </aside>
 
-            <main className="min-w-0 p-4 lg:p-8">
+            <main
+              {...mainNativeDrop.handlers}
+              className={cn(
+                "min-w-0 p-4 lg:p-8 transition-colors",
+                mainNativeDrop.isOver &&
+                  "ring-2 ring-inset ring-primary/40 bg-primary/5"
+              )}
+            >
               <div className="mx-auto max-w-6xl space-y-6">
                 <div className="space-y-3">
                   <FilesystemBreadcrumbs
@@ -406,9 +423,11 @@ function buildFolderEntries(
     kind: "blob",
     id: file.id,
     name: file.name,
-    size: file.meta.file_size,
-    mime_type: file.meta.mime_type,
+    size: file.parser_meta.file?.size,
+    mime_type: file.parser_meta.file?.mime_type,
     updated_at: file.updated_at,
+    file,
+    folder,
   }))
 
   return [...folderEntries, ...fileEntries]
@@ -577,5 +596,5 @@ function buildFolderRoute(folder: FolderTreeNode) {
     return "/"
   }
 
-  return `/f/${encodeURIComponent(folder.id)}`
+  return `/folder/${encodeURIComponent(folder.id)}`
 }

@@ -89,3 +89,16 @@ if RELIC_SIGNING_CURRENT_KEY_ID not in RELIC_SIGNING_KEYS:
     raise ValueError("RELIC_SIGNING_CURRENT_KEY_ID must exist in RELIC_SIGNING_KEYS")
 
 S3_CORS_ALLOWED_ORIGINS: list[str] = env.list("S3_CORS_ALLOWED_ORIGINS", default=[])
+UPLOAD_SPOOL_MAX_MEMORY_BYTES: int = env.int(
+    "UPLOAD_SPOOL_MAX_MEMORY_BYTES",
+    default=8 * 1024 * 1024,
+)
+
+# =============================================================================
+# Parser Queue (arq)
+# =============================================================================
+
+REDIS_HOST: str = env.str("REDIS_HOST", default="localhost")
+REDIS_PORT: int = env.int("REDIS_PORT", default=6379)
+REDIS_PASSWORD: str = env.str("REDIS_PASSWORD", default="replace_me")
+PARSER_QUEUE_NAME: str = env.str("PARSER_QUEUE_NAME", default="relic:parser")

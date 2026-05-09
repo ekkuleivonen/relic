@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/collapsible"
 import { DRAG_TYPE_FOLDER } from "@/hooks/use-folder-dnd"
 import { useFolderDragState } from "@/hooks/use-folder-drag-state"
+import { useNativeFileDrop } from "@/hooks/use-native-file-drop"
+import { PERM, can } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import type { FolderTreeNode } from "@/types/filesystem"
 
@@ -60,6 +62,7 @@ function TreeNode({
 
   const dragState = useFolderDragState()
   const isRoot = node.parent_id === null
+  const canWriteHere = can(node.effective_permissions, PERM.WRITE)
   const draggable = useDraggable({
     id: `tree-folder:${node.id}`,
     data: { type: DRAG_TYPE_FOLDER, folder: node },
@@ -71,7 +74,11 @@ function TreeNode({
   const droppable = useDroppable({
     id: `tree-folder-drop:${node.id}`,
     data: { type: DRAG_TYPE_FOLDER, folder: node },
-    disabled: isInvalidTarget,
+    disabled: isInvalidTarget || !canWriteHere,
+  })
+  const nativeDrop = useNativeFileDrop({
+    folderId: node.id,
+    disabled: !canWriteHere,
   })
 
   const setRefs = React.useCallback(
@@ -82,15 +89,17 @@ function TreeNode({
     [draggable, droppable]
   )
 
+  const showHighlight = droppable.isOver || nativeDrop.isOver
   const rowContent = (
     <div
       ref={setRefs}
       {...draggable.listeners}
       {...draggable.attributes}
+      {...nativeDrop.handlers}
       className={cn(
         "flex items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
         isSelected && "bg-muted text-foreground",
-        droppable.isOver &&
+        showHighlight &&
           "bg-primary/10 ring-2 ring-inset ring-primary/40 text-foreground",
         draggable.isDragging && "opacity-40"
       )}
@@ -160,5 +169,5 @@ function buildFolderHref(folderId: string, pathSegments: string[]) {
     return "/"
   }
 
-  return `/f/${encodeURIComponent(folderId)}`
+  return `/folder/${encodeURIComponent(folderId)}`
 }

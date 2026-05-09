@@ -38,8 +38,9 @@ class S3SigningError(Exception):
         self.status_code = status_code
 
 
-def sign_put_url(
+def sign_request_url(
     *,
+    method: str,
     bucket: str,
     key: str,
     headers: dict[str, str],
@@ -72,7 +73,7 @@ def sign_put_url(
         "X-Amz-SignedHeaders": signed_header_names,
     }
     canonical_request = build_canonical_request(
-        method="PUT",
+        method=method,
         canonical_uri=canonical_uri,
         query_params=query_params,
         headers=signed_headers,
@@ -93,6 +94,64 @@ def sign_put_url(
         name: value for name, value in signed_headers.items() if name != "host"
     }
     return SignedUrl(url=url, headers=response_headers, expires_at=expires_at)
+
+
+def sign_put_url(
+    *,
+    bucket: str,
+    key: str,
+    headers: dict[str, str],
+    user_id: uuid.UUID,
+    host: str,
+    ttl_seconds: int | None = None,
+) -> SignedUrl:
+    return sign_request_url(
+        method="PUT",
+        bucket=bucket,
+        key=key,
+        headers=headers,
+        user_id=user_id,
+        host=host,
+        ttl_seconds=ttl_seconds,
+    )
+
+
+def sign_delete_url(
+    *,
+    bucket: str,
+    key: str,
+    user_id: uuid.UUID,
+    host: str,
+    ttl_seconds: int | None = None,
+) -> SignedUrl:
+    return sign_request_url(
+        method="DELETE",
+        bucket=bucket,
+        key=key,
+        headers={},
+        user_id=user_id,
+        host=host,
+        ttl_seconds=ttl_seconds,
+    )
+
+
+def sign_get_url(
+    *,
+    bucket: str,
+    key: str,
+    user_id: uuid.UUID,
+    host: str,
+    ttl_seconds: int | None = None,
+) -> SignedUrl:
+    return sign_request_url(
+        method="GET",
+        bucket=bucket,
+        key=key,
+        headers={},
+        user_id=user_id,
+        host=host,
+        ttl_seconds=ttl_seconds,
+    )
 
 
 def verify_signed_request(request: Request) -> VerifiedRequest:

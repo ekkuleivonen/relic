@@ -1,13 +1,36 @@
-from fastapi import APIRouter, Request, Response
+import hashlib
+import tempfile
+import uuid
+from dataclasses import dataclass
+from typing import BinaryIO
+from urllib.parse import unquote
 from xml.sax.saxutils import escape
 
+from fastapi import APIRouter, Request, Response
+from fastapi.responses import StreamingResponse
+
+import settings as S
 from database import DbSession
-from managers.exceptions import BadRequestError, ConflictError, DomainError
+from managers.exceptions import (
+    BadRequestError,
+    ConflictError,
+    DomainError,
+    PermissionDenied,
+    ResourceNotFound,
+)
 from models import User
 from services import objects as object_service
+from services import parser_queue
 from services import s3_signing
 
 router = APIRouter()
+
+
+@dataclass(frozen=True)
+class SpoolResult:
+    body: BinaryIO
+    content_hash: bytes
+    size_bytes: int
 
 """
 Proxies S3 requests to the underlying buckets.
@@ -78,23 +101,11 @@ async def list_objects_v2(bucket: str, request: Request) -> Response:
 @router.put("/{bucket}/{key:path}")
 async def put_object(bucket: str, key: str, request: Request, db: DbSession) -> Response:
     """
-    PUT /{bucket}/{key} -> PutObject
+    PUT /{bucket}/{key} -> PutObject (or CopyObject when x-amz-copy-source is set).
 
-    The hot path. Steps:
-      1. Verify SigV4 against AccessKey table
-      2. Resolve bucket+key -> folder_id + file name (create intermediate
-         folders if policy allows; otherwise 404)
-      3. Check WRITE permission on folder via FolderAccess walk
-      4. Extract x-amz-meta-* headers; merge with derived meta (size,
-         original_name from key, mime_type from Content-Type or sniff)
-      5. Validate merged meta against folder.schema; reject 400 on failure
-      6. Stream body to chosen Bucket, computing SHA-256 in flight
-      7. On hash known: dedup check. If existing Blob found, point new File
-         at it and discard the just-uploaded bytes; else create new Blob
-      8. Create File row; emit "blob ingested" event
-      9. Return 200 with ETag header
-
-    Response body is empty per S3 convention.
+    Verifies the SigV4 presigned URL, loads the bound user, and dispatches to
+    the appropriate object service operation. The gateway has no UI fast-path:
+    every request goes through verify -> permission check -> service call.
     """
     try:
         verified = s3_signing.verify_signed_request(request)
@@ -105,21 +116,115 @@ async def put_object(bucket: str, key: str, request: Request, db: DbSession) -> 
                 "The signed user no longer exists",
                 status_code=403,
             )
+
+        copy_source = request.headers.get("x-amz-copy-source")
+        if copy_source is not None:
+            response, file_id = handle_copy_object(
+                db=db,
+                request=request,
+                user=user,
+                dest_bucket=bucket,
+                dest_key=key,
+                copy_source=copy_source,
+            )
+            await parser_queue.enqueue_parse_file_best_effort(file_id)
+            return response
+
+        spooled = await spool_request_body(request)
         result = object_service.put_object(
             db,
             bucket_name=bucket,
             key=key,
-            body=await request.body(),
-            content_type=request.headers.get("content-type"),
-            user_metadata=extract_user_metadata(request),
+            body=spooled.body,
+            content_hash=spooled.content_hash,
+            size_bytes=spooled.size_bytes,
+            ingest_meta=extract_user_metadata(request),
             current_user=user,
         )
+        await parser_queue.enqueue_parse_file_best_effort(result.file.id)
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
     except DomainError as exc:
         return domain_error_response(exc)
 
     return Response(status_code=200, headers={"ETag": f'"{result.etag}"'})
+
+
+def handle_copy_object(
+    *,
+    db,
+    request: Request,
+    user: User,
+    dest_bucket: str,
+    dest_key: str,
+    copy_source: str,
+) -> tuple[Response, uuid.UUID]:
+    source_bucket, source_key = parse_copy_source(copy_source)
+    metadata_directive = (
+        request.headers.get("x-amz-metadata-directive")
+        or object_service.METADATA_DIRECTIVE_COPY
+    ).upper()
+    result = object_service.copy_object(
+        db,
+        source_bucket=source_bucket,
+        source_key=source_key,
+        dest_bucket=dest_bucket,
+        dest_key=dest_key,
+        ingest_meta=extract_user_metadata(request),
+        metadata_directive=metadata_directive,
+        current_user=user,
+    )
+    last_modified = result.file.updated_at.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<CopyObjectResult>"
+        f"<ETag>&quot;{result.etag}&quot;</ETag>"
+        f"<LastModified>{last_modified}</LastModified>"
+        "</CopyObjectResult>"
+    )
+    return (
+        Response(
+            content=body,
+            status_code=200,
+            media_type="application/xml",
+            headers={"ETag": f'"{result.etag}"'},
+        ),
+        result.file.id,
+    )
+
+
+def parse_copy_source(value: str) -> tuple[str, str]:
+    """
+    S3 sends x-amz-copy-source as either '/{bucket}/{key}' or '{bucket}/{key}'.
+    The key may be URL-encoded.
+    """
+    decoded = unquote(value).lstrip("/")
+    if "/" not in decoded:
+        raise BadRequestError("x-amz-copy-source must be '/{bucket}/{key}'")
+    bucket, key = decoded.split("/", 1)
+    if not bucket or not key:
+        raise BadRequestError("x-amz-copy-source must be '/{bucket}/{key}'")
+    return bucket, key
+
+
+async def spool_request_body(request: Request) -> SpoolResult:
+    digest = hashlib.sha256()
+    size_bytes = 0
+    body = tempfile.SpooledTemporaryFile(max_size=S.UPLOAD_SPOOL_MAX_MEMORY_BYTES)
+
+    async for chunk in request.stream():
+        if not chunk:
+            continue
+        size_bytes += len(chunk)
+        digest.update(chunk)
+        body.write(chunk)
+
+    body.seek(0)
+    return SpoolResult(
+        body=body,
+        content_hash=digest.digest(),
+        size_bytes=size_bytes,
+    )
 
 
 def extract_user_metadata(request: Request) -> dict[str, str]:
@@ -137,6 +242,10 @@ def domain_error_response(exc: DomainError) -> Response:
         return s3_error_response("Conflict", str(exc.detail), status_code=409)
     if isinstance(exc, BadRequestError):
         return s3_error_response("InvalidRequest", str(exc.detail), status_code=400)
+    if isinstance(exc, ResourceNotFound):
+        return s3_error_response("NoSuchKey", str(exc.detail), status_code=404)
+    if isinstance(exc, PermissionDenied):
+        return s3_error_response("AccessDenied", str(exc.detail), status_code=403)
     return s3_error_response("AccessDenied", "Access denied", status_code=403)
 
 
@@ -156,77 +265,123 @@ def s3_error_response(code: str, message: str, *, status_code: int) -> Response:
 
 
 @router.head("/{bucket}/{key:path}")
-async def head_object(bucket: str, key: str, request: Request) -> Response:
+async def head_object(bucket: str, key: str, request: Request, db: DbSession) -> Response:
     """
-    HEAD /{bucket}/{key} -> HeadObject
+    HEAD /{bucket}/{key} -> HeadObject. Same shape as GET, no body.
+    """
+    try:
+        verified = s3_signing.verify_signed_request(request)
+        user = db.get(User, verified.user_id)
+        if user is None:
+            return s3_error_response(
+                "InvalidAccessKeyId",
+                "The signed user no longer exists",
+                status_code=403,
+            )
+        result = object_service.get_object(
+            db, bucket_name=bucket, key=key, current_user=user
+        )
+    except s3_signing.S3SigningError as exc:
+        return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
+    except DomainError as exc:
+        return domain_error_response(exc)
 
-    Metadata-only fetch. Returns same headers as GetObject (Content-Length,
-    Content-Type, ETag, Last-Modified, x-amz-meta-*) with no body.
-    Cheap; no Bucket roundtrip needed if File row has what we need.
-    """
-    raise NotImplementedError
+    return Response(status_code=200, headers=build_object_response_headers(result))
 
 
 @router.get("/{bucket}/{key:path}")
-async def get_object(bucket: str, key: str, request: Request) -> Response:
+async def get_object(bucket: str, key: str, request: Request, db: DbSession) -> Response:
     """
-    GET /{bucket}/{key} -> GetObject
-
-    Steps:
-      1. Verify SigV4
-      2. Resolve bucket+key -> File; 404 if not found
-      3. Check READ permission via FolderAccess walk
-      4. Update File.accessed_at lazily (sample or batch via event log)
-      5. Stream from the Blob's current Bucket; pass through Range header
-      6. Set response headers from File.meta + Blob fields
-
-    Range support is required - many clients (DuckDB, parquet readers)
-    rely on it heavily.
+    GET /{bucket}/{key} -> GetObject. Streams bytes from the underlying bucket.
     """
-    raise NotImplementedError
+    try:
+        verified = s3_signing.verify_signed_request(request)
+        user = db.get(User, verified.user_id)
+        if user is None:
+            return s3_error_response(
+                "InvalidAccessKeyId",
+                "The signed user no longer exists",
+                status_code=403,
+            )
+        result = object_service.get_object(
+            db, bucket_name=bucket, key=key, current_user=user
+        )
+        boto_response = object_service.fetch_blob_bytes(
+            bucket=result.bucket,
+            bucket_key=result.blob.bucket_key,
+            range_header=request.headers.get("range"),
+        )
+    except s3_signing.S3SigningError as exc:
+        return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
+    except DomainError as exc:
+        return domain_error_response(exc)
+
+    headers = build_object_response_headers(result)
+    if "ContentRange" in boto_response:
+        headers["Content-Range"] = boto_response["ContentRange"]
+    if "ContentLength" in boto_response:
+        headers["Content-Length"] = str(boto_response["ContentLength"])
+
+    body = boto_response["Body"]
+    status_code = 206 if "ContentRange" in boto_response else 200
+    return StreamingResponse(
+        stream_boto_body(body),
+        status_code=status_code,
+        headers=headers,
+        media_type=headers.get("Content-Type") or "application/octet-stream",
+    )
+
+
+def build_object_response_headers(result: object_service.GetObjectResult) -> dict[str, str]:
+    file_meta = (result.file.parser_meta or {}).get("file", {})
+    headers: dict[str, str] = {
+        "ETag": f'"{result.blob.content_hash.hex()}"',
+        "Last-Modified": result.file.updated_at.strftime(
+            "%a, %d %b %Y %H:%M:%S GMT"
+        ),
+        "Content-Length": str(result.blob.size_bytes),
+    }
+    if file_meta.get("mime_type"):
+        headers["Content-Type"] = file_meta["mime_type"]
+    else:
+        headers["Content-Type"] = "application/octet-stream"
+    return headers
+
+
+def stream_boto_body(body):
+    """Yield chunks from a boto3 StreamingBody so FastAPI can stream them."""
+    chunk_size = 64 * 1024
+    while True:
+        chunk = body.read(chunk_size)
+        if not chunk:
+            break
+        yield chunk
 
 
 @router.delete("/{bucket}/{key:path}")
-async def delete_object(bucket: str, key: str, request: Request) -> Response:
+async def delete_object(bucket: str, key: str, request: Request, db: DbSession) -> Response:
     """
-    DELETE /{bucket}/{key} -> DeleteObject
-
-    Steps:
-      1. Verify SigV4
-      2. Resolve bucket+key -> File
-      3. Check DELETE permission
-      4. Delete File row; decrement Blob.refcount
-      5. If refcount hits 0: delete Blob row + purge bytes from Bucket
-      6. Emit deletion event
-
-    Returns 204 No Content per S3 convention.
+    DELETE /{bucket}/{key} -> DeleteObject. Idempotent per S3 contract: a
+    missing key still returns 204.
     """
-    raise NotImplementedError
+    try:
+        verified = s3_signing.verify_signed_request(request)
+        user = db.get(User, verified.user_id)
+        if user is None:
+            return s3_error_response(
+                "InvalidAccessKeyId",
+                "The signed user no longer exists",
+                status_code=403,
+            )
+        object_service.delete_object(
+            db, bucket_name=bucket, key=key, current_user=user
+        )
+    except s3_signing.S3SigningError as exc:
+        return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
+    except DomainError as exc:
+        return domain_error_response(exc)
 
-
-async def copy_object(bucket: str, key: str, request: Request) -> Response:
-    """
-    PUT /{bucket}/{key} with x-amz-copy-source header -> CopyObject
-
-    Note: same path as PutObject; dispatch happens on presence of the
-    x-amz-copy-source header. The actual handler will likely be inside
-    put_object, branching on header. This stub exists to document the
-    capability.
-
-    THIS IS THE BIG ONE - it's where folder-as-versioning becomes free.
-    Steps:
-      1. Verify SigV4
-      2. Parse source bucket+key from x-amz-copy-source header
-      3. Check READ on source folder, WRITE on destination folder
-      4. Validate source File's meta against destination folder.schema
-         (since destination might require fields source didn't have)
-      5. Create new File row pointing at the SAME Blob; increment refcount
-      6. No bytes moved. Pure metadata operation.
-
-    Return 200 with <CopyObjectResult> XML body containing ETag and
-    LastModified.
-    """
-    raise NotImplementedError
+    return Response(status_code=204)
 
 
 # -----------------------------------------------------------------------------

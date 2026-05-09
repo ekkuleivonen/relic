@@ -6,7 +6,7 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
-from models import Base, File, Folder, FolderAccess, User
+from models import Base, File, Folder, FolderAccess, PARSE_STATUS_COMPLETED, User
 from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier, Permission, UserRole
 from services.auth import create_session_token
 from tests.factories.models import BlobFactory, BucketFactory, UserFactory
@@ -201,23 +201,33 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
             File(
                 folder_id=photos.id,
                 blob_id=blob.id,
+                uploaded_by=user.id,
                 name="image.jpg",
-                meta={
-                    "original_name": "image.jpg",
-                    "file_size": 1024,
-                    "mime_type": "image/jpeg",
-                    "extension": ".jpg",
+                parse_status=PARSE_STATUS_COMPLETED,
+                ingest_meta={"original_filename": "image.jpg"},
+                parser_meta={
+                    "file": {
+                        "original_filename": "image.jpg",
+                        "size": 1024,
+                        "mime_type": "image/jpeg",
+                        "extension": "jpg",
+                    }
                 },
             ),
             File(
                 folder_id=docs.id,
                 blob_id=blob.id,
+                uploaded_by=user.id,
                 name="notes.txt",
-                meta={
-                    "original_name": "notes.txt",
-                    "file_size": 12,
-                    "mime_type": "text/plain",
-                    "extension": ".txt",
+                parse_status=PARSE_STATUS_COMPLETED,
+                ingest_meta={"original_filename": "notes.txt"},
+                parser_meta={
+                    "file": {
+                        "original_filename": "notes.txt",
+                        "size": 12,
+                        "mime_type": "text/plain",
+                        "extension": "txt",
+                    }
                 },
             ),
         ]
@@ -229,7 +239,7 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
     assert response.status_code == 200
     files = response.json()
     assert [file["name"] for file in files] == ["image.jpg"]
-    assert files[0]["meta"]["file_size"] == 1024
+    assert files[0]["parser_meta"]["file"]["size"] == 1024
 
 
 def test_list_files_rejects_unreadable_folder(client, db_session, root_folder):
@@ -259,20 +269,29 @@ def test_recursive_list_files_excludes_unreadable_descendants(
             File(
                 folder_id=photos.id,
                 blob_id=blob.id,
+                uploaded_by=user.id,
                 name="image.jpg",
-                meta={"file_size": 1024},
+                parse_status=PARSE_STATUS_COMPLETED,
+                ingest_meta={"original_filename": "image.jpg"},
+                parser_meta={"file": {"size": 1024}},
             ),
             File(
                 folder_id=raw.id,
                 blob_id=blob.id,
+                uploaded_by=user.id,
                 name="raw.nef",
-                meta={"file_size": 2048},
+                parse_status=PARSE_STATUS_COMPLETED,
+                ingest_meta={"original_filename": "raw.nef"},
+                parser_meta={"file": {"size": 2048}},
             ),
             File(
                 folder_id=docs.id,
                 blob_id=blob.id,
+                uploaded_by=user.id,
                 name="notes.txt",
-                meta={"file_size": 12},
+                parse_status=PARSE_STATUS_COMPLETED,
+                ingest_meta={"original_filename": "notes.txt"},
+                parser_meta={"file": {"size": 12}},
             ),
         ]
     )

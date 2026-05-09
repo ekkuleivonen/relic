@@ -7,6 +7,7 @@ import { AccessKeysPage } from "@/pages/admin/access-keys-page"
 import { BucketsPage } from "@/pages/admin/buckets-page"
 import { FolderAccessPage } from "@/pages/admin/folder-access-page"
 import { UsersPage } from "@/pages/admin/users-page"
+import { FileDetailPage } from "@/pages/file-detail-page"
 import { FilesystemPage } from "@/pages/filesystem-page"
 import { LoginPage } from "@/pages/login-page"
 
@@ -42,7 +43,8 @@ export function App() {
         </Route>
       </Route>
       <Route element={<RequireSession />}>
-        <Route path="/f/:folderId" element={<FilesystemPage />} />
+        <Route path="/folder/:folderId" element={<FilesystemPage />} />
+        <Route path="/file/:fileId" element={<FileDetailPage />} />
         <Route path="*" element={<FilesystemPage />} />
       </Route>
     </Routes>
