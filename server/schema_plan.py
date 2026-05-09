@@ -44,7 +44,7 @@ class Permission(enum.IntFlag):
     ADMIN = 16  # manage folder itself: schema, ACLs, child folders
 
 
-class StorageTier(enum.IntEnum):
+class BucketTier(enum.IntEnum):
     HOT = 1
     WARM = 2
     COLD = 3
@@ -87,29 +87,34 @@ class AccessKey:
     revoked_at: dt.datetime | None
 
 
-class Storage:
+class Bucket:
     """
-    Real underlying S3-compatible buckets. The connectors to remote storage.
+    Real underlying S3-compatible buckets. The connectors to remote bucket.
 
     Routing algorithm (see also: Folder.cooldown_*):
-      1. Filter to storages with capacity headroom (used < capacity * 0.7)
+      1. Filter to buckets below max_size_bytes
       2. Among those, prefer the tier matching the file's current "warmth"
          (driven by Folder.cooldown_* policy and File.accessed_at)
-      3. Tiebreak by lowest probed latency
+      3. Tiebreak by lowest probe latencies
     """
 
     id: uuid.UUID
     name: str
     endpoint: str
     region: str
-    secret_ref: str  # K8s secret name holding key_id + secret_access_key
+    bucket: str  # single remote bucket this bucket writes to
+    key_id: str  # encrypted with settings.ENCRYPTION_SECRET
+    secret_access_key: str  # encrypted with settings.ENCRYPTION_SECRET
 
-    tier: StorageTier
+    tier: BucketTier
 
-    storage_capacity: int  # bytes; updated on cron
-    storage_used: int  # bytes; updated on cron
-    storage_latency_ms: int  # updated on cron via probe
-    headroom_pct: int  # how much buffer to keep free; default 30
+    max_size_bytes: int  # user-provided soft limit
+    object_count: int  # maintained internally as Relic writes/deletes
+    current_size_bytes: int  # maintained internally as Relic writes/deletes
+    probe_latency_put_ms: int | None
+    probe_latency_head_ms: int | None
+    probe_latency_get_ms: int | None
+    probe_latency_delete_ms: int | None
 
     created_at: dt.datetime
     updated_at: dt.datetime
@@ -117,14 +122,14 @@ class Storage:
 
 class Blob:
     """
-    Physical bytes stored in a Storage. Immutable.
-    Identified by content_hash; storage_key is implementation detail.
+    Physical bytes stored in a Bucket. Immutable.
+    Identified by content_hash; bucket_key is implementation detail.
     refcount < 1 means hard delete (YAGNI tombstones for now).
     """
 
     id: uuid.UUID
-    storage_id: uuid.UUID
-    storage_key: str
+    bucket_id: uuid.UUID
+    bucket_key: str
     content_hash: bytes  # raw SHA-256, 32 bytes
     refcount: int  # denormalized; hits 0 -> physical delete + row removal
     created_at: dt.datetime
@@ -143,7 +148,7 @@ class File:
     name: str
     meta: dict  # JSONB; validated against folder.schema at write time
     schema_version_validated: int | None  # which folder schema version passed
-    accessed_at: dt.datetime  # updated lazily; drives storage demotion
+    accessed_at: dt.datetime  # updated lazily; drives bucket demotion
     created_at: dt.datetime
     updated_at: dt.datetime
 
@@ -153,7 +158,7 @@ class Folder:
     Virtual filesystem nodes. Attach points for ACLs and metadata schema.
     Schemas are extend-only down the tree (additionalProperties allowed).
 
-    Storage policy is access-age-driven rather than tier-locked:
+    Bucket policy is access-age-driven rather than tier-locked:
     files cooler than `cooldown_days` get demoted one tier on the next sweep.
     Set cooldown_days = None to disable demotion (sticky-hot).
     """
@@ -163,9 +168,9 @@ class Folder:
     name: str
     schema: dict  # JSON Schema; root seeded with ROOT_FOLDER_SCHEMA
 
-    # Storage policy
+    # Bucket policy
     cooldown_days: int | None  # demote files untouched for > N days; None = sticky
-    min_tier: StorageTier  # don't demote below this tier (e.g., 3 = never archive)
+    min_tier: BucketTier  # don't demote below this tier (e.g., 3 = never archive)
 
     created_at: dt.datetime
     updated_at: dt.datetime
@@ -202,7 +207,7 @@ class FolderAccess:
 # blobs:
 #   UNIQUE (content_hash)
 #     -> dedup invariant; one row per unique content
-#   INDEX (storage_id) for tiering sweeps
+#   INDEX (bucket_id) for tiering sweeps
 #   INDEX (accessed_at) for cooldown queries -- maybe; revisit if hot
 #
 # files:

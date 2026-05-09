@@ -1,0 +1,36 @@
+---
+alwaysApply: true
+---
+
+**No manual migration files**
+Never write migration files for postgres by hand.
+Use alembic to generate those based on model changes.
+
+**Prefer test factories (factory_boy)**
+Unit tests should use tests/factories instead of db conn mocks.
+
+**Avoid technical debt**
+No re-exports to save time, just cleanup while we're at it.
+No backwards compatibility mess, refactor and warn me about breaking changes instead.
+
+**TDD**
+If feasible, write tests first, then the implementation.
+All tests in the repo should pass before your work is considered complete.
+
+**Logging — structlog only**
+Always use `from utils.logging import get_logger` + `log = get_logger(__name__)`.
+Never use stdlib `logging.getLogger` or `print()` for operational output.
+
+**Errors — domain exceptions, not HTTPException**
+Business rule violations must raise `BadRequestError`, `ResourceNotFound`, or `ConflictError` (from `managers/exceptions.py`). These are mapped to HTTP status codes by `api/exception_handlers.py`.
+Only use `HTTPException` for HTTP-specific concerns (auth, content type).
+
+**Redis — use `RedisClient` from `_utils/redis`**
+Do not create raw `redis.asyncio.from_url` connections. Use the shared `RedisClient` (or its pool) so key prefixing stays consistent.
+Arq is the exception (third-party convention).
+
+**Routes are thin**
+Route handlers validate input, call services, and return. No raw SQLAlchemy queries, Redis cache logic, or S3 I/O in route files.
+
+**Schemas — `extra="forbid"` by default**
+All Pydantic models should set `model_config = ConfigDict(extra="forbid")` unless there's a documented reason not to. This prevents silent data loss from typos.

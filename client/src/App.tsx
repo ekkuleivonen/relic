@@ -1,20 +1,63 @@
-import { Button } from "@/components/ui/button"
+import { Navigate, Route, Routes } from "react-router"
+
+import { AdminLayout } from "@/components/layout/admin-layout"
+import { AdminPlaceholderPage } from "@/pages/admin/admin-placeholder-page"
+import { BucketsPage } from "@/pages/admin/buckets-page"
 
 export function App() {
   return (
-    <div className="flex min-h-svh p-6">
-      <div className="flex max-w-md min-w-0 flex-col gap-4 text-sm leading-loose">
-        <div>
-          <h1 className="font-medium">Project ready!</h1>
-          <p>You may now add components and start building.</p>
-          <p>We&apos;ve already added the button component for you.</p>
-          <Button className="mt-2">Button</Button>
-        </div>
-        <div className="font-mono text-xs text-muted-foreground">
-          (Press <kbd>d</kbd> to toggle dark mode)
-        </div>
-      </div>
-    </div>
+    <Routes>
+      <Route path="/" element={<Navigate to="/admin/buckets" replace />} />
+      <Route path="/admin" element={<AdminLayout />}>
+        <Route index element={<Navigate to="/admin/buckets" replace />} />
+        <Route path="buckets" element={<BucketsPage />} />
+        <Route
+          path="users"
+          element={
+            <AdminPlaceholderPage
+              title="Users"
+              description="Manage users, roles, and profile records."
+            />
+          }
+        />
+        <Route
+          path="access-keys"
+          element={
+            <AdminPlaceholderPage
+              title="Access Keys"
+              description="Mint and revoke SigV4 access keys."
+            />
+          }
+        />
+        <Route
+          path="folders"
+          element={
+            <AdminPlaceholderPage
+              title="Folders"
+              description="Manage virtual folders, schemas, policies, and ACLs."
+            />
+          }
+        />
+        <Route
+          path="files"
+          element={
+            <AdminPlaceholderPage
+              title="Files"
+              description="Inspect logical file references and metadata."
+            />
+          }
+        />
+        <Route
+          path="blobs"
+          element={
+            <AdminPlaceholderPage
+              title="Blobs"
+              description="Inspect physical blob placement, refcounts, and migration state."
+            />
+          }
+        />
+      </Route>
+    </Routes>
   )
 }
 

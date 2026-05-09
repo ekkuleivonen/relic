@@ -17,7 +17,7 @@ async def list_blobs(request: Request) -> Response:
     """
     GET /blobs -> list blobs.
     Query params:
-      ?storage_id=<uuid>      blobs on a specific storage
+      ?bucket_id=<uuid>       blobs on a specific bucket
       ?refcount=0             blobs scheduled for GC (refcount < 1)
       ?content_hash=<hex>     lookup by hash
       ?accessed_before=<ts>   tiering candidate query
@@ -31,7 +31,7 @@ async def list_blobs(request: Request) -> Response:
 @router.get("/{blob_id}")
 async def get_blob(blob_id: str, request: Request) -> Response:
     """
-    GET /blobs/{id} -> single blob with current storage, refcount, hash.
+    GET /blobs/{id} -> single blob with current bucket, refcount, hash.
     Includes referenced_by: a list of (folder_id, file_id, file_name) for
     every File pointing at this Blob. Useful for "where does this content
     live?" debugging.
@@ -42,9 +42,9 @@ async def get_blob(blob_id: str, request: Request) -> Response:
 @router.post("/{blob_id}/migrate")
 async def migrate_blob(blob_id: str, request: Request) -> Response:
     """
-    POST /blobs/{id}/migrate -> move bytes to a different Storage.
-    Body: { destination_storage_id }
-    Streams bytes between storages, updates Blob.storage_id atomically on
+    POST /blobs/{id}/migrate -> move bytes to a different Bucket.
+    Body: { destination_bucket_id }
+    Streams bytes between buckets, updates Blob.bucket_id atomically on
     success, deletes from source after verification.
     Used by tiering jobs and manual ops; rarely called by humans.
     Admin-only.

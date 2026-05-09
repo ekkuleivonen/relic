@@ -1,0 +1,169 @@
+import uuid
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from api.app import app
+from database import get_db
+from models import Base, Bucket
+from schema_plan import BucketTier
+from tests.factories.models import BlobFactory, BucketFactory
+
+
+@pytest.fixture()
+def db_session():
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    with SessionLocal() as session:
+        yield session
+
+
+@pytest.fixture()
+def client(db_session):
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        yield TestClient(app)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def bucket_payload(name: str = "garage-hot") -> dict:
+    bucket = BucketFactory.build(name=name)
+    return {
+        "name": bucket.name,
+        "endpoint": bucket.endpoint,
+        "region": bucket.region,
+        "bucket": bucket.bucket,
+        "key_id": bucket.key_id,
+        "secret_access_key": bucket.secret_access_key,
+        "tier": bucket.tier,
+        "max_size_bytes": bucket.max_size_bytes,
+    }
+
+
+def test_create_and_list_buckets(client):
+    create_response = client.post("/buckets/", json=bucket_payload())
+
+    assert create_response.status_code == 200
+    created = create_response.json()
+    assert created["name"] == "garage-hot"
+    assert created["bucket"] == "blobs"
+    assert created["key_id"].startswith("GK")
+    assert created["secret_access_key"].startswith("secret-")
+    assert created["max_size_bytes"] == 1_000_000_000
+    assert created["object_count"] == 0
+    assert created["current_size_bytes"] == 0
+
+    list_response = client.get("/buckets/")
+
+    assert list_response.status_code == 200
+    assert [bucket["name"] for bucket in list_response.json()] == ["garage-hot"]
+
+
+def test_create_bucket_rejects_duplicate_name(client):
+    assert client.post("/buckets/", json=bucket_payload()).status_code == 200
+
+    response = client.post("/buckets/", json=bucket_payload())
+
+    assert response.status_code == 409
+
+
+def test_get_and_update_bucket(client):
+    bucket_id = client.post("/buckets/", json=bucket_payload()).json()["id"]
+
+    get_response = client.get(f"/buckets/{bucket_id}")
+    assert get_response.status_code == 200
+    assert get_response.json()["region"] == "garage"
+
+    update_response = client.patch(
+        f"/buckets/{bucket_id}",
+        json={
+            "name": "garage-hot-renamed",
+            "bucket": "blobs-renamed",
+            "tier": BucketTier.WARM,
+            "max_size_bytes": 2_000_000_000,
+        },
+    )
+
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["name"] == "garage-hot-renamed"
+    assert updated["bucket"] == "blobs-renamed"
+    assert updated["tier"] == BucketTier.WARM
+    assert updated["max_size_bytes"] == 2_000_000_000
+
+
+def test_bucket_credentials_are_encrypted_at_rest(client, db_session):
+    bucket_id = uuid.UUID(client.post("/buckets/", json=bucket_payload()).json()["id"])
+    bucket_row = db_session.get(Bucket, bucket_id)
+
+    assert bucket_row.key_id.startswith("GK")
+    assert bucket_row.secret_access_key.startswith("secret-")
+    assert bucket_row._key_id != bucket_row.key_id
+    assert bucket_row._secret_access_key != bucket_row.secret_access_key
+
+
+def test_delete_bucket(client):
+    bucket_id = client.post("/buckets/", json=bucket_payload()).json()["id"]
+
+    delete_response = client.delete(f"/buckets/{bucket_id}")
+
+    assert delete_response.status_code == 204
+    assert client.get(f"/buckets/{bucket_id}").status_code == 404
+
+
+def test_delete_bucket_with_blobs_returns_conflict(client, db_session):
+    bucket_id = uuid.UUID(client.post("/buckets/", json=bucket_payload()).json()["id"])
+    db_session.add(BlobFactory(bucket_id=bucket_id))
+    db_session.commit()
+
+    response = client.delete(f"/buckets/{bucket_id}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["blob_count"] == 1
+
+
+def test_probe_bucket_updates_operation_latencies(client, monkeypatch):
+    class FakeS3Client:
+        def put_object(self, Bucket, Key, Body):
+            return None
+
+        def head_object(self, Bucket, Key):
+            return None
+
+        def get_object(self, Bucket, Key):
+            class Body:
+                def read(self):
+                    return b"relic-probe"
+
+            return {"Body": Body()}
+
+        def delete_object(self, Bucket, Key):
+            return None
+
+    def fake_client(*args, **kwargs):
+        return FakeS3Client()
+
+    monkeypatch.setattr("services.buckets.boto3.client", fake_client)
+    bucket_id = client.post("/buckets/", json=bucket_payload()).json()["id"]
+
+    response = client.post(f"/buckets/{bucket_id}/probe")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reachable"] is True
+    assert body["probe_latency_put_ms"] >= 1
+    assert body["probe_latency_head_ms"] >= 1
+    assert body["probe_latency_get_ms"] >= 1
+    assert body["probe_latency_delete_ms"] >= 1

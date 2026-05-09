@@ -31,7 +31,7 @@ async def create_file(request: Request) -> Response:
     """
     POST /files -> register a File pointing at an existing Blob.
     Body: { folder_id, name, blob_id, meta }
-    Used for: registering pre-existing blobs (after direct PUT to a Storage),
+    Used for: registering pre-existing blobs (after direct PUT to a Bucket),
     bulk imports, or creating references during migrations.
     Schema validation runs against folder's schema.
 

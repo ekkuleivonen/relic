@@ -3,7 +3,7 @@ from fastapi import APIRouter, Request, Response
 router = APIRouter()
 
 """
-Proxies S3 requests to the underlying storages.
+Proxies S3 requests to the underlying buckets.
 
 Endpoints in this router show the current S3 API compatibility.
 
@@ -81,7 +81,7 @@ async def put_object(bucket: str, key: str, request: Request) -> Response:
       4. Extract x-amz-meta-* headers; merge with derived meta (size,
          original_name from key, mime_type from Content-Type or sniff)
       5. Validate merged meta against folder.schema; reject 400 on failure
-      6. Stream body to chosen Storage, computing SHA-256 in flight
+      6. Stream body to chosen Bucket, computing SHA-256 in flight
       7. On hash known: dedup check. If existing Blob found, point new File
          at it and discard the just-uploaded bytes; else create new Blob
       8. Create File row; emit "blob ingested" event
@@ -99,7 +99,7 @@ async def head_object(bucket: str, key: str, request: Request) -> Response:
 
     Metadata-only fetch. Returns same headers as GetObject (Content-Length,
     Content-Type, ETag, Last-Modified, x-amz-meta-*) with no body.
-    Cheap; no Storage roundtrip needed if File row has what we need.
+    Cheap; no Bucket roundtrip needed if File row has what we need.
     """
     raise NotImplementedError
 
@@ -114,7 +114,7 @@ async def get_object(bucket: str, key: str, request: Request) -> Response:
       2. Resolve bucket+key -> File; 404 if not found
       3. Check READ permission via FolderAccess walk
       4. Update File.accessed_at lazily (sample or batch via event log)
-      5. Stream from the Blob's current Storage; pass through Range header
+      5. Stream from the Blob's current Bucket; pass through Range header
       6. Set response headers from File.meta + Blob fields
 
     Range support is required - many clients (DuckDB, parquet readers)
@@ -133,7 +133,7 @@ async def delete_object(bucket: str, key: str, request: Request) -> Response:
       2. Resolve bucket+key -> File
       3. Check DELETE permission
       4. Delete File row; decrement Blob.refcount
-      5. If refcount hits 0: delete Blob row + purge bytes from Storage
+      5. If refcount hits 0: delete Blob row + purge bytes from Bucket
       6. Emit deletion event
 
     Returns 204 No Content per S3 convention.
