@@ -1,18 +1,10 @@
-import hashlib
-import secrets
-
 from sqlalchemy import select
 
 import settings as S
 from database import get_sessionmaker
 from models import Folder, User
 from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier, UserRole
-
-
-def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 600_000)
-    return f"pbkdf2_sha256$600000${salt}${digest.hex()}"
+from utils.passwords import hash_password
 
 
 def upsert_root_folder(db) -> Folder:

@@ -8,9 +8,11 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
-from models import Base, Bucket
-from schema_plan import BucketTier
+from models import Base, Bucket, User
+from schema_plan import BucketTier, UserRole
+from services.auth import create_session_token
 from tests.factories.models import BlobFactory, BucketFactory
+from utils.passwords import hash_password
 
 
 @pytest.fixture()
@@ -32,8 +34,18 @@ def client(db_session):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    admin = User(
+        name="Admin",
+        email="admin@relic.local",
+        password_hash=hash_password("password"),
+        role=UserRole.ADMIN,
+    )
+    db_session.add(admin)
+    db_session.commit()
     try:
-        yield TestClient(app)
+        with TestClient(app) as test_client:
+            test_client.cookies.set("relic_session", create_session_token(admin))
+            yield test_client
     finally:
         app.dependency_overrides.clear()
 

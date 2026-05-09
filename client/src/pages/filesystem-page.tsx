@@ -4,13 +4,14 @@ import {
   File,
   FileQuestion,
   Folder,
-  HardDrive,
   Home,
   RefreshCw,
 } from "lucide-react"
 import { Link, useParams } from "react-router"
 
 import { FileTree } from "@/components/filesystem/file-tree"
+import { SidebarFooter } from "@/components/layout/sidebar-footer"
+import { SidebarHeader } from "@/components/layout/sidebar-header"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -63,32 +64,27 @@ export function FilesystemPage() {
   return (
     <div className="min-h-svh bg-background text-foreground">
       <div className="grid min-h-svh lg:grid-cols-[20rem_1fr]">
-        <aside className="border-b bg-sidebar p-4 lg:border-r lg:border-b-0">
-          <div className="mb-4 flex items-center gap-2">
-            <div className="flex size-8 items-center justify-center rounded-md bg-primary/10 text-primary">
-              <HardDrive className="size-4" />
-            </div>
-            <div>
-              <div className="text-sm font-semibold tracking-tight">Relic</div>
-              <div className="text-xs text-muted-foreground">Filesystem</div>
-            </div>
+        <aside className="flex flex-col border-b bg-sidebar p-4 lg:border-r lg:border-b-0">
+          <SidebarHeader />
+          <div className="flex-1">
+            {folderTree.isLoading ? (
+              <TreeSkeleton />
+            ) : folderTree.isError ? (
+              <ErrorState
+                title="Could not load folders"
+                message={extractApiError(folderTree.error)}
+                onRetry={() => void folderTree.refetch()}
+              />
+            ) : folderTree.data ? (
+              <FileTree
+                key={selectedFolder?.id}
+                root={folderTree.data}
+                selectedFolderId={selectedFolder?.id}
+                expandedFolderIds={expandedFolderIds}
+              />
+            ) : null}
           </div>
-          {folderTree.isLoading ? (
-            <TreeSkeleton />
-          ) : folderTree.isError ? (
-            <ErrorState
-              title="Could not load folders"
-              message={extractApiError(folderTree.error)}
-              onRetry={() => void folderTree.refetch()}
-            />
-          ) : folderTree.data ? (
-            <FileTree
-              key={selectedFolder?.id}
-              root={folderTree.data}
-              selectedFolderId={selectedFolder?.id}
-              expandedFolderIds={expandedFolderIds}
-            />
-          ) : null}
+          <SidebarFooter />
         </aside>
 
         <main className="min-w-0 p-4 lg:p-8">

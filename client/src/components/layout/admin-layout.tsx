@@ -1,5 +1,7 @@
 import { NavLink, Outlet } from "react-router"
 
+import { SidebarFooter } from "@/components/layout/sidebar-footer"
+import { SidebarHeader } from "@/components/layout/sidebar-header"
 import { cn } from "@/lib/utils"
 
 const adminNavItems = [
@@ -14,12 +16,9 @@ const adminNavItems = [
 export function AdminLayout() {
   return (
     <div className="min-h-svh bg-background text-foreground">
-      <aside className="fixed inset-y-0 left-0 hidden w-56 border-r bg-sidebar px-4 py-5 lg:block">
-        <div className="mb-8">
-          <div className="text-sm font-semibold tracking-tight">Relic</div>
-          <div className="text-xs text-muted-foreground">Bucket Admin</div>
-        </div>
-        <nav className="flex flex-col gap-1">
+      <aside className="fixed inset-y-0 left-0 hidden w-56 flex-col border-r bg-sidebar px-4 py-5 lg:flex">
+        <SidebarHeader section="admin" />
+        <nav className="flex flex-1 flex-col gap-1">
           {adminNavItems.map((item) => (
             <NavLink
               key={item.to}
@@ -35,6 +34,7 @@ export function AdminLayout() {
             </NavLink>
           ))}
         </nav>
+        <SidebarFooter adminAction="files" />
       </aside>
       <div className="lg:pl-56">
         <header className="border-b px-4 py-3 lg:hidden">

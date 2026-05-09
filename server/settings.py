@@ -54,3 +54,12 @@ ENCRYPTION_SECRET: str = env.str(
 RELIC_ADMIN_NAME: str = env.str("RELIC_ADMIN_NAME", default="Relic Admin")
 RELIC_ADMIN_EMAIL: str = env.str("RELIC_ADMIN_EMAIL", default="admin@relic.local")
 RELIC_ADMIN_PASSWORD: str = env.str("RELIC_ADMIN_PASSWORD", default="relic-admin")
+
+# =============================================================================
+# Sessions
+# =============================================================================
+
+SESSION_SECRET: str = env.str("SESSION_SECRET", default=ENCRYPTION_SECRET)
+SESSION_COOKIE_NAME: str = env.str("SESSION_COOKIE_NAME", default="relic_session")
+SESSION_MAX_AGE_SECONDS: int = env.int("SESSION_MAX_AGE_SECONDS", default=60 * 60 * 24 * 7)
+SESSION_COOKIE_SECURE: bool = env.bool("SESSION_COOKIE_SECURE", default=False)

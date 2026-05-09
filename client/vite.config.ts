@@ -9,6 +9,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/access-keys": "http://localhost:8000",
+      "/auth": "http://localhost:8000",
       "/blobs": "http://localhost:8000",
       "/buckets": "http://localhost:8000",
       "/files": "http://localhost:8000",
