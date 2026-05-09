@@ -208,6 +208,29 @@ def maybe_run_toolchain(
             from parsers.toolchains.parquet import parse_parquet
 
             parse_parquet(prefix=prefix)
+        elif is_text_file(mime_type=mime_type, parser_meta=parser_meta):
+            from parsers.toolchains.text import parse_text
+
+            cap = settings.TEXT_PARSE_MAX_BYTES
+            content = read_blob_bytes_capped(
+                bucket=bucket,
+                bucket_key=blob.bucket_key,
+                size_bytes=blob.size_bytes,
+                max_bytes=cap,
+            )
+            if len(content) < blob.size_bytes:
+                log.info(
+                    "text_parse_truncated",
+                    file_id=str(file_id),
+                    read_bytes=len(content),
+                    blob_size=blob.size_bytes,
+                    max_bytes=cap,
+                    mime_type=mime_type,
+                )
+            parsed = parse_text(content=content, existing_meta=parser_meta)
+            merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
+            parser_meta.clear()
+            parser_meta.update(merged)
     except NotImplementedError as exc:
         log.warning(
             "parser_toolchain_not_implemented",
@@ -226,6 +249,29 @@ def is_json_file(*, mime_type: str, parser_meta: dict) -> bool:
     }:
         return True
     return parser_meta.get("extension") in {"json", "jsonl", "geojson", "ipynb"}
+
+
+def is_text_file(*, mime_type: str, parser_meta: dict) -> bool:
+    if mime_type.startswith("text/"):
+        return True
+    return parser_meta.get("extension") in {
+        "adoc",
+        "cfg",
+        "conf",
+        "config",
+        "css",
+        "env",
+        "ini",
+        "log",
+        "md",
+        "properties",
+        "rst",
+        "text",
+        "toml",
+        "txt",
+        "yaml",
+        "yml",
+    }
 
 
 def read_blob_prefix(*, bucket: Bucket, bucket_key: str) -> bytes:
