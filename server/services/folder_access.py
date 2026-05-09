@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from managers.exceptions import BadRequestError, ResourceNotFound
+from managers.exceptions import BadRequestError, PermissionDenied, ResourceNotFound
 from models import Folder, FolderAccess, User
 from schema_plan import Permission, UserRole
 from utils.logging import get_logger
@@ -141,6 +141,27 @@ def require_folder_permission(
     permissions = get_effective_permissions(db, user, folder_id)
     if not permissions & int(required):
         raise ResourceNotFound("Folder not found")
+    return permissions
+
+
+def require_folder_permission_strict(
+    db: Session,
+    user: User,
+    folder_id: uuid.UUID,
+    required: Permission,
+) -> int:
+    """
+    Like require_folder_permission, but distinguishes 404 vs 403.
+
+    Returns 404 (ResourceNotFound) when the user can't READ the folder at all,
+    so unreadable folders never leak existence. Returns 403 (PermissionDenied)
+    when the user can READ but lacks the specific `required` bit.
+    """
+    permissions = get_effective_permissions(db, user, folder_id)
+    if not permissions & int(Permission.READ):
+        raise ResourceNotFound("Folder not found")
+    if not permissions & int(required):
+        raise PermissionDenied("You do not have permission to perform this action")
     return permissions
 
 

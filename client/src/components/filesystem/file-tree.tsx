@@ -1,12 +1,16 @@
 import * as React from "react"
+import { useDraggable, useDroppable } from "@dnd-kit/core"
 import { ChevronRight, Folder } from "lucide-react"
 import { Link } from "react-router"
 
+import { FolderContextMenu } from "@/components/filesystem/folder-context-menu"
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import { DRAG_TYPE_FOLDER } from "@/hooks/use-folder-dnd"
+import { useFolderDragState } from "@/hooks/use-folder-drag-state"
 import { cn } from "@/lib/utils"
 import type { FolderTreeNode } from "@/types/filesystem"
 
@@ -54,39 +58,80 @@ function TreeNode({
   const href = buildFolderHref(node.id, pathSegments)
   const isSelected = selectedFolderId === node.id
 
-  if (!hasChildren) {
-    return (
-      <Link
-        to={href}
-        className={cn(
-          "flex items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-          isSelected && "bg-muted text-foreground"
-        )}
-      >
-        <span className="size-4" />
-        <Folder className="size-4" />
-        <span className="truncate">{getNodeLabel(node, pathSegments)}</span>
-      </Link>
-    )
-  }
+  const dragState = useFolderDragState()
+  const isRoot = node.parent_id === null
+  const draggable = useDraggable({
+    id: `tree-folder:${node.id}`,
+    data: { type: DRAG_TYPE_FOLDER, folder: node },
+    disabled: isRoot,
+  })
+  const isInvalidTarget =
+    dragState.activeFolder !== null &&
+    dragState.invalidTargetIds.has(node.id)
+  const droppable = useDroppable({
+    id: `tree-folder-drop:${node.id}`,
+    data: { type: DRAG_TYPE_FOLDER, folder: node },
+    disabled: isInvalidTarget,
+  })
 
-  return (
-    <Collapsible defaultOpen={expandedFolderIds.has(node.id)}>
-      <div
-        className={cn(
-          "flex items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-          isSelected && "bg-muted text-foreground"
-        )}
-      >
+  const setRefs = React.useCallback(
+    (el: HTMLDivElement | null) => {
+      draggable.setNodeRef(el)
+      droppable.setNodeRef(el)
+    },
+    [draggable, droppable]
+  )
+
+  const rowContent = (
+    <div
+      ref={setRefs}
+      {...draggable.listeners}
+      {...draggable.attributes}
+      className={cn(
+        "flex items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+        isSelected && "bg-muted text-foreground",
+        droppable.isOver &&
+          "bg-primary/10 ring-2 ring-inset ring-primary/40 text-foreground",
+        draggable.isDragging && "opacity-40"
+      )}
+    >
+      {hasChildren ? (
         <CollapsibleTrigger className="flex size-7 items-center justify-center rounded-md">
           <ChevronRight className="size-4 transition-transform data-[state=open]:rotate-90" />
           <span className="sr-only">Toggle {node.name || "root"}</span>
         </CollapsibleTrigger>
-        <Link to={href} className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2">
-          <Folder className="size-4 shrink-0" />
-          <span className="truncate">{getNodeLabel(node, pathSegments)}</span>
-        </Link>
-      </div>
+      ) : (
+        <span className="size-7" />
+      )}
+      <Link
+        to={href}
+        className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2"
+        draggable={false}
+        onClick={(event) => {
+          if (draggable.isDragging) {
+            event.preventDefault()
+          }
+        }}
+      >
+        <Folder className="size-4 shrink-0" />
+        <span className="truncate">{getNodeLabel(node, pathSegments)}</span>
+      </Link>
+    </div>
+  )
+
+  const wrappedRow = (
+    <FolderContextMenu folder={node} asChild>
+      {rowContent}
+    </FolderContextMenu>
+  )
+
+  if (!hasChildren) {
+    return wrappedRow
+  }
+
+  return (
+    <Collapsible defaultOpen={expandedFolderIds.has(node.id)}>
+      {wrappedRow}
       <CollapsibleContent className="ml-4 border-l pl-2">
         {sortedChildren.map((child) => (
           <TreeNode
@@ -117,4 +162,3 @@ function buildFolderHref(folderId: string, pathSegments: string[]) {
 
   return `/f/${encodeURIComponent(folderId)}`
 }
-

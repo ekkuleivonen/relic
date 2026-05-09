@@ -1,11 +1,13 @@
 import uuid
 
-from fastapi import APIRouter, Request, Response
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Request, Response, status
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.dependencies import CurrentUser
 from database import DbSession
 from services import filesystem as filesystem_service
+from services import folders as folders_service
+from services.folders import FolderResult
 
 router = APIRouter()
 
@@ -17,25 +19,46 @@ managing per-folder cooldown policies.
 """
 
 
-@router.get("/")
-async def list_folders(request: Request) -> Response:
-    """
-    GET /folders -> list folders the caller can see.
-    Query params: ?parent_id=<uuid> to list children; omit for root + top-level.
-    Returns flat list, not tree. UI assembles the tree from parent_ids.
-    """
-    raise NotImplementedError
+class FolderRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID
+    parent_id: uuid.UUID | None
+    name: str
+    path: str
+    effective_permissions: int
+
+    @classmethod
+    def from_result(cls, result: FolderResult) -> "FolderRead":
+        return cls(
+            id=result.folder.id,
+            parent_id=result.folder.parent_id,
+            name=result.folder.name,
+            path=result.path,
+            effective_permissions=result.effective_permissions,
+        )
 
 
-@router.post("/")
-async def create_folder(request: Request) -> Response:
-    """
-    POST /folders -> create a new folder.
-    Body: { name, parent_id, schema?, cooldown_days?, min_tier? }
-    Schema must be a valid JSON Schema and a superset of parent's schema.
-    Caller needs ADMIN permission on parent.
-    """
-    raise NotImplementedError
+class FolderCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    parent_id: uuid.UUID
+    name: str = Field(min_length=1, max_length=255)
+
+
+class FolderUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    parent_id: uuid.UUID | None = None
+
+
+class FolderDuplicate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    destination_parent_id: uuid.UUID
+    name: str = Field(min_length=1, max_length=255)
+    recursive: bool = True
 
 
 class FolderTreeRead(BaseModel):
@@ -64,30 +87,57 @@ async def get_folder_tree(
     return filesystem_service.get_folder_tree(db, current_user, root_id)
 
 
-@router.get("/{folder_id}")
-async def get_folder(folder_id: str, request: Request) -> Response:
+@router.post("/", status_code=status.HTTP_201_CREATED)
+async def create_folder(
+    payload: FolderCreate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> FolderRead:
     """
-    GET /folders/{id} -> single folder with schema, policy, parent.
-    Includes derived fields: file_count, total_size, effective_permissions
-    for the caller.
+    POST /folders -> create a new folder under `parent_id`.
+    Body: { parent_id, name }
+    Schema, cooldown, and min_tier are inherited from the parent. Caller needs
+    WRITE on the parent.
     """
-    raise NotImplementedError
+    result = folders_service.create_folder(
+        db,
+        current_user,
+        parent_id=payload.parent_id,
+        name=payload.name,
+    )
+    return FolderRead.from_result(result)
 
 
 @router.patch("/{folder_id}")
-async def update_folder(folder_id: str, request: Request) -> Response:
+async def update_folder(
+    folder_id: uuid.UUID,
+    payload: FolderUpdate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> FolderRead:
     """
-    PATCH /folders/{id} -> update mutable fields.
-    Body: { name?, schema?, cooldown_days?, min_tier? }
-    Schema changes must remain a superset of parent's schema and a superset
-    of any existing child folder schemas.
-    Caller needs ADMIN permission.
+    PATCH /folders/{id} -> rename and/or move.
+    Body: { name?, parent_id? }
+    Caller needs WRITE on the folder, plus WRITE on the new parent when moving.
+    Cycles (moving a folder into a descendant) are rejected.
     """
-    raise NotImplementedError
+    result = folders_service.update_folder(
+        db,
+        current_user,
+        folder_id=folder_id,
+        name=payload.name,
+        parent_id=payload.parent_id,
+    )
+    return FolderRead.from_result(result)
 
 
 @router.delete("/{folder_id}")
-async def delete_folder(folder_id: str, request: Request) -> Response:
+async def delete_folder(
+    folder_id: uuid.UUID,
+    db: DbSession,
+    current_user: CurrentUser,
+    recursive: bool = False,
+) -> Response:
     """
     DELETE /folders/{id} -> delete folder.
     Refuses if folder has files or subfolders unless ?recursive=true.
@@ -95,60 +145,35 @@ async def delete_folder(folder_id: str, request: Request) -> Response:
     blobs hitting refcount 0 are GC'd.
     Cannot delete root.
     """
-    raise NotImplementedError
+    folders_service.delete_folder(
+        db,
+        current_user,
+        folder_id=folder_id,
+        recursive=recursive,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{folder_id}/access")
-async def list_folder_access(folder_id: str, request: Request) -> Response:
-    """
-    GET /folders/{id}/access -> ACL rows directly attached to this folder.
-    Does not include inherited rules; use ?effective=true to compute the
-    union up the tree per user.
-    """
-    raise NotImplementedError
-
-
-@router.post("/{folder_id}/access")
-async def grant_folder_access(folder_id: str, request: Request) -> Response:
-    """
-    POST /folders/{id}/access -> grant a user permissions on this folder.
-    Body: { user_id, permissions }
-    permissions is an integer bitfield (READ=1, WRITE=2, DELETE=4, ENRICH=8).
-    Idempotent - existing rule for the same user is updated.
-    Caller needs ADMIN permission.
-    """
-    raise NotImplementedError
-
-
-@router.delete("/{folder_id}/access/{user_id}")
-async def revoke_folder_access(
-    folder_id: str, user_id: str, request: Request
-) -> Response:
-    """
-    DELETE /folders/{id}/access/{user_id} -> revoke explicit grant.
-    Inherited permissions from ancestor folders remain in effect.
-    """
-    raise NotImplementedError
-
-
-@router.post("/{folder_id}/copy")
-async def copy_folder(folder_id: str, request: Request) -> Response:
+@router.post("/{folder_id}/copy", status_code=status.HTTP_201_CREATED)
+async def copy_folder(
+    folder_id: uuid.UUID,
+    payload: FolderDuplicate,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> FolderRead:
     """
     POST /folders/{id}/copy -> create a metadata-only copy of the folder
-    and all its files at a new location.
-    Body: { destination_parent_id, name, recursive?: bool }
+    (and, by default, all its descendants) at a new location.
+    Body: { destination_parent_id, name, recursive?: bool = true }
     No bytes moved; refcounts on referenced blobs are incremented.
-    This is the folder-as-versioning primitive surfaced as an explicit
-    operation (CopyObject at S3 level handles single files).
+    Caller needs READ on source and WRITE on destination.
     """
-    raise NotImplementedError
-
-
-@router.post("/{folder_id}/snapshot")
-async def snapshot_folder(folder_id: str, request: Request) -> Response:
-    """
-    POST /folders/{id}/snapshot -> create a frozen snapshot folder.
-    Body: { name?, parent_id? }   (defaults: timestamp name under /snapshots)
-    Same as copy, but the result is marked read-only.
-    """
-    raise NotImplementedError
+    result = folders_service.duplicate_folder(
+        db,
+        current_user,
+        folder_id=folder_id,
+        destination_parent_id=payload.destination_parent_id,
+        name=payload.name,
+        recursive=payload.recursive,
+    )
+    return FolderRead.from_result(result)

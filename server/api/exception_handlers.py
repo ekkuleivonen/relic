@@ -1,7 +1,12 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
+from managers.exceptions import (
+    BadRequestError,
+    ConflictError,
+    PermissionDenied,
+    ResourceNotFound,
+)
 from utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -9,6 +14,7 @@ log = get_logger(__name__)
 
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(BadRequestError, handle_domain_error)
+    app.add_exception_handler(PermissionDenied, handle_domain_error)
     app.add_exception_handler(ResourceNotFound, handle_domain_error)
     app.add_exception_handler(ConflictError, handle_domain_error)
 

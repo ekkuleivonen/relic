@@ -7,6 +7,14 @@ export type FolderTreeNode = {
   children: FolderTreeNode[]
 }
 
+export type Folder = {
+  id: string
+  parent_id: string | null
+  name: string
+  path: string
+  effective_permissions: number
+}
+
 export type FileSystemFile = {
   id: string
   folder_id: string
@@ -32,6 +40,7 @@ export type FileSystemEntry =
       href: string
       updated_at?: string
       child_count: number
+      node: FolderTreeNode
     }
   | {
       kind: "blob"

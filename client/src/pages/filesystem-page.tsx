@@ -1,7 +1,7 @@
 import * as React from "react"
+import { DndContext, DragOverlay, pointerWithin } from "@dnd-kit/core"
 import {
   Database,
-  File,
   FileQuestion,
   Folder,
   Home,
@@ -9,6 +9,12 @@ import {
 } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router"
 
+import { FolderActionsProvider } from "@/components/filesystem/folder-actions-provider"
+import {
+  FolderEntriesTable,
+  type SortState,
+} from "@/components/filesystem/folder-entries-table"
+import { FolderHeaderActions } from "@/components/filesystem/folder-header-actions"
 import { FileTree } from "@/components/filesystem/file-tree"
 import { SidebarFooter } from "@/components/layout/sidebar-footer"
 import { SidebarHeader } from "@/components/layout/sidebar-header"
@@ -24,6 +30,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
+import { FolderDragStateProvider } from "@/components/filesystem/folder-drag-state-provider"
+import { useFolderDnd } from "@/hooks/use-folder-dnd"
 import { useFolderFiles, useFolderTree } from "@/hooks/use-filesystem"
 import { extractApiError } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -34,6 +42,14 @@ import type {
 } from "@/types/filesystem"
 
 export function FilesystemPage() {
+  return (
+    <FolderActionsProvider>
+      <FilesystemPageInner />
+    </FolderActionsProvider>
+  )
+}
+
+function FilesystemPageInner() {
   const params = useParams()
   const navigate = useNavigate()
   const routeFolderId = params.folderId
@@ -57,13 +73,14 @@ export function FilesystemPage() {
   const entries = React.useMemo(
     () =>
       selectedFolder
-        ? buildFolderEntries(
-            selectedFolder,
-            folderFiles.data ?? []
-          )
+        ? buildFolderEntries(selectedFolder, folderFiles.data ?? [])
         : [],
     [folderFiles.data, selectedFolder]
   )
+  const [sort, setSort] = React.useState<SortState>({
+    key: "name",
+    dir: "asc",
+  })
 
   React.useEffect(() => {
     if (!routeFolderId && selectedFolder && legacyPathSegments.length > 0) {
@@ -71,75 +88,116 @@ export function FilesystemPage() {
     }
   }, [legacyPathSegments.length, navigate, routeFolderId, selectedFolder])
 
+  const dnd = useFolderDnd({ tree: folderTree.data })
+
+  function handleAfterDeleteSelected() {
+    if (!selectedFolder || selectedFolder.parent_id === null) {
+      navigate("/", { replace: true })
+      return
+    }
+    navigate("/", { replace: true })
+  }
+
   return (
-    <div className="min-h-svh bg-background text-foreground">
-      <div className="grid min-h-svh lg:grid-cols-[20rem_1fr]">
-        <aside className="flex flex-col border-b bg-sidebar p-4 lg:border-r lg:border-b-0">
-          <SidebarHeader />
-          <div className="flex-1">
-            {folderTree.isLoading ? (
-              <TreeSkeleton />
-            ) : folderTree.isError ? (
-              <ErrorState
-                title="Could not load folders"
-                message={extractApiError(folderTree.error)}
-                onRetry={() => void folderTree.refetch()}
-              />
-            ) : folderTree.data ? (
-              <FileTree
-                key={selectedFolder?.id}
-                root={folderTree.data}
-                selectedFolderId={selectedFolder?.id}
-                expandedFolderIds={expandedFolderIds}
-              />
-            ) : null}
-          </div>
-          <SidebarFooter />
-        </aside>
-
-        <main className="min-w-0 p-4 lg:p-8">
-          <div className="mx-auto max-w-6xl space-y-6">
-            <div className="space-y-3">
-              <FilesystemBreadcrumbs
-                root={folderTree.data}
-                selectedFolder={selectedFolder}
-                fallbackPathSegments={legacyPathSegments}
-              />
-              <div>
-                <h1 className="text-2xl font-semibold tracking-tight">
-                  {selectedFolder?.name || "Filesystem"}
-                </h1>
-                <p className="text-sm text-muted-foreground">
-                  Browse folders and blobs by URL path.
-                </p>
+    <DndContext
+      sensors={dnd.sensors}
+      collisionDetection={pointerWithin}
+      onDragStart={dnd.onDragStart}
+      onDragCancel={dnd.onDragCancel}
+      onDragEnd={dnd.onDragEnd}
+    >
+      <FolderDragStateProvider state={dnd.dragState}>
+        <div className="min-h-svh bg-background text-foreground">
+          <div className="grid min-h-svh lg:grid-cols-[20rem_1fr]">
+            <aside className="flex flex-col border-b bg-sidebar p-4 lg:border-r lg:border-b-0">
+              <SidebarHeader />
+              <div className="flex-1">
+                {folderTree.isLoading ? (
+                  <TreeSkeleton />
+                ) : folderTree.isError ? (
+                  <ErrorState
+                    title="Could not load folders"
+                    message={extractApiError(folderTree.error)}
+                    onRetry={() => void folderTree.refetch()}
+                  />
+                ) : folderTree.data ? (
+                  <FileTree
+                    key={selectedFolder?.id}
+                    root={folderTree.data}
+                    selectedFolderId={selectedFolder?.id}
+                    expandedFolderIds={expandedFolderIds}
+                  />
+                ) : null}
               </div>
-            </div>
+              <SidebarFooter />
+            </aside>
 
-            <Card>
-              <CardHeader className="gap-3 sm:flex sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle>Folder Contents</CardTitle>
-                {selectedFolder && (
-                  <div className="text-xs text-muted-foreground">
-                    {entries.length} {entries.length === 1 ? "item" : "items"}
+            <main className="min-w-0 p-4 lg:p-8">
+              <div className="mx-auto max-w-6xl space-y-6">
+                <div className="space-y-3">
+                  <FilesystemBreadcrumbs
+                    root={folderTree.data}
+                    selectedFolder={selectedFolder}
+                    fallbackPathSegments={legacyPathSegments}
+                  />
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h1 className="text-2xl font-semibold tracking-tight">
+                        {selectedFolder?.name || "Filesystem"}
+                      </h1>
+                      <p className="text-sm text-muted-foreground">
+                        Browse, organize, and manage folders.
+                      </p>
+                    </div>
+                    {selectedFolder && (
+                      <FolderHeaderActions
+                        folder={selectedFolder}
+                        onAfterDelete={handleAfterDeleteSelected}
+                      />
+                    )}
                   </div>
-                )}
-              </CardHeader>
-              <CardContent>
-                {renderContentState({
-                  entries,
-                  folderFilesError: folderFiles.error,
-                  isFilesError: folderFiles.isError,
-                  isFilesLoading: folderFiles.isLoading,
-                  isFolderMissing:
-                    !folderTree.isLoading && folderTree.data !== undefined && !selectedFolder,
-                  onRetryFiles: () => void folderFiles.refetch(),
-                })}
-              </CardContent>
-            </Card>
+                </div>
+
+                <Card>
+                  <CardHeader className="gap-3 sm:flex sm:flex-row sm:items-center sm:justify-between">
+                    <CardTitle>Folder Contents</CardTitle>
+                    {selectedFolder && (
+                      <div className="text-xs text-muted-foreground">
+                        {entries.length}{" "}
+                        {entries.length === 1 ? "item" : "items"}
+                      </div>
+                    )}
+                  </CardHeader>
+                  <CardContent>
+                    {renderContentState({
+                      entries,
+                      folderFilesError: folderFiles.error,
+                      isFilesError: folderFiles.isError,
+                      isFilesLoading: folderFiles.isLoading,
+                      isFolderMissing:
+                        !folderTree.isLoading &&
+                        folderTree.data !== undefined &&
+                        !selectedFolder,
+                      onRetryFiles: () => void folderFiles.refetch(),
+                      sort,
+                      onSortChange: setSort,
+                    })}
+                  </CardContent>
+                </Card>
+              </div>
+            </main>
           </div>
-        </main>
-      </div>
-    </div>
+        </div>
+        <DragOverlay dropAnimation={null}>
+          {dnd.activeFolder ? (
+            <div className="pointer-events-none flex items-center gap-2 rounded-md border bg-popover px-3 py-1.5 text-xs shadow-lg">
+              <Folder className="size-3.5 text-muted-foreground" />
+              <span className="font-medium">{dnd.activeFolder.name}</span>
+            </div>
+          ) : null}
+        </DragOverlay>
+      </FolderDragStateProvider>
+    </DndContext>
   )
 }
 
@@ -150,6 +208,8 @@ type ContentStateProps = {
   isFilesLoading: boolean
   isFolderMissing: boolean
   onRetryFiles: () => void
+  sort: SortState
+  onSortChange: (next: SortState) => void
 }
 
 function renderContentState({
@@ -159,6 +219,8 @@ function renderContentState({
   isFilesLoading,
   isFolderMissing,
   onRetryFiles,
+  sort,
+  onSortChange,
 }: ContentStateProps) {
   if (isFolderMissing) {
     return (
@@ -194,7 +256,13 @@ function renderContentState({
     )
   }
 
-  return <EntryList entries={entries} />
+  return (
+    <FolderEntriesTable
+      entries={entries}
+      sort={sort}
+      onSortChange={onSortChange}
+    />
+  )
 }
 
 function FilesystemBreadcrumbs({
@@ -247,51 +315,6 @@ function FilesystemBreadcrumbs({
         ))}
       </BreadcrumbList>
     </Breadcrumb>
-  )
-}
-
-function EntryList({ entries }: { entries: FileSystemEntry[] }) {
-  return (
-    <div className="divide-y rounded-md border">
-      {entries.map((entry) => (
-        <Link
-          key={`${entry.kind}-${entry.id}`}
-          to={entry.kind === "folder" ? entry.href : "#"}
-          onClick={(event) => {
-            if (entry.kind === "blob") {
-              event.preventDefault()
-            }
-          }}
-          className={cn(
-            "grid grid-cols-[auto_1fr_auto] items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/60",
-            entry.kind === "blob" && "cursor-default"
-          )}
-        >
-          <KindIcon kind={entry.kind} />
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium">{entry.name}</div>
-            <div className="text-xs text-muted-foreground">
-              {entry.kind === "folder"
-                ? `${entry.child_count} ${entry.child_count === 1 ? "folder" : "folders"}`
-                : entry.mime_type || "application/octet-stream"}
-            </div>
-          </div>
-          <div className="text-right text-xs text-muted-foreground">
-            {entry.kind === "blob" ? formatBytes(entry.size) : "Folder"}
-          </div>
-        </Link>
-      ))}
-    </div>
-  )
-}
-
-function KindIcon({ kind }: { kind: FileSystemEntry["kind"] }) {
-  const Icon = kind === "folder" ? Folder : File
-
-  return (
-    <div className="flex size-9 items-center justify-center rounded-md bg-muted text-muted-foreground">
-      <Icon className="size-4" />
-    </div>
   )
 }
 
@@ -371,25 +394,22 @@ function buildFolderEntries(
   folder: FolderTreeNode,
   files: FileSystemFile[]
 ): FileSystemEntry[] {
-  const folderEntries = [...folder.children]
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map<FileSystemEntry>((child) => ({
-      kind: "folder",
-      id: child.id,
-      name: child.name,
-      href: buildFolderRoute(child),
-      child_count: child.children.length,
-    }))
-  const fileEntries = [...files]
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map<FileSystemEntry>((file) => ({
-      kind: "blob",
-      id: file.id,
-      name: file.name,
-      size: file.meta.file_size,
-      mime_type: file.meta.mime_type,
-      updated_at: file.updated_at,
-    }))
+  const folderEntries = folder.children.map<FileSystemEntry>((child) => ({
+    kind: "folder",
+    id: child.id,
+    name: child.name,
+    href: buildFolderRoute(child),
+    child_count: child.children.length,
+    node: child,
+  }))
+  const fileEntries = files.map<FileSystemEntry>((file) => ({
+    kind: "blob",
+    id: file.id,
+    name: file.name,
+    size: file.meta.file_size,
+    mime_type: file.meta.mime_type,
+    updated_at: file.updated_at,
+  }))
 
   return [...folderEntries, ...fileEntries]
 }
@@ -558,20 +578,4 @@ function buildFolderRoute(folder: FolderTreeNode) {
   }
 
   return `/f/${encodeURIComponent(folder.id)}`
-}
-
-function formatBytes(bytes: number | undefined) {
-  if (bytes === undefined) {
-    return "Unknown"
-  }
-
-  if (bytes === 0) {
-    return "0 B"
-  }
-
-  const units = ["B", "KB", "MB", "GB", "TB"] as const
-  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  const value = bytes / 1024 ** exponent
-
-  return `${value.toFixed(value >= 10 || exponent === 0 ? 0 : 1)} ${units[exponent]}`
 }

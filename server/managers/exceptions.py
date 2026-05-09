@@ -14,6 +14,10 @@ class BadRequestError(DomainError):
     status_code = 400
 
 
+class PermissionDenied(DomainError):
+    status_code = 403
+
+
 class ResourceNotFound(DomainError):
     status_code = 404
 
