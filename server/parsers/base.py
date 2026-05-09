@@ -181,6 +181,29 @@ def maybe_run_toolchain(
             merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
             parser_meta.clear()
             parser_meta.update(merged)
+        elif mime_type == "application/pdf":
+            from parsers.toolchains.pdf import parse_pdf
+
+            cap = settings.PDF_PARSE_MAX_BYTES
+            content = read_blob_bytes_capped(
+                bucket=bucket,
+                bucket_key=blob.bucket_key,
+                size_bytes=blob.size_bytes,
+                max_bytes=cap,
+            )
+            if len(content) < blob.size_bytes:
+                log.info(
+                    "pdf_parse_truncated",
+                    file_id=str(file_id),
+                    read_bytes=len(content),
+                    blob_size=blob.size_bytes,
+                    max_bytes=cap,
+                    mime_type=mime_type,
+                )
+            parsed = parse_pdf(content=content, existing_meta=parser_meta)
+            merged = merge_parser_meta(existing=parser_meta, parsed=parsed)
+            parser_meta.clear()
+            parser_meta.update(merged)
         elif mime_type == "application/vnd.apache.parquet":
             from parsers.toolchains.parquet import parse_parquet
 
