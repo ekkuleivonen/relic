@@ -1,14 +1,12 @@
-"""Tests for parsers.toolchains.tabular (CSV)."""
+"""Tests for parsers.toolchains.csv."""
 
-from jsonschema import validate
-
-from parsers.toolchains.tabular import empty_csv_meta, parse, parse_csv
-from schema_plan import ROOT_FOLDER_SCHEMA
+from file_meta import ParserMeta
+from parsers.toolchains.csv import empty_csv_meta, parse, parse_csv
 
 
 def _validate_with_file(csv_meta: dict) -> None:
-    validate(
-        instance={
+    ParserMeta.model_validate(
+        {
             "file": {
                 "original_filename": "x.csv",
                 "size": 10,
@@ -16,8 +14,7 @@ def _validate_with_file(csv_meta: dict) -> None:
                 "extension": "csv",
             },
             "csv": csv_meta,
-        },
-        schema=ROOT_FOLDER_SCHEMA,
+        }
     )
 
 
@@ -63,7 +60,7 @@ def test_parse_skip_preamble_comment_rows() -> None:
     _validate_with_file(meta)
 
 
-def test_parse_csv_never_raises_and_matches_schema() -> None:
+def test_parse_csv_never_raises_and_matches_parser_meta() -> None:
     meta = parse_csv(content=b"\x00\xff\xff broken")
     assert set(meta) == set(empty_csv_meta())
     _validate_with_file(meta)

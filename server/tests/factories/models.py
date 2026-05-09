@@ -1,7 +1,7 @@
 import factory
 
 from models import AccessKey, Blob, Bucket, Folder, FolderAccess, User
-from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier, Permission, UserRole
+from schema_plan import BucketTier, Permission, UserRole
 from utils.passwords import hash_password
 
 
@@ -58,7 +58,6 @@ class FolderFactory(factory.Factory):
 
     name = factory.Sequence(lambda n: f"folder-{n}")
     parent_id = None
-    schema = factory.LazyFunction(lambda: dict(ROOT_FOLDER_SCHEMA))
     cooldown_days = None
     min_tier = BucketTier.HOT
 

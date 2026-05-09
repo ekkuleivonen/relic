@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 from api.app import app
 from database import get_db
 from models import Base, Blob, File, Folder, FolderAccess, PARSE_STATUS_COMPLETED
-from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier, Permission
+from schema_plan import BucketTier, Permission
 from services.auth import create_session_token
 from tests.factories.models import BucketFactory, UserFactory
 
@@ -52,7 +52,6 @@ def root_folder(db_session):
     root = Folder(
         name="",
         parent_id=None,
-        schema=ROOT_FOLDER_SCHEMA,
         cooldown_days=None,
         min_tier=BucketTier.HOT,
     )
@@ -66,7 +65,6 @@ def photos_folder(db_session, root_folder):
     folder = Folder(
         name="photos",
         parent_id=root_folder.id,
-        schema=ROOT_FOLDER_SCHEMA,
         cooldown_days=None,
         min_tier=BucketTier.HOT,
     )
@@ -80,7 +78,6 @@ def archives_folder(db_session, root_folder):
     folder = Folder(
         name="archives",
         parent_id=root_folder.id,
-        schema=ROOT_FOLDER_SCHEMA,
         cooldown_days=None,
         min_tier=BucketTier.HOT,
     )
@@ -178,7 +175,7 @@ def test_move_file_changes_folder_id(
     assert blob.refcount == 1
 
 
-def test_move_file_defers_parser_schema_validation(
+def test_move_file_to_other_folder(
     client, db_session, user, photos_folder, archives_folder, physical_bucket
 ):
     grant(
@@ -188,15 +185,6 @@ def test_move_file_defers_parser_schema_validation(
         int(Permission.READ | Permission.WRITE | Permission.DELETE),
     )
     grant(db_session, user, archives_folder, int(Permission.READ | Permission.WRITE))
-    archives_folder.schema = {
-        **ROOT_FOLDER_SCHEMA,
-        "required": [*ROOT_FOLDER_SCHEMA.get("required", []), "checked"],
-        "properties": {
-            **ROOT_FOLDER_SCHEMA["properties"],
-            "checked": {"type": "boolean"},
-        },
-    }
-    db_session.commit()
     blob = make_blob(db_session, bucket=physical_bucket, content_hash=(2).to_bytes(32, "big"))
     file = make_file(db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg")
 

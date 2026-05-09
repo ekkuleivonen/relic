@@ -40,7 +40,6 @@ def create_folder(
     folder = Folder(
         parent_id=parent.id,
         name=name,
-        schema=parent.schema,
         cooldown_days=parent.cooldown_days,
         min_tier=parent.min_tier,
     )
@@ -206,7 +205,6 @@ def duplicate_folder(
     cloned_root = Folder(
         parent_id=destination.id,
         name=name,
-        schema=source.schema,
         cooldown_days=source.cooldown_days,
         min_tier=source.min_tier,
     )
@@ -253,7 +251,6 @@ def duplicate_folder(
                 clone = Folder(
                     parent_id=target.id,
                     name=child.name,
-                    schema=child.schema,
                     cooldown_days=child.cooldown_days,
                     min_tier=child.min_tier,
                 )

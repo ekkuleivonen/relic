@@ -14,8 +14,8 @@ router = APIRouter()
 """
 Folder CRUD - the virtual filesystem.
 
-Most user-facing operations: browsing, creating subfolders, editing schemas,
-managing per-folder cooldown policies.
+Most user-facing operations: browsing, creating subfolders, and managing
+per-folder cooldown policies.
 """
 
 
@@ -96,8 +96,8 @@ async def create_folder(
     """
     POST /folders -> create a new folder under `parent_id`.
     Body: { parent_id, name }
-    Schema, cooldown, and min_tier are inherited from the parent. Caller needs
-    WRITE on the parent.
+    Cooldown and min_tier are inherited from the parent. Caller needs WRITE
+    on the parent.
     """
     result = folders_service.create_folder(
         db,

@@ -12,7 +12,7 @@ from api.app import app
 from database import get_db
 from managers.exceptions import ConflictError, ResourceNotFound
 from models import Base, Blob, Bucket, File, Folder, FolderAccess, PARSE_STATUS_PENDING
-from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier, Permission, UserRole
+from schema_plan import BucketTier, Permission, UserRole
 from services import objects as object_service
 from services.placement import choose_bucket
 from tests.factories.models import BlobFactory, BucketFactory, UserFactory
@@ -48,7 +48,6 @@ def root_folder(db_session):
     root = Folder(
         name="",
         parent_id=None,
-        schema=ROOT_FOLDER_SCHEMA,
         cooldown_days=None,
         min_tier=BucketTier.HOT,
     )
@@ -62,7 +61,6 @@ def bucket_folder(db_session, root_folder):
     folder = Folder(
         name="photos",
         parent_id=root_folder.id,
-        schema=ROOT_FOLDER_SCHEMA,
         cooldown_days=None,
         min_tier=BucketTier.HOT,
     )

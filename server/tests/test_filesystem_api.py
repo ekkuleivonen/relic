@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 from api.app import app
 from database import get_db
 from models import Base, File, Folder, FolderAccess, PARSE_STATUS_COMPLETED, User
-from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier, Permission, UserRole
+from schema_plan import BucketTier, Permission, UserRole
 from services.auth import create_session_token
 from tests.factories.models import BlobFactory, BucketFactory, UserFactory
 from utils.passwords import hash_password
@@ -58,7 +58,6 @@ def root_folder(db_session):
     root = Folder(
         name="",
         parent_id=None,
-        schema=ROOT_FOLDER_SCHEMA,
         cooldown_days=None,
         min_tier=BucketTier.HOT,
     )
@@ -71,7 +70,6 @@ def add_folder(db_session, parent: Folder, name: str) -> Folder:
     folder = Folder(
         name=name,
         parent_id=parent.id,
-        schema=ROOT_FOLDER_SCHEMA,
         cooldown_days=None,
         min_tier=BucketTier.HOT,
     )

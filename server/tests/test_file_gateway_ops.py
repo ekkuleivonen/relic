@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 from api.app import app
 from database import get_db
 from models import Base, Blob, File, Folder, FolderAccess
-from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier, Permission
+from schema_plan import BucketTier, Permission
 from services.auth import create_session_token
 from tests.factories.models import BucketFactory, UserFactory
 
@@ -56,7 +56,6 @@ def root_folder(db_session):
     root = Folder(
         name="",
         parent_id=None,
-        schema=ROOT_FOLDER_SCHEMA,
         cooldown_days=None,
         min_tier=BucketTier.HOT,
     )
@@ -70,7 +69,6 @@ def photos_folder(db_session, root_folder):
     folder = Folder(
         name="photos",
         parent_id=root_folder.id,
-        schema=ROOT_FOLDER_SCHEMA,
         cooldown_days=None,
         min_tier=BucketTier.HOT,
     )
@@ -84,7 +82,6 @@ def archives_folder(db_session, root_folder):
     folder = Folder(
         name="archives",
         parent_id=root_folder.id,
-        schema=ROOT_FOLDER_SCHEMA,
         cooldown_days=None,
         min_tier=BucketTier.HOT,
     )
@@ -370,20 +367,11 @@ def test_presign_copy_requires_write_on_destination(
     assert response.status_code == 403
 
 
-def test_presign_copy_defers_parser_schema_validation(
+def test_presign_copy_to_other_folder(
     client, db_session, user, photos_folder, archives_folder, physical_bucket, fake_storage
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     grant(db_session, user, archives_folder, int(Permission.READ | Permission.WRITE))
-    archives_folder.schema = {
-        **ROOT_FOLDER_SCHEMA,
-        "required": [*ROOT_FOLDER_SCHEMA.get("required", []), "album"],
-        "properties": {
-            **ROOT_FOLDER_SCHEMA["properties"],
-            "album": {"type": "string"},
-        },
-    }
-    db_session.commit()
     upload_file(client, photos_folder, filename="cat.jpg", content=b"cat photo")
     source_file = db_session.scalar(select(File).where(File.name == "cat.jpg"))
 

@@ -11,6 +11,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from file_meta import dump_ingest_meta, normalize_ingest_meta
 from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import Blob, Bucket, File, Folder, PARSE_STATUS_PENDING, User
 from schema_plan import BucketTier, Permission
@@ -105,7 +106,7 @@ def put_object(
         uploaded_by=current_user.id,
         name=file_name,
         parse_status=PARSE_STATUS_PENDING,
-        ingest_meta=build_ingest_meta(file_name=file_name, ingest_meta=ingest_meta),
+        ingest_meta=dump_ingest_meta(file_name=file_name, ingest_meta=ingest_meta),
         parser_meta={},
     )
     db.add(file)
@@ -179,7 +180,6 @@ def get_or_create_child_folder(
     child = Folder(
         parent_id=parent.id,
         name=name,
-        schema=parent.schema,
         cooldown_days=parent.cooldown_days,
         min_tier=parent.min_tier,
     )
@@ -212,13 +212,6 @@ def prepare_body(
 
     body.seek(0)
     return body, content_hash, size_bytes
-
-
-def build_ingest_meta(*, file_name: str, ingest_meta: dict) -> dict:
-    return {
-        "original_filename": file_name,
-        **ingest_meta,
-    }
 
 
 def create_blob(
@@ -361,8 +354,7 @@ def copy_object(
 ) -> CopyObjectResult:
     """
     S3 CopyObject - metadata-only copy. The new File points at the same Blob;
-    refcount on the Blob is incremented. Validates the resulting metadata
-    against the destination folder schema.
+    refcount on the Blob is incremented.
     """
     if metadata_directive not in (METADATA_DIRECTIVE_COPY, METADATA_DIRECTIVE_REPLACE):
         raise BadRequestError(
@@ -411,9 +403,9 @@ def copy_object(
         raise ResourceNotFound("Source blob not found")
 
     copied_ingest_meta = (
-        dict(source_file.ingest_meta)
+        normalize_ingest_meta(dict(source_file.ingest_meta))
         if metadata_directive == METADATA_DIRECTIVE_COPY
-        else build_ingest_meta(file_name=dest_file_name, ingest_meta=ingest_meta)
+        else dump_ingest_meta(file_name=dest_file_name, ingest_meta=ingest_meta)
     )
 
     new_file = File(

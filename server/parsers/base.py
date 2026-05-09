@@ -2,9 +2,11 @@ import mimetypes
 import uuid
 from pathlib import PurePosixPath
 
-from jsonschema import ValidationError, validate
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+import settings
+from file_meta import ParserMeta
 from managers.exceptions import ResourceNotFound
 from models import (
     Blob,
@@ -14,7 +16,6 @@ from models import (
     PARSE_STATUS_FAILED,
     PARSE_STATUS_IN_PROGRESS,
 )
-import settings
 from services import objects as object_service
 from utils.logging import get_logger
 
@@ -43,7 +44,7 @@ def parse_file(db: Session, file_id: uuid.UUID) -> File:
             prefix=prefix,
         )
 
-        validate_parser_meta(file=file, parser_meta=parser_meta)
+        validate_parser_meta(parser_meta=parser_meta)
         file.parser_meta = parser_meta
         file.parse_status = PARSE_STATUS_COMPLETED
         db.commit()
@@ -67,11 +68,11 @@ def build_base_parser_meta(*, file: File, blob: Blob, prefix: bytes) -> dict:
     }
 
 
-def validate_parser_meta(*, file: File, parser_meta: dict) -> None:
+def validate_parser_meta(*, parser_meta: dict) -> None:
     try:
-        validate(instance=parser_meta, schema=file.folder.schema)
+        ParserMeta.model_validate(parser_meta)
     except ValidationError as exc:
-        raise ValueError(f"Parser metadata failed folder schema: {exc.message}") from exc
+        raise ValueError(f"Parser metadata invalid: {exc}") from exc
 
 
 def detect_mime_type(*, prefix: bytes, filename: str) -> str:
@@ -132,7 +133,7 @@ def maybe_run_toolchain(
                 )
             parser_meta["image"] = parse_image(content=content)
         elif mime_type == "text/csv":
-            from parsers.toolchains.tabular import parse_csv
+            from parsers.toolchains.csv import parse_csv
 
             cap = settings.TABULAR_PARSE_MAX_BYTES
             content = read_blob_bytes_capped(
@@ -152,7 +153,7 @@ def maybe_run_toolchain(
                 )
             parser_meta["csv"] = parse_csv(content=content)
         elif mime_type == "application/vnd.apache.parquet":
-            from parsers.toolchains.tabular import parse_parquet
+            from parsers.toolchains.parquet import parse_parquet
 
             parse_parquet(prefix=prefix)
     except NotImplementedError as exc:

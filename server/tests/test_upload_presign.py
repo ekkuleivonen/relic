@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 from api.app import app
 from database import get_db
 from models import Base, Blob, Bucket, File, Folder, FolderAccess, PARSE_STATUS_PENDING
-from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier, Permission
+from schema_plan import BucketTier, Permission
 from services.auth import create_session_token
 from tests.factories.models import BucketFactory, UserFactory
 
@@ -63,7 +63,6 @@ def root_folder(db_session):
     root = Folder(
         name="",
         parent_id=None,
-        schema=ROOT_FOLDER_SCHEMA,
         cooldown_days=None,
         min_tier=BucketTier.HOT,
     )
@@ -77,7 +76,6 @@ def photos_folder(db_session, root_folder):
     folder = Folder(
         name="photos",
         parent_id=root_folder.id,
-        schema=ROOT_FOLDER_SCHEMA,
         cooldown_days=None,
         min_tier=BucketTier.HOT,
     )
@@ -244,52 +242,6 @@ def test_expired_url_fails(client, db_session, user, photos_folder, monkeypatch)
 
     assert put_response.status_code == 403
     assert "SignatureDoesNotMatch" in put_response.text
-
-
-def test_presign_does_not_validate_parser_metadata(client, db_session, user, photos_folder):
-    photos_folder.schema = {
-        **ROOT_FOLDER_SCHEMA,
-        "properties": {
-            **ROOT_FOLDER_SCHEMA["properties"],
-            "album": {"type": "integer"},
-        },
-    }
-    db_session.commit()
-    grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
-
-    response = presign(client, photos_folder)
-
-    assert response.status_code == 200
-
-
-def test_gateway_accepts_upload_before_parser_schema_validation(
-    client, db_session, user, photos_folder, physical_bucket, monkeypatch
-):
-    grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
-    response = presign(client, photos_folder)
-    signed = response.json()
-    photos_folder.schema = {
-        **ROOT_FOLDER_SCHEMA,
-        "properties": {
-            **ROOT_FOLDER_SCHEMA["properties"],
-            "album": {"type": "integer"},
-        },
-    }
-    db_session.commit()
-
-    class FakeS3Client:
-        def put_object(self, Bucket, Key, Body):
-            return None
-
-    monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
-
-    put_response = client.put(
-        signed["url"],
-        content=b"cat photo",
-        headers=signed["headers"],
-    )
-
-    assert put_response.status_code == 200
 
 
 def test_replayed_url_hits_file_unique_constraint(

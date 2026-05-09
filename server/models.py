@@ -154,7 +154,6 @@ class Folder(Base, TimestampMixin):
         GUID(), ForeignKey("folders.id", ondelete="CASCADE")
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    schema: Mapped[dict] = mapped_column(JSONType, nullable=False)
     cooldown_days: Mapped[int | None] = mapped_column(Integer)
     min_tier: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 

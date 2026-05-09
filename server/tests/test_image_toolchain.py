@@ -3,9 +3,9 @@
 import io
 
 import pytest
-from jsonschema import validate
 from PIL import Image, ImageDraw
 
+from file_meta import ParserMeta
 from parsers.toolchains.image import (
     _parse_exif_datetime,
     _parse_gps_coord,
@@ -13,7 +13,6 @@ from parsers.toolchains.image import (
     parse,
     parse_image,
 )
-from schema_plan import ROOT_FOLDER_SCHEMA
 
 
 def _rgb_png_bytes(*, size: tuple[int, int] = (32, 24), color: tuple[int, int, int]) -> bytes:
@@ -54,19 +53,20 @@ def test_parse_image_empty_content() -> None:
     assert parse_image(content=b"") == empty_image_meta()
 
 
-def test_image_meta_validates_root_schema() -> None:
+def test_image_meta_validates_parser_meta() -> None:
     content = _rgb_png_bytes(color=(1, 2, 3))
     image_meta = parse(content)
-    instance = {
-        "file": {
-            "original_filename": "x.png",
-            "size": 123,
-            "mime_type": "image/png",
-            "extension": "png",
-        },
-        "image": image_meta,
-    }
-    validate(instance=instance, schema=ROOT_FOLDER_SCHEMA)
+    ParserMeta.model_validate(
+        {
+            "file": {
+                "original_filename": "x.png",
+                "size": 123,
+                "mime_type": "image/png",
+                "extension": "png",
+            },
+            "image": image_meta,
+        }
+    )
 
 
 def test_rgba_png_has_alpha() -> None:

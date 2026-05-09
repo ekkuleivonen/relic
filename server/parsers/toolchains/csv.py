@@ -1,4 +1,4 @@
-"""Tabular parsers: CSV today; Parquet reserved.
+"""CSV parser. Writes basic metadata to parser_meta under the ``csv`` key.
 
 CSV writes basic metadata to parser_meta under the ``csv`` key. No runtime configuration.
 Robust against real-world CSV: delimiters, encodings, quotes, headers, preamble
@@ -16,7 +16,6 @@ from datetime import datetime
 from typing import IO, Any
 
 from charset_normalizer import from_bytes
-
 from utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -80,11 +79,6 @@ def parse_csv(*, content: bytes) -> dict[str, Any]:
     except Exception as exc:
         log.warning("csv_parse_failed", error=str(exc))
         return empty_csv_meta()
-
-
-def parse_parquet(*, prefix: bytes = b"") -> dict[str, Any]:
-    del prefix
-    raise NotImplementedError("Parquet parser toolchain is not implemented yet")
 
 
 def parse(content: bytes | IO[bytes]) -> dict[str, Any]:

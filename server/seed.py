@@ -3,7 +3,7 @@ from sqlalchemy import select
 import settings as S
 from database import get_sessionmaker
 from models import Folder, User
-from schema_plan import ROOT_FOLDER_SCHEMA, BucketTier, UserRole
+from schema_plan import BucketTier, UserRole
 from utils.passwords import hash_password
 
 
@@ -15,7 +15,6 @@ def upsert_root_folder(db) -> Folder:
     root = Folder(
         name="",
         parent_id=None,
-        schema=ROOT_FOLDER_SCHEMA,
         cooldown_days=None,
         min_tier=BucketTier.HOT,
     )
