@@ -7,6 +7,7 @@ See workers called from parsers/worker.py (arq cron).
 import datetime as dt
 import io
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from botocore.exceptions import BotoCoreError, ClientError
@@ -16,7 +17,13 @@ from sqlalchemy.orm import Session, selectinload
 from models import Blob, Bucket, File
 from schema_plan import BucketTier
 from services import buckets as bucket_service
-from services.events import EventContext, create_event
+from services.events import (
+    EventContext,
+    create_event,
+    elapsed_ms,
+    latency_metadata,
+    timer_start,
+)
 from services.folder_storage_policy import effective_cooldown_days, effective_min_tier
 from services.objects import delete_blob_bytes, fetch_blob_bytes, upload_blob
 from services.placement import (
@@ -27,6 +34,13 @@ from services.placement import (
 from utils.logging import get_logger
 
 log = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class BlobMigrationResult:
+    migrated: bool
+    db_latency_ms: int = 0
+    remote_latency_ms: int = 0
 
 
 def purge_dereferenced_blobs_batch(
@@ -40,6 +54,9 @@ def purge_dereferenced_blobs_batch(
 
     Uses row-level SKIP LOCKED when supported (PostgreSQL / recent SQLite).
     """
+    started_at = timer_start()
+    db_latency_ms = 0
+    remote_latency_ms = 0
     dialect = db.get_bind().dialect.name
     stmt = (
         select(Blob)
@@ -49,7 +66,9 @@ def purge_dereferenced_blobs_batch(
     )
     if dialect in ("postgresql", "sqlite"):
         stmt = stmt.with_for_update(skip_locked=True)
+    db_started = timer_start()
     blobs = list(db.scalars(stmt))
+    db_latency_ms += elapsed_ms(db_started, minimum=0)
 
     deleted_rows = 0
     freed_bytes = 0
@@ -59,10 +78,14 @@ def purge_dereferenced_blobs_batch(
     for blob in blobs:
         try:
             with db.begin_nested():
+                db_started = timer_start()
                 bucket = db.get(Bucket, blob.bucket_id)
+                db_latency_ms += elapsed_ms(db_started, minimum=0)
                 if bucket is not None:
                     try:
+                        remote_started = timer_start()
                         delete_blob_bytes(bucket=bucket, bucket_key=blob.bucket_key)
+                        remote_latency_ms += elapsed_ms(remote_started, minimum=0)
                     except (BotoCoreError, ClientError, OSError, ValueError) as exc:
                         log.warning(
                             "blob_purge_remote_delete_failed",
@@ -71,6 +94,7 @@ def purge_dereferenced_blobs_batch(
                             error=str(exc),
                         )
                         raise
+                    db_started = timer_start()
                     adjust_bucket_usage_cache(
                         bucket.id,
                         object_count_delta=-1,
@@ -80,6 +104,7 @@ def purge_dereferenced_blobs_batch(
                 deleted_rows += 1
                 deleted_blob_ids.append(blob.id)
                 db.delete(blob)
+                db_latency_ms += elapsed_ms(db_started, minimum=0)
         except Exception:
             errors += 1
             failed_blob_ids.append(blob.id)
@@ -102,6 +127,11 @@ def purge_dereferenced_blobs_batch(
                 "freed_bytes": freed_bytes,
                 "errors": errors,
                 "failed_blob_ids": [str(blob_id) for blob_id in failed_blob_ids],
+                **latency_metadata(
+                    started_at,
+                    db_latency_ms=db_latency_ms,
+                    remote_latency_ms=remote_latency_ms,
+                ),
             },
         )
     db.commit()
@@ -199,13 +229,19 @@ def _migrate_blob_to_bucket_inner(
     db: Session,
     blob: Blob,
     destination: Bucket,
-) -> bool:
+) -> BlobMigrationResult:
     if destination.id == blob.bucket_id:
-        return False
+        return BlobMigrationResult(migrated=False)
 
+    db_latency_ms = 0
+    remote_latency_ms = 0
+    db_started = timer_start()
     src = db.get(Bucket, blob.bucket_id)
     if src is None:
-        return False
+        return BlobMigrationResult(
+            migrated=False,
+            db_latency_ms=elapsed_ms(db_started, minimum=0),
+        )
 
     destination_usage = get_bucket_usages(db, [destination.id])[destination.id]
     if destination_usage.current_size_bytes + blob.size_bytes > destination.max_size_bytes:
@@ -214,16 +250,26 @@ def _migrate_blob_to_bucket_inner(
             blob_id=str(blob.id),
             dest_bucket=str(destination.id),
         )
-        return False
+        return BlobMigrationResult(
+            migrated=False,
+            db_latency_ms=elapsed_ms(db_started, minimum=0),
+        )
+    db_latency_ms += elapsed_ms(db_started, minimum=0)
 
     try:
+        remote_started = timer_start()
         response = fetch_blob_bytes(bucket=src, bucket_key=blob.bucket_key)
         body_io = io.BytesIO(response["Body"].read())
+        remote_latency_ms += elapsed_ms(remote_started, minimum=0)
 
+        remote_started = timer_start()
         upload_blob(bucket=destination, bucket_key=blob.bucket_key, body=body_io)
+        remote_latency_ms += elapsed_ms(remote_started, minimum=0)
 
         try:
+            remote_started = timer_start()
             delete_blob_bytes(bucket=src, bucket_key=blob.bucket_key)
+            remote_latency_ms += elapsed_ms(remote_started, minimum=0)
         except (BotoCoreError, ClientError, OSError, ValueError) as exc:
             log.warning(
                 "blob_migrate_old_key_delete_failed",
@@ -232,6 +278,7 @@ def _migrate_blob_to_bucket_inner(
             )
             raise
 
+        db_started = timer_start()
         blob.bucket_id = destination.id
         db.flush()
         adjust_bucket_usage_cache(
@@ -240,6 +287,7 @@ def _migrate_blob_to_bucket_inner(
         adjust_bucket_usage_cache(
             destination.id, object_count_delta=1, size_bytes_delta=blob.size_bytes
         )
+        db_latency_ms += elapsed_ms(db_started, minimum=0)
     except Exception as exc:
         log.warning(
             "blob_migrate_failed",
@@ -247,9 +295,17 @@ def _migrate_blob_to_bucket_inner(
             destination_bucket=str(destination.id),
             error=str(exc),
         )
-        return False
+        return BlobMigrationResult(
+            migrated=False,
+            db_latency_ms=db_latency_ms,
+            remote_latency_ms=remote_latency_ms,
+        )
 
-    return True
+    return BlobMigrationResult(
+        migrated=True,
+        db_latency_ms=db_latency_ms,
+        remote_latency_ms=remote_latency_ms,
+    )
 
 
 def _pick_destination_same_tier(
@@ -360,7 +416,9 @@ def rebalance_blob_storage_batch(
             continue
 
         source_bucket_id = bucket.id
-        if _migrate_blob_to_bucket_inner(db, blob, dest):
+        migration_started = timer_start()
+        migration = _migrate_blob_to_bucket_inner(db, blob, dest)
+        if migration.migrated:
             if event_context is not None:
                 create_event(
                     db,
@@ -373,6 +431,11 @@ def rebalance_blob_storage_batch(
                         "source_bucket_id": str(source_bucket_id),
                         "destination_bucket_id": str(dest.id),
                         "size_bytes": blob.size_bytes,
+                        **latency_metadata(
+                            migration_started,
+                            db_latency_ms=migration.db_latency_ms,
+                            remote_latency_ms=migration.remote_latency_ms,
+                        ),
                     },
                 )
             moved += 1

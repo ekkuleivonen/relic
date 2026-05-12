@@ -10,7 +10,13 @@ from sqlalchemy.orm import Session
 
 from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import Blob, Bucket
-from services.events import EventContext, create_event
+from services.events import (
+    EventContext,
+    create_event,
+    elapsed_ms,
+    latency_metadata,
+    timer_start,
+)
 from services.placement import (
     BucketUsage,
     clear_bucket_usage_cache,
@@ -49,10 +55,13 @@ def get_bucket_read(db: Session, bucket_id: uuid.UUID) -> dict[str, Any]:
 def create_bucket(
     db: Session, values: dict[str, Any], *, event_context: EventContext | None = None
 ) -> Bucket:
+    started_at = timer_start()
+    db_started = timer_start()
     ensure_bucket_name_available(db, values["name"])
     bucket = Bucket(**values)
     db.add(bucket)
     db.flush()
+    db_latency_ms = elapsed_ms(db_started, minimum=0)
     if event_context is not None:
         create_event(
             db,
@@ -64,6 +73,7 @@ def create_bucket(
                 "bucket_id": str(bucket.id),
                 "name": bucket.name,
                 "tier": int(bucket.tier),
+                **latency_metadata(started_at, db_latency_ms=db_latency_ms),
             },
         )
     db.commit()
@@ -85,6 +95,8 @@ def update_bucket(
     *,
     event_context: EventContext | None = None,
 ) -> Bucket:
+    started_at = timer_start()
+    db_started = timer_start()
     bucket = get_bucket(db, bucket_id)
     if "name" in values:
         ensure_bucket_name_available(db, values["name"], excluding_id=bucket.id)
@@ -93,6 +105,7 @@ def update_bucket(
         setattr(bucket, key, value)
 
     db.flush()
+    db_latency_ms = elapsed_ms(db_started, minimum=0)
     if event_context is not None:
         create_event(
             db,
@@ -104,6 +117,7 @@ def update_bucket(
                 "bucket_id": str(bucket.id),
                 "name": bucket.name,
                 "changed_fields": sorted(values),
+                **latency_metadata(started_at, db_latency_ms=db_latency_ms),
             },
         )
     db.commit()
@@ -125,6 +139,8 @@ def update_bucket_read(
 def delete_bucket(
     db: Session, bucket_id: uuid.UUID, *, event_context: EventContext | None = None
 ) -> None:
+    started_at = timer_start()
+    db_started = timer_start()
     bucket = get_bucket(db, bucket_id)
     blob_count = db.scalar(
         select(func.count()).select_from(Blob).where(Blob.bucket_id == bucket.id)
@@ -137,6 +153,7 @@ def delete_bucket(
 
     metadata = {"bucket_id": str(bucket.id), "name": bucket.name, "tier": int(bucket.tier)}
     db.delete(bucket)
+    db_latency_ms = elapsed_ms(db_started, minimum=0)
     if event_context is not None:
         create_event(
             db,
@@ -144,7 +161,10 @@ def delete_bucket(
             operation="bucket.deleted",
             actor_user_id=event_context.actor_user_id,
             request_id=event_context.request_id,
-            metadata=metadata,
+            metadata={
+                **metadata,
+                **latency_metadata(started_at, db_latency_ms=db_latency_ms),
+            },
         )
     db.commit()
     clear_bucket_usage_cache(bucket.id)
@@ -173,11 +193,15 @@ def bucket_read(bucket: Bucket, usage: BucketUsage) -> dict[str, Any]:
 def probe_bucket(
     db: Session, bucket_id: uuid.UUID, *, event_context: EventContext | None = None
 ) -> BucketProbeResult:
+    started_at = timer_start()
+    db_started = timer_start()
     bucket = get_bucket(db, bucket_id)
+    db_latency_ms = elapsed_ms(db_started, minimum=0)
     probe_key = f"__relic_probe__/{uuid.uuid4()}"
     probe_body = b"relic-probe"
     reachable = True
     error: Exception | None = None
+    remote_latency_ms = 0
 
     try:
         client = boto3.client(
@@ -199,6 +223,12 @@ def probe_bucket(
         bucket.probe_latency_delete_ms = timed_ms(
             lambda: client.delete_object(Bucket=bucket.bucket, Key=probe_key)
         )
+        remote_latency_ms = (
+            bucket.probe_latency_put_ms
+            + bucket.probe_latency_head_ms
+            + bucket.probe_latency_get_ms
+            + bucket.probe_latency_delete_ms
+        )
     except (BotoCoreError, ClientError, OSError, ValueError) as exc:
         reachable = False
         error = exc
@@ -215,6 +245,11 @@ def probe_bucket(
             "probe_latency_head_ms": bucket.probe_latency_head_ms,
             "probe_latency_get_ms": bucket.probe_latency_get_ms,
             "probe_latency_delete_ms": bucket.probe_latency_delete_ms,
+            **latency_metadata(
+                started_at,
+                db_latency_ms=db_latency_ms,
+                remote_latency_ms=remote_latency_ms,
+            ),
         }
         if error is not None:
             metadata.update(

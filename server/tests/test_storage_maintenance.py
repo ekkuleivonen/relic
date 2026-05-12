@@ -100,6 +100,9 @@ def test_purge_deletes_dereferenced_blob_and_adjusts_counters(
     assert event.operation == "blob.purged"
     assert event.status == "succeeded"
     assert event.blob_ids == [str(blob_row.id)]
+    assert event.meta["duration_ms"] >= 1
+    assert event.meta["db_latency_ms"] >= 0
+    assert event.meta["remote_latency_ms"] >= 0
 
 
 def test_purge_skips_positive_refcount(db_session, fake_storage):

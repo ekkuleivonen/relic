@@ -1,16 +1,14 @@
 import hashlib
 import tempfile
-import uuid
 from dataclasses import dataclass
 from typing import BinaryIO
 from urllib.parse import unquote
 from xml.sax.saxutils import escape
 
-from fastapi import APIRouter, Request, Response
-from fastapi.responses import StreamingResponse
-
 import settings as S
 from database import DbSession
+from fastapi import APIRouter, Request, Response
+from fastapi.responses import StreamingResponse
 from managers.exceptions import (
     BadRequestError,
     ConflictError,
@@ -21,8 +19,7 @@ from managers.exceptions import (
 from models import User
 from services import events as event_service
 from services import objects as object_service
-from services import parser_queue
-from services import s3_signing
+from services import parser_queue, s3_signing
 
 router = APIRouter()
 
@@ -32,6 +29,7 @@ class SpoolResult:
     body: BinaryIO
     content_hash: bytes
     size_bytes: int
+
 
 """
 Proxies S3 requests to the underlying buckets.
@@ -100,7 +98,9 @@ async def list_objects_v2(bucket: str, request: Request) -> Response:
 
 
 @router.put("/{bucket}/{key:path}")
-async def put_object(bucket: str, key: str, request: Request, db: DbSession) -> Response:
+async def put_object(
+    bucket: str, key: str, request: Request, db: DbSession
+) -> Response:
     """
     PUT /{bucket}/{key} -> PutObject (or CopyObject when x-amz-copy-source is set).
 
@@ -276,7 +276,9 @@ def s3_error_response(code: str, message: str, *, status_code: int) -> Response:
 
 
 @router.head("/{bucket}/{key:path}")
-async def head_object(bucket: str, key: str, request: Request, db: DbSession) -> Response:
+async def head_object(
+    bucket: str, key: str, request: Request, db: DbSession
+) -> Response:
     """
     HEAD /{bucket}/{key} -> HeadObject. Same shape as GET, no body.
     """
@@ -289,19 +291,16 @@ async def head_object(bucket: str, key: str, request: Request, db: DbSession) ->
                 "The signed user no longer exists",
                 status_code=403,
             )
-        result = object_service.get_object(
-            db, bucket_name=bucket, key=key, current_user=user
-        )
-        event_service.record_event(
+        result = object_service.head_object(
             db,
-            source="s3_gateway",
-            operation="object.head",
-            actor_user_id=user.id,
-            request_id=event_service.request_id_from_headers(request.headers),
-            file_ids=[result.file.id],
-            folder_ids=[result.file.folder_id],
-            blob_ids=[result.blob.id],
-            metadata={"bucket": bucket, "key": key},
+            bucket_name=bucket,
+            key=key,
+            current_user=user,
+            event_context=event_service.context_from_headers(
+                request.headers,
+                source="s3_gateway",
+                actor_user_id=user.id,
+            ),
         )
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
@@ -312,7 +311,9 @@ async def head_object(bucket: str, key: str, request: Request, db: DbSession) ->
 
 
 @router.get("/{bucket}/{key:path}")
-async def get_object(bucket: str, key: str, request: Request, db: DbSession) -> Response:
+async def get_object(
+    bucket: str, key: str, request: Request, db: DbSession
+) -> Response:
     """
     GET /{bucket}/{key} -> GetObject. Streams bytes from the underlying bucket.
     """
@@ -325,30 +326,20 @@ async def get_object(bucket: str, key: str, request: Request, db: DbSession) -> 
                 "The signed user no longer exists",
                 status_code=403,
             )
-        result = object_service.get_object(
-            db, bucket_name=bucket, key=key, current_user=user
-        )
-        boto_response = object_service.fetch_blob_bytes(
-            bucket=result.bucket,
-            bucket_key=result.blob.bucket_key,
-            range_header=request.headers.get("range"),
-        )
-        event_service.record_event(
+        object_bytes = object_service.get_object_bytes(
             db,
-            source="s3_gateway",
-            operation="object.get",
-            actor_user_id=user.id,
-            request_id=event_service.request_id_from_headers(request.headers),
-            file_ids=[result.file.id],
-            folder_ids=[result.file.folder_id],
-            blob_ids=[result.blob.id],
-            metadata={
-                "bucket": bucket,
-                "key": key,
-                "range": request.headers.get("range"),
-                "content_length": boto_response.get("ContentLength"),
-            },
+            bucket_name=bucket,
+            key=key,
+            range_header=request.headers.get("range"),
+            current_user=user,
+            event_context=event_service.context_from_headers(
+                request.headers,
+                source="s3_gateway",
+                actor_user_id=user.id,
+            ),
         )
+        result = object_bytes.result
+        boto_response = object_bytes.boto_response
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
     except DomainError as exc:
@@ -370,13 +361,13 @@ async def get_object(bucket: str, key: str, request: Request, db: DbSession) -> 
     )
 
 
-def build_object_response_headers(result: object_service.GetObjectResult) -> dict[str, str]:
+def build_object_response_headers(
+    result: object_service.GetObjectResult,
+) -> dict[str, str]:
     file_meta = result.file.meta or {}
     headers: dict[str, str] = {
         "ETag": f'"{result.blob.content_hash.hex()}"',
-        "Last-Modified": result.file.updated_at.strftime(
-            "%a, %d %b %Y %H:%M:%S GMT"
-        ),
+        "Last-Modified": result.file.updated_at.strftime("%a, %d %b %Y %H:%M:%S GMT"),
         "Content-Length": str(result.blob.size_bytes),
     }
     if file_meta.get("mimetype"):
@@ -397,7 +388,9 @@ def stream_boto_body(body):
 
 
 @router.delete("/{bucket}/{key:path}")
-async def delete_object(bucket: str, key: str, request: Request, db: DbSession) -> Response:
+async def delete_object(
+    bucket: str, key: str, request: Request, db: DbSession
+) -> Response:
     """
     DELETE /{bucket}/{key} -> DeleteObject. Idempotent per S3 contract: a
     missing key still returns 204.

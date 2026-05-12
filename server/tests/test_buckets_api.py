@@ -204,3 +204,6 @@ def test_probe_bucket_updates_operation_latencies(client, db_session, monkeypatc
     assert event.status == "succeeded"
     assert event.meta["reachable"] is True
     assert event.meta["probe_latency_put_ms"] >= 1
+    assert event.meta["duration_ms"] >= 1
+    assert event.meta["db_latency_ms"] >= 0
+    assert event.meta["remote_latency_ms"] >= 1

@@ -1,5 +1,5 @@
 import * as React from "react"
-import { RefreshCw, Search, Trash2, X } from "lucide-react"
+import { CalendarIcon, RefreshCw, Search, Trash2, X } from "lucide-react"
 
 import { EventsTable } from "@/components/events/events-table"
 import { OffsetPaginationBar } from "@/components/pagination-offset"
@@ -15,8 +15,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { Calendar } from "@/components/ui/calendar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -26,9 +32,73 @@ import {
 } from "@/components/ui/select"
 import { EVENTS_PAGE_SIZE, useClearEvents, useEvents } from "@/hooks/use-events"
 import { extractApiError } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import type { EventStatus, EventsQuery } from "@/types/events"
 
 const STATUS_ALL = "all"
+const SOURCE_ALL = "all"
+const OPERATION_ALL = "all"
+
+const SOURCE_OPTIONS = [
+  { value: "relic_api", label: "Relic API" },
+  { value: "s3_gateway", label: "S3 gateway" },
+  { value: "processor", label: "Processor" },
+  { value: "maintenance", label: "Maintenance" },
+] as const
+
+const OPERATIONS_BY_SOURCE = {
+  relic_api: [
+    "access_key.created",
+    "access_key.deleted",
+    "access_key.revoked",
+    "auth.login.failed",
+    "auth.login.succeeded",
+    "auth.logout",
+    "bucket.created",
+    "bucket.deleted",
+    "bucket.probed",
+    "bucket.updated",
+    "file.moved",
+    "file.renamed",
+    "folder.access.granted",
+    "folder.access.revoked",
+    "folder.access.updated",
+    "folder.copied",
+    "folder.created",
+    "folder.deleted",
+    "folder.updated",
+    "presign.copy.created",
+    "presign.delete.created",
+    "presign.download.created",
+    "presign.upload.created",
+    "user.created",
+    "user.deleted",
+    "user.updated",
+  ],
+  s3_gateway: [
+    "object.copied",
+    "object.deleted",
+    "object.get",
+    "object.head",
+    "object.put",
+  ],
+  processor: ["file.metadata.updated", "parse.failed"],
+  maintenance: ["blob.migrated", "blob.purged", "bucket.probed"],
+} as const
+
+const OPERATION_OPTIONS = Array.from(
+  new Set(Object.values(OPERATIONS_BY_SOURCE).flat())
+).sort()
+
+type EventFiltersDraft = {
+  source: string
+  operation: string
+  status: string
+  actor_user_id: string
+  request_id: string
+  created_after: Date | undefined
+  created_before: Date | undefined
+}
 
 export function EventsPage() {
   const [filters, setFilters] = React.useState<EventsQuery>({
@@ -36,29 +106,31 @@ export function EventsPage() {
     offset: 0,
   })
   const [clearDialogOpen, setClearDialogOpen] = React.useState(false)
-  const [draft, setDraft] = React.useState({
-    source: "",
-    operation: "",
+  const [draft, setDraft] = React.useState<EventFiltersDraft>({
+    source: SOURCE_ALL,
+    operation: OPERATION_ALL,
     status: STATUS_ALL,
     actor_user_id: "",
     request_id: "",
-    created_after: "",
-    created_before: "",
+    created_after: undefined,
+    created_before: undefined,
   })
   const eventsQuery = useEvents(filters)
   const clearEventsMutation = useClearEvents()
+  const operationOptions = operationsForSource(draft.source)
 
   function applyFilters(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setFilters({
-      source: draft.source,
-      operation: draft.operation,
+      source: draft.source === SOURCE_ALL ? undefined : draft.source,
+      operation:
+        draft.operation === OPERATION_ALL ? undefined : draft.operation,
       status:
         draft.status === STATUS_ALL ? undefined : (draft.status as EventStatus),
       actor_user_id: draft.actor_user_id,
       request_id: draft.request_id,
-      created_after: toIsoDateTime(draft.created_after),
-      created_before: toIsoDateTime(draft.created_before),
+      created_after: toStartOfDayIso(draft.created_after),
+      created_before: toEndOfDayIso(draft.created_before),
       limit: EVENTS_PAGE_SIZE,
       offset: 0,
     })
@@ -66,13 +138,13 @@ export function EventsPage() {
 
   function clearFilters() {
     setDraft({
-      source: "",
-      operation: "",
+      source: SOURCE_ALL,
+      operation: OPERATION_ALL,
       status: STATUS_ALL,
       actor_user_id: "",
       request_id: "",
-      created_after: "",
-      created_before: "",
+      created_after: undefined,
+      created_before: undefined,
     })
     setFilters({ limit: EVENTS_PAGE_SIZE, offset: 0 })
   }
@@ -161,26 +233,51 @@ export function EventsPage() {
         </CardHeader>
         <CardContent>
           <form className="grid gap-3 lg:grid-cols-6" onSubmit={applyFilters}>
-            <Input
-              placeholder="Source, e.g. s3_gateway"
+            <Select
               value={draft.source}
-              onChange={(event) =>
+              onValueChange={(source) =>
                 setDraft((current) => ({
                   ...current,
-                  source: event.target.value,
+                  source,
+                  operation: operationBelongsToSource(
+                    current.operation,
+                    source
+                  )
+                    ? current.operation
+                    : OPERATION_ALL,
                 }))
               }
-            />
-            <Input
-              placeholder="Operation, e.g. object.get"
+            >
+              <SelectTrigger className="h-9 w-full">
+                <SelectValue placeholder="Source" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SOURCE_ALL}>Any source</SelectItem>
+                {SOURCE_OPTIONS.map((source) => (
+                  <SelectItem key={source.value} value={source.value}>
+                    {source.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
               value={draft.operation}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  operation: event.target.value,
-                }))
+              onValueChange={(operation) =>
+                setDraft((current) => ({ ...current, operation }))
               }
-            />
+            >
+              <SelectTrigger className="h-9 w-full">
+                <SelectValue placeholder="Operation" />
+              </SelectTrigger>
+              <SelectContent className="max-h-80">
+                <SelectItem value={OPERATION_ALL}>Any operation</SelectItem>
+                {operationOptions.map((operation) => (
+                  <SelectItem key={operation} value={operation}>
+                    {operation}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select
               value={draft.status}
               onValueChange={(status) =>
@@ -226,25 +323,23 @@ export function EventsPage() {
                 Clear
               </Button>
             </div>
-            <Input
-              type="datetime-local"
-              aria-label="Created after"
+            <DateFilterPicker
+              label="Created after"
               value={draft.created_after}
-              onChange={(event) =>
+              onChange={(date) =>
                 setDraft((current) => ({
                   ...current,
-                  created_after: event.target.value,
+                  created_after: date,
                 }))
               }
             />
-            <Input
-              type="datetime-local"
-              aria-label="Created before"
+            <DateFilterPicker
+              label="Created before"
               value={draft.created_before}
-              onChange={(event) =>
+              onChange={(date) =>
                 setDraft((current) => ({
                   ...current,
-                  created_before: event.target.value,
+                  created_before: date,
                 }))
               }
             />
@@ -290,6 +385,60 @@ export function EventsPage() {
   )
 }
 
+function DateFilterPicker({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: Date | undefined
+  onChange: (date: Date | undefined) => void
+}) {
+  const [open, setOpen] = React.useState(false)
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(
+            "h-9 w-full justify-start text-left font-normal",
+            !value && "text-muted-foreground"
+          )}
+          aria-label={label}
+        >
+          <CalendarIcon />
+          {value ? formatFilterDate(value) : label}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto p-0">
+        <Calendar
+          mode="single"
+          selected={value}
+          onSelect={(date) => {
+            onChange(date)
+            setOpen(false)
+          }}
+          captionLayout="dropdown"
+        />
+        <div className="border-t p-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full"
+            disabled={!value}
+            onClick={() => onChange(undefined)}
+          >
+            Clear date
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 function ErrorState({
   message,
   onRetry,
@@ -309,9 +458,40 @@ function ErrorState({
   )
 }
 
-function toIsoDateTime(value: string) {
+function formatFilterDate(value: Date) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+  }).format(value)
+}
+
+function operationsForSource(source: string): string[] {
+  if (source === SOURCE_ALL) {
+    return OPERATION_OPTIONS
+  }
+
+  return [
+    ...(OPERATIONS_BY_SOURCE[source as keyof typeof OPERATIONS_BY_SOURCE] ?? []),
+  ]
+}
+
+function operationBelongsToSource(operation: string, source: string) {
+  if (operation === OPERATION_ALL || source === SOURCE_ALL) {
+    return true
+  }
+
+  return operationsForSource(source).includes(operation)
+}
+
+function toStartOfDayIso(value: Date | undefined) {
   if (!value) return undefined
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return undefined
+  date.setHours(0, 0, 0, 0)
+  return date.toISOString()
+}
+
+function toEndOfDayIso(value: Date | undefined) {
+  if (!value) return undefined
+  const date = new Date(value)
+  date.setHours(23, 59, 59, 999)
   return date.toISOString()
 }

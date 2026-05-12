@@ -1,5 +1,6 @@
 import * as React from "react"
 import { ChevronRight } from "lucide-react"
+import { Link } from "react-router"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -76,9 +77,7 @@ export function EventsTable({ events, isLoading }: EventsTableProps) {
           const isExpanded = expandedEventIds.has(event.id)
           const hasMetadata = Object.keys(event.metadata).length > 0
           const hasRelatedIds =
-            event.file_ids.length > 0 ||
-            event.folder_ids.length > 0 ||
-            event.blob_ids.length > 0
+            event.file_ids.length > 0 || event.folder_ids.length > 0
           const hasDetails = hasMetadata || hasRelatedIds
 
           return (
@@ -171,15 +170,26 @@ export function EventsTable({ events, isLoading }: EventsTableProps) {
 
 function RelatedIds({ event }: { event: EventRecord }) {
   return (
-    <div className="grid gap-2 text-xs md:grid-cols-3">
-      <IdList label="Files" ids={event.file_ids} />
-      <IdList label="Folders" ids={event.folder_ids} />
-      <IdList label="Blobs" ids={event.blob_ids} />
+    <div className="grid gap-2 text-xs md:grid-cols-2">
+      <IdList label="Files" ids={event.file_ids} buildHref={buildFileHref} />
+      <IdList
+        label="Folders"
+        ids={event.folder_ids}
+        buildHref={buildFolderHref}
+      />
     </div>
   )
 }
 
-function IdList({ label, ids }: { label: string; ids: string[] }) {
+function IdList({
+  label,
+  ids,
+  buildHref,
+}: {
+  label: string
+  ids: string[]
+  buildHref: (id: string) => string
+}) {
   if (ids.length === 0) return null
 
   return (
@@ -187,9 +197,13 @@ function IdList({ label, ids }: { label: string; ids: string[] }) {
       <div className="font-medium text-muted-foreground">{label}</div>
       <div className="space-y-1 font-mono">
         {ids.map((id) => (
-          <div key={id} className="break-all rounded bg-background px-2 py-1">
+          <Link
+            key={id}
+            to={buildHref(id)}
+            className="block break-all rounded bg-background px-2 py-1 hover:text-primary hover:underline"
+          >
             {id}
-          </div>
+          </Link>
         ))}
       </div>
     </div>
@@ -206,10 +220,9 @@ function StatusBadge({ status }: { status: EventRecord["status"] }) {
 
 function RelatedCounts({ event }: { event: EventRecord }) {
   const parts = [
-    countLabel(event.file_ids.length, "file"),
-    countLabel(event.folder_ids.length, "folder"),
-    countLabel(event.blob_ids.length, "blob"),
-  ].filter(Boolean)
+    relatedCount(event.file_ids, "file", buildFileHref),
+    relatedCount(event.folder_ids, "folder", buildFolderHref),
+  ].filter(isRelatedCount)
 
   if (parts.length === 0) {
     return <span className="text-xs text-muted-foreground">None</span>
@@ -218,17 +231,52 @@ function RelatedCounts({ event }: { event: EventRecord }) {
   return (
     <div className="flex flex-wrap gap-1">
       {parts.map((part) => (
-        <Badge key={part} variant="outline">
-          {part}
-        </Badge>
+        <RelatedCountBadge key={part.label} part={part} />
       ))}
     </div>
   )
 }
 
-function countLabel(count: number, label: string) {
+type RelatedCount = {
+  label: string
+  href: string | null
+}
+
+function isRelatedCount(part: RelatedCount | null): part is RelatedCount {
+  return part !== null
+}
+
+function RelatedCountBadge({ part }: { part: RelatedCount }) {
+  if (part.href) {
+    return (
+      <Badge variant="outline" asChild>
+        <Link to={part.href}>{part.label}</Link>
+      </Badge>
+    )
+  }
+
+  return <Badge variant="outline">{part.label}</Badge>
+}
+
+function relatedCount(
+  ids: string[],
+  label: string,
+  buildHref: (id: string) => string
+): RelatedCount | null {
+  const count = ids.length
   if (count === 0) return null
-  return `${count} ${count === 1 ? label : `${label}s`}`
+  return {
+    label: `${count} ${count === 1 ? label : `${label}s`}`,
+    href: count === 1 ? buildHref(ids[0]) : null,
+  }
+}
+
+function buildFileHref(id: string) {
+  return `/file/${encodeURIComponent(id)}`
+}
+
+function buildFolderHref(id: string) {
+  return `/folder/${encodeURIComponent(id)}`
 }
 
 function formatMetadata(metadata: Record<string, unknown>) {
