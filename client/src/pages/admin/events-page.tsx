@@ -1,0 +1,251 @@
+import * as React from "react"
+import { RefreshCw, Search, X } from "lucide-react"
+
+import { EventsTable } from "@/components/events/events-table"
+import { OffsetPaginationBar } from "@/components/pagination-offset"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { EVENTS_PAGE_SIZE, useEvents } from "@/hooks/use-events"
+import { extractApiError } from "@/lib/api"
+import type { EventStatus, EventsQuery } from "@/types/events"
+
+const STATUS_ALL = "all"
+
+export function EventsPage() {
+  const [filters, setFilters] = React.useState<EventsQuery>({
+    limit: EVENTS_PAGE_SIZE,
+    offset: 0,
+  })
+  const [draft, setDraft] = React.useState({
+    source: "",
+    operation: "",
+    status: STATUS_ALL,
+    actor_user_id: "",
+    request_id: "",
+    created_after: "",
+    created_before: "",
+  })
+  const eventsQuery = useEvents(filters)
+
+  function applyFilters(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setFilters({
+      source: draft.source,
+      operation: draft.operation,
+      status:
+        draft.status === STATUS_ALL ? undefined : (draft.status as EventStatus),
+      actor_user_id: draft.actor_user_id,
+      request_id: draft.request_id,
+      created_after: toIsoDateTime(draft.created_after),
+      created_before: toIsoDateTime(draft.created_before),
+      limit: EVENTS_PAGE_SIZE,
+      offset: 0,
+    })
+  }
+
+  function clearFilters() {
+    setDraft({
+      source: "",
+      operation: "",
+      status: STATUS_ALL,
+      actor_user_id: "",
+      request_id: "",
+      created_after: "",
+      created_before: "",
+    })
+    setFilters({ limit: EVENTS_PAGE_SIZE, offset: 0 })
+  }
+
+  function setOffset(offset: number) {
+    setFilters((current) => ({ ...current, offset }))
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Audit Log</h1>
+          <p className="text-sm text-muted-foreground">
+            Explore durable system events across the S3 gateway, API, and
+            background processors.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void eventsQuery.refetch()}
+          disabled={eventsQuery.isFetching}
+        >
+          <RefreshCw className={eventsQuery.isFetching ? "animate-spin" : ""} />
+          Refresh
+        </Button>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form className="grid gap-3 lg:grid-cols-6" onSubmit={applyFilters}>
+            <Input
+              placeholder="Source, e.g. s3_gateway"
+              value={draft.source}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  source: event.target.value,
+                }))
+              }
+            />
+            <Input
+              placeholder="Operation, e.g. object.get"
+              value={draft.operation}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  operation: event.target.value,
+                }))
+              }
+            />
+            <Select
+              value={draft.status}
+              onValueChange={(status) =>
+                setDraft((current) => ({ ...current, status }))
+              }
+            >
+              <SelectTrigger className="h-9 w-full">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={STATUS_ALL}>Any status</SelectItem>
+                <SelectItem value="succeeded">Succeeded</SelectItem>
+                <SelectItem value="failed">Failed</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              placeholder="Request ID"
+              value={draft.request_id}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  request_id: event.target.value,
+                }))
+              }
+            />
+            <Input
+              placeholder="Actor user ID"
+              value={draft.actor_user_id}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  actor_user_id: event.target.value,
+                }))
+              }
+            />
+            <div className="flex gap-2">
+              <Button type="submit" className="flex-1">
+                <Search />
+                Apply
+              </Button>
+              <Button type="button" variant="outline" onClick={clearFilters}>
+                <X />
+                Clear
+              </Button>
+            </div>
+            <Input
+              type="datetime-local"
+              aria-label="Created after"
+              value={draft.created_after}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  created_after: event.target.value,
+                }))
+              }
+            />
+            <Input
+              type="datetime-local"
+              aria-label="Created before"
+              value={draft.created_before}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  created_before: event.target.value,
+                }))
+              }
+            />
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="gap-2 sm:flex sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle>Events</CardTitle>
+          {eventsQuery.data && (
+            <div className="text-xs text-muted-foreground">
+              {eventsQuery.data.total.toLocaleString()}{" "}
+              {eventsQuery.data.total === 1 ? "event" : "events"}
+            </div>
+          )}
+        </CardHeader>
+        <CardContent>
+          {eventsQuery.isError ? (
+            <ErrorState
+              message={extractApiError(eventsQuery.error)}
+              onRetry={() => void eventsQuery.refetch()}
+            />
+          ) : (
+            <>
+              <EventsTable
+                events={eventsQuery.data?.items ?? []}
+                isLoading={eventsQuery.isLoading}
+              />
+              {eventsQuery.data && (
+                <OffsetPaginationBar
+                  total={eventsQuery.data.total}
+                  limit={eventsQuery.data.limit}
+                  offset={eventsQuery.data.offset}
+                  onChange={setOffset}
+                />
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function ErrorState({
+  message,
+  onRetry,
+}: {
+  message: string
+  onRetry: () => void
+}) {
+  return (
+    <div className="rounded-md border border-destructive/20 bg-destructive/5 p-4">
+      <div className="font-medium text-destructive">Could not load events</div>
+      <p className="mt-1 text-xs text-muted-foreground">{message}</p>
+      <Button className="mt-3" type="button" variant="outline" onClick={onRetry}>
+        <RefreshCw className="size-3.5" />
+        Retry
+      </Button>
+    </div>
+  )
+}
+
+function toIsoDateTime(value: string) {
+  if (!value) return undefined
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return undefined
+  return date.toISOString()
+}

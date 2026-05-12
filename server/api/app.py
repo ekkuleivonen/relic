@@ -7,6 +7,7 @@ from .auth import router as auth_router
 from .blobs import router as blobs_router
 from .buckets import router as buckets_router
 from .dependencies import require_admin, require_user
+from .events import router as events_router
 from .exception_handlers import register_exception_handlers
 from .files import router as files_router
 from .folder_access import router as folder_access_router
@@ -82,6 +83,12 @@ app.include_router(
     blobs_router,
     prefix=f"{API_PREFIX}/blobs",
     tags=["blobs"],
+    dependencies=[Depends(require_admin)],
+)
+app.include_router(
+    events_router,
+    prefix=f"{API_PREFIX}/events",
+    tags=["events"],
     dependencies=[Depends(require_admin)],
 )
 

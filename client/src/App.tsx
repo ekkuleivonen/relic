@@ -5,6 +5,7 @@ import { RequireSession } from "@/components/layout/route-guards"
 import { AdminPlaceholderPage } from "@/pages/admin/admin-placeholder-page"
 import { AccessKeysPage } from "@/pages/admin/access-keys-page"
 import { BucketsPage } from "@/pages/admin/buckets-page"
+import { EventsPage } from "@/pages/admin/events-page"
 import { FolderAccessPage } from "@/pages/admin/folder-access-page"
 import { UsersPage } from "@/pages/admin/users-page"
 import { FileDetailPage } from "@/pages/file-detail-page"
@@ -23,6 +24,7 @@ export function App() {
           <Route path="users" element={<UsersPage />} />
           <Route path="access-keys" element={<AccessKeysPage />} />
           <Route path="folders" element={<FolderAccessPage />} />
+          <Route path="events" element={<EventsPage />} />
           <Route
             path="files"
             element={
