@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from managers.exceptions import ConflictError, ResourceNotFound
 from models import User
+from services.events import EventContext, create_event
 from utils.passwords import hash_password
 
 
@@ -12,7 +13,9 @@ def list_users(db: Session) -> list[User]:
     return list(db.scalars(select(User).order_by(User.email)).all())
 
 
-def create_user(db: Session, data: dict) -> User:
+def create_user(
+    db: Session, data: dict, *, event_context: EventContext | None = None
+) -> User:
     ensure_email_available(db, data["email"])
     user = User(
         name=data["name"],
@@ -21,6 +24,20 @@ def create_user(db: Session, data: dict) -> User:
         role=data["role"],
     )
     db.add(user)
+    db.flush()
+    if event_context is not None:
+        create_event(
+            db,
+            source=event_context.source,
+            operation="user.created",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            metadata={
+                "user_id": str(user.id),
+                "email": user.email,
+                "role": int(user.role),
+            },
+        )
     db.commit()
     db.refresh(user)
     return user
@@ -34,8 +51,15 @@ def get_user(db: Session, user_id: uuid.UUID) -> User:
     return user
 
 
-def update_user(db: Session, user_id: uuid.UUID, data: dict) -> User:
+def update_user(
+    db: Session,
+    user_id: uuid.UUID,
+    data: dict,
+    *,
+    event_context: EventContext | None = None,
+) -> User:
     user = get_user(db, user_id)
+    changed_fields = sorted(data)
 
     if "email" in data and data["email"] != user.email:
         ensure_email_available(db, data["email"], excluding_user_id=user.id)
@@ -48,14 +72,43 @@ def update_user(db: Session, user_id: uuid.UUID, data: dict) -> User:
     if "password" in data:
         user.password_hash = hash_password(data["password"])
 
+    db.flush()
+    if event_context is not None:
+        create_event(
+            db,
+            source=event_context.source,
+            operation="user.updated",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            metadata={
+                "user_id": str(user.id),
+                "email": user.email,
+                "changed_fields": changed_fields,
+            },
+        )
     db.commit()
     db.refresh(user)
     return user
 
 
-def delete_user(db: Session, user_id: uuid.UUID) -> None:
+def delete_user(
+    db: Session, user_id: uuid.UUID, *, event_context: EventContext | None = None
+) -> None:
     user = get_user(db, user_id)
+    metadata = {"user_id": str(user.id), "email": user.email}
+    actor_user_id = event_context.actor_user_id if event_context else None
+    if actor_user_id == user.id:
+        actor_user_id = None
     db.delete(user)
+    if event_context is not None:
+        create_event(
+            db,
+            source=event_context.source,
+            operation="user.deleted",
+            actor_user_id=actor_user_id,
+            request_id=event_context.request_id,
+            metadata=metadata,
+        )
     db.commit()
 
 

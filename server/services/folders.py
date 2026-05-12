@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from managers.exceptions import BadRequestError, ConflictError, PermissionDenied, ResourceNotFound
 from models import Blob, File, Folder, User
 from schema_plan import Permission, UserRole
+from services.events import EventContext, create_event
 from services import folder_access as folder_access_service
 from utils.logging import get_logger
 
@@ -30,6 +31,7 @@ def create_folder(
     *,
     parent_id: uuid.UUID,
     name: str,
+    event_context: EventContext | None = None,
 ) -> FolderResult:
     name = _validate_name(name)
     parent = folder_access_service.require_folder(db, parent_id)
@@ -45,6 +47,18 @@ def create_folder(
     )
     db.add(folder)
     try:
+        db.flush()
+        path = f"{folder_access_service.resolve_folder_path(db, parent).rstrip('/')}/{folder.name}"
+        if event_context is not None:
+            create_event(
+                db,
+                source=event_context.source,
+                operation="folder.created",
+                actor_user_id=event_context.actor_user_id,
+                request_id=event_context.request_id,
+                folder_ids=[folder.id, parent.id],
+                metadata={"name": folder.name, "path": path},
+            )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -72,6 +86,7 @@ def update_folder(
     cooldown_days: int | None = None,
     set_min_tier: bool = False,
     set_cooldown_days: bool = False,
+    event_context: EventContext | None = None,
 ) -> FolderResult:
     """Rename, move, and/or change storage policy (policy fields are admin-only)."""
     folder = folder_access_service.require_folder(db, folder_id)
@@ -127,6 +142,23 @@ def update_folder(
         return _build_result(db, user, folder)
 
     try:
+        db.flush()
+        if event_context is not None:
+            create_event(
+                db,
+                source=event_context.source,
+                operation="folder.updated",
+                actor_user_id=event_context.actor_user_id,
+                request_id=event_context.request_id,
+                folder_ids=[folder.id],
+                metadata={
+                    "name": name,
+                    "parent_id": str(parent_id) if parent_id else None,
+                    "set_min_tier": set_min_tier,
+                    "set_cooldown_days": set_cooldown_days,
+                    "path": folder_access_service.resolve_folder_path(db, folder),
+                },
+            )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -151,6 +183,7 @@ def delete_folder(
     *,
     folder_id: uuid.UUID,
     recursive: bool = False,
+    event_context: EventContext | None = None,
 ) -> None:
     """
     Delete a folder subtree. Removes File rows and decrements Blob refcounts.
@@ -197,6 +230,20 @@ def delete_folder(
         if blob.refcount < 0:
             blob.refcount = 0
 
+    if event_context is not None:
+        create_event(
+            db,
+            source=event_context.source,
+            operation="folder.deleted",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            folder_ids=[folder_id],
+            metadata={
+                "recursive": recursive,
+                "descendant_count": len(descendant_ids),
+                "file_count": len(file_rows),
+            },
+        )
     db.commit()
     log.info(
         "folder_delete",
@@ -216,6 +263,7 @@ def duplicate_folder(
     destination_parent_id: uuid.UUID,
     name: str,
     recursive: bool = True,
+    event_context: EventContext | None = None,
 ) -> FolderResult:
     name = _validate_name(name)
     source = folder_access_service.require_folder(db, folder_id)
@@ -299,6 +347,21 @@ def duplicate_folder(
             blob.refcount += inc
 
     try:
+        if event_context is not None:
+            create_event(
+                db,
+                source=event_context.source,
+                operation="folder.copied",
+                actor_user_id=event_context.actor_user_id,
+                request_id=event_context.request_id,
+                folder_ids=[source.id, cloned_root.id, destination.id],
+                metadata={
+                    "source_folder_id": str(source.id),
+                    "destination_parent_id": str(destination.id),
+                    "new_folder_id": str(cloned_root.id),
+                    "recursive": recursive,
+                },
+            )
         db.commit()
     except IntegrityError as exc:
         db.rollback()

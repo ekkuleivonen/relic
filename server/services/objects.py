@@ -16,6 +16,7 @@ from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import Blob, Bucket, File, Folder, PARSE_STATUS_PENDING, User
 from schema_plan import BucketTier, Permission
 from services import folder_access as folder_access_service
+from services.events import EventContext, create_event
 from services.folder_storage_policy import effective_min_tier
 from services.placement import adjust_bucket_usage_cache, choose_bucket
 from utils.logging import get_logger
@@ -65,6 +66,7 @@ def put_object(
     current_user: User,
     content_hash: bytes | None = None,
     size_bytes: int | None = None,
+    event_context: EventContext | None = None,
 ) -> PutObjectResult:
     folder, file_name = resolve_object_path(
         db,
@@ -119,6 +121,24 @@ def put_object(
         ),
     )
     db.add(file)
+    db.flush()
+    if event_context is not None:
+        create_event(
+            db,
+            source=event_context.source,
+            operation="object.put",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            file_ids=[file.id],
+            folder_ids=[file.folder_id],
+            blob_ids=[blob.id],
+            metadata={
+                "bucket": bucket_name,
+                "key": key,
+                "etag": digest_hex,
+                "size_bytes": blob.size_bytes,
+            },
+        )
     db.commit()
     db.refresh(file)
     db.refresh(blob)
@@ -289,6 +309,7 @@ def delete_object(
     bucket_name: str,
     key: str,
     current_user: User | None = None,
+    event_context: EventContext | None = None,
 ) -> DeleteObjectResult:
     """
     Delete a File by bucket+key and decrement the Blob refcount.
@@ -304,6 +325,16 @@ def delete_object(
         db, bucket_name=bucket_name, key=key
     )
     if folder is None:
+        if event_context is not None:
+            create_event(
+                db,
+                source=event_context.source,
+                operation="object.deleted",
+                actor_user_id=event_context.actor_user_id,
+                request_id=event_context.request_id,
+                metadata={"bucket": bucket_name, "key": key, "existed": False},
+            )
+            db.commit()
         return DeleteObjectResult(existed=False)
 
     if current_user is not None:
@@ -318,9 +349,23 @@ def delete_object(
         select(File).where(File.folder_id == folder.id, File.name == file_name)
     )
     if file is None:
+        if event_context is not None:
+            create_event(
+                db,
+                source=event_context.source,
+                operation="object.deleted",
+                actor_user_id=event_context.actor_user_id,
+                request_id=event_context.request_id,
+                folder_ids=[folder.id],
+                metadata={"bucket": bucket_name, "key": key, "existed": False},
+            )
+            db.commit()
         return DeleteObjectResult(existed=False)
 
     blob = db.get(Blob, file.blob_id)
+    file_id = file.id
+    folder_id = file.folder_id
+    blob_id = file.blob_id
     db.delete(file)
     db.flush()
 
@@ -329,6 +374,18 @@ def delete_object(
         if blob.refcount < 0:
             blob.refcount = 0
 
+    if event_context is not None:
+        create_event(
+            db,
+            source=event_context.source,
+            operation="object.deleted",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            file_ids=[file_id],
+            folder_ids=[folder_id],
+            blob_ids=[blob_id],
+            metadata={"bucket": bucket_name, "key": key, "existed": True},
+        )
     db.commit()
     return DeleteObjectResult(existed=True)
 
@@ -362,6 +419,7 @@ def copy_object(
     ingest_meta: dict,
     metadata_directive: str = METADATA_DIRECTIVE_COPY,
     current_user: User,
+    event_context: EventContext | None = None,
 ) -> CopyObjectResult:
     """
     S3 CopyObject - metadata-only copy. The new File points at the same Blob;
@@ -433,6 +491,26 @@ def copy_object(
     )
     db.add(new_file)
     blob.refcount += 1
+    db.flush()
+    if event_context is not None:
+        create_event(
+            db,
+            source=event_context.source,
+            operation="object.copied",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            file_ids=[new_file.id],
+            folder_ids=[source_folder.id, dest_folder.id],
+            blob_ids=[blob.id],
+            metadata={
+                "bucket": dest_bucket,
+                "key": dest_key,
+                "source_bucket": source_bucket,
+                "source_key": source_key,
+                "metadata_directive": metadata_directive,
+                "etag": blob.content_hash.hex(),
+            },
+        )
     db.commit()
     db.refresh(new_file)
     db.refresh(blob)

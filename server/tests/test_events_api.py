@@ -2,13 +2,13 @@ import datetime as dt
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
-from models import Base
+from models import Base, Event
 from schema_plan import UserRole
 from services.auth import create_session_token
 from tests.factories.models import EventFactory, UserFactory
@@ -130,3 +130,39 @@ def test_list_events_rejects_invalid_status(client):
 
     assert response.status_code == 400
     assert response.json()["detail"] == "status must be one of ['failed', 'succeeded']"
+
+
+def test_clear_events_removes_all_events(client, db_session, admin):
+    db_session.add_all(
+        [
+            EventFactory.build(actor_user_id=admin.id, request_id="req-1"),
+            EventFactory.build(actor_user_id=admin.id, request_id="req-2"),
+        ]
+    )
+    db_session.commit()
+
+    response = client.delete("/api/events/")
+
+    assert response.status_code == 204
+    assert db_session.scalars(select(Event)).all() == []
+
+
+def test_clear_events_requires_admin(db_session):
+    user = UserFactory.build(role=UserRole.USER)
+    db_session.add(user)
+    db_session.add(EventFactory.build(request_id="req-1"))
+    db_session.commit()
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as test_client:
+            test_client.cookies.set("relic_session", create_session_token(user))
+            response = test_client.delete("/api/events/")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 403
+    assert len(db_session.scalars(select(Event)).all()) == 1

@@ -85,6 +85,24 @@ values where they overlap.
 - Admin screens for users, folder grants, buckets, and access keys.
 - SigV4 access keys for S3-style API access.
 
+### Audit Log and Events
+
+- Durable `events` table for audit records across the JSON API, S3 gateway, and
+  background processors.
+- Mutating operations write audit events in the same database transaction as the
+  user, folder, file, bucket, access, object, or metadata mutation.
+- Read-only access events such as S3 `GET` and `HEAD` are persisted
+  synchronously before the request is considered complete.
+- Event records capture source, operation, status, actor, request ID, related
+  file/folder/blob IDs, and operation-specific metadata.
+- Admin audit log UI with filters for source, operation, status, request ID,
+  actor, and time range.
+- Expandable event details that show metadata and related entity IDs for
+  investigation.
+- Parser failure events include processor stage, filename, MIME type when
+  available, and exception class/message.
+- Admin-only audit log clearing for local or operational reset workflows.
+
 ### API and S3 Gateway
 
 - FastAPI JSON API under `/api`.
@@ -105,10 +123,10 @@ Relic is split into a React client, a FastAPI server, and an ARQ worker:
 - `client/` is a Vite, React, TypeScript, Tailwind, and shadcn/ui app.
 - `server/api/` contains the HTTP API and S3 gateway routes.
 - `server/services/` contains the filesystem, object, bucket, search, access,
-  placement, and maintenance logic.
+  placement, events, and maintenance logic.
 - `server/parsers/` contains the metadata parser queue and toolchains.
 - PostgreSQL stores users, folders, files, blobs, access grants, access keys,
-  and bucket registrations.
+  bucket registrations, and durable event records.
 - Redis backs ARQ parser and maintenance jobs.
 - Garage is used by the local Docker setup as two S3-compatible object stores,
   one hot and one cold.

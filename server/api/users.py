@@ -4,8 +4,10 @@ import uuid
 from fastapi import APIRouter, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.dependencies import AdminUser
 from database import DbSession
 from schema_plan import UserRole
+from services import events as event_service
 from services import users as user_service
 
 router = APIRouter()
@@ -61,13 +63,23 @@ async def list_users(request: Request, db: DbSession) -> list[UserRead]:
 
 
 @router.post("/")
-async def create_user(request: Request, payload: UserCreate, db: DbSession) -> UserRead:
+async def create_user(
+    request: Request, payload: UserCreate, db: DbSession, current_user: AdminUser
+) -> UserRead:
     """
     POST /users -> create a new user. Admin-only.
     Body: { name, email, password, role }
     Returns the created User without password_hash.
     """
-    return user_service.create_user(db, payload.model_dump())
+    return user_service.create_user(
+        db,
+        payload.model_dump(),
+        event_context=event_service.context_from_headers(
+            request.headers,
+        source="relic_api",
+            actor_user_id=current_user.id,
+        ),
+    )
 
 
 @router.get("/me")
@@ -90,22 +102,45 @@ async def get_user(user_id: uuid.UUID, request: Request, db: DbSession) -> UserR
 
 @router.patch("/{user_id}")
 async def update_user(
-    user_id: uuid.UUID, request: Request, payload: UserUpdate, db: DbSession
+    user_id: uuid.UUID,
+    request: Request,
+    payload: UserUpdate,
+    db: DbSession,
+    current_user: AdminUser,
 ) -> UserRead:
     """
     PATCH /users/{id} -> update mutable fields.
     Body: { name?, email?, role?, password? }
     Self can update name/email/password; only admin can change role.
     """
-    return user_service.update_user(db, user_id, payload.model_dump(exclude_unset=True))
+    return user_service.update_user(
+        db,
+        user_id,
+        payload.model_dump(exclude_unset=True),
+        event_context=event_service.context_from_headers(
+            request.headers,
+        source="relic_api",
+            actor_user_id=current_user.id,
+        ),
+    )
 
 
 @router.delete("/{user_id}")
-async def delete_user(user_id: uuid.UUID, request: Request, db: DbSession) -> Response:
+async def delete_user(
+    user_id: uuid.UUID, request: Request, db: DbSession, current_user: AdminUser
+) -> Response:
     """
     DELETE /users/{id} -> hard delete. Admin-only.
     Cascades: revoke all access keys, drop folder access rows.
     Files owned/uploaded by user are NOT deleted; ownership becomes null.
     """
-    user_service.delete_user(db, user_id)
+    user_service.delete_user(
+        db,
+        user_id,
+        event_context=event_service.context_from_headers(
+            request.headers,
+        source="relic_api",
+            actor_user_id=current_user.id,
+        ),
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

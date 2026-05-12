@@ -1,11 +1,13 @@
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.dependencies import AdminUser
 from api.users import UserRead
 from database import DbSession
+from services import events as event_service
 from services import folder_access as folder_access_service
 from services.folder_access import FolderAccessRow
 
@@ -63,7 +65,10 @@ async def list_folder_access(db: DbSession) -> list[FolderAccessRead]:
 
 @router.post("/")
 async def create_folder_access(
-    payload: FolderAccessGrant, db: DbSession
+    payload: FolderAccessGrant,
+    request: Request,
+    db: DbSession,
+    current_user: AdminUser,
 ) -> FolderAccessRead:
     """
     POST /folder-access -> grant a user permissions on a folder.
@@ -75,15 +80,33 @@ async def create_folder_access(
         user_id=payload.user_id,
         folder_id=payload.folder_id,
         permissions=payload.permissions,
+        event_context=event_service.context_from_headers(
+            request.headers,
+            source="relic_api",
+            actor_user_id=current_user.id,
+        ),
     )
     return FolderAccessRead.from_row(row)
 
 
 @router.delete("/{access_id}")
-async def delete_folder_access(access_id: uuid.UUID, db: DbSession) -> Response:
+async def delete_folder_access(
+    access_id: uuid.UUID,
+    request: Request,
+    db: DbSession,
+    current_user: AdminUser,
+) -> Response:
     """
     DELETE /folder-access/{access_id} -> revoke an explicit grant.
     Inherited permissions from ancestor folders remain in effect.
     """
-    folder_access_service.revoke_folder_access(db, access_id)
+    folder_access_service.revoke_folder_access(
+        db,
+        access_id,
+        event_context=event_service.context_from_headers(
+            request.headers,
+            source="relic_api",
+            actor_user_id=current_user.id,
+        ),
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

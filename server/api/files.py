@@ -1,12 +1,13 @@
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.dependencies import CurrentUser
 from database import DbSession
 from services import files as files_service
+from services import events as event_service
 from services import filesystem as filesystem_service
 from services import parser_queue
 from services import search as search_service
@@ -321,6 +322,7 @@ async def get_file(
 async def rename_file(
     file_id: uuid.UUID,
     payload: RenameFileRequest,
+    request: Request,
     db: DbSession,
     current_user: CurrentUser,
 ) -> FileRead:
@@ -330,6 +332,11 @@ async def rename_file(
         file_id=file_id,
         name=payload.name,
         current_user=current_user,
+        event_context=event_service.context_from_headers(
+            request.headers,
+            source="relic_api",
+            actor_user_id=current_user.id,
+        ),
     )
     await parser_queue.enqueue_parse_file_best_effort(file.id)
     return file
@@ -339,6 +346,7 @@ async def rename_file(
 async def move_file(
     file_id: uuid.UUID,
     payload: MoveFileRequest,
+    request: Request,
     db: DbSession,
     current_user: CurrentUser,
 ) -> FileRead:
@@ -352,6 +360,11 @@ async def move_file(
         destination_folder_id=payload.destination_folder_id,
         name=payload.name,
         current_user=current_user,
+        event_context=event_service.context_from_headers(
+            request.headers,
+            source="relic_api",
+            actor_user_id=current_user.id,
+        ),
     )
     if payload.name is not None:
         await parser_queue.enqueue_parse_file_best_effort(file.id)

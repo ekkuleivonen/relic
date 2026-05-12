@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from managers.exceptions import BadRequestError, PermissionDenied, ResourceNotFound
 from models import Folder, FolderAccess, User
 from schema_plan import Permission, UserRole
+from services.events import EventContext, create_event
 from utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -56,6 +57,7 @@ def grant_folder_access(
     user_id: uuid.UUID,
     folder_id: uuid.UUID,
     permissions: int,
+    event_context: EventContext | None = None,
 ) -> FolderAccessRow:
     """Insert or update an access grant. Idempotent on (user_id, folder_id)."""
     validate_permissions(permissions)
@@ -81,6 +83,23 @@ def grant_folder_access(
         db.add(access)
         action = "created"
 
+    db.flush()
+    folder_path = resolve_folder_path(db, folder)
+    if event_context is not None:
+        create_event(
+            db,
+            source=event_context.source,
+            operation="folder.access.updated" if existing else "folder.access.granted",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            folder_ids=[access.folder_id],
+            metadata={
+                "access_id": str(access.id),
+                "user_id": str(access.user_id),
+                "permissions": access.permissions,
+                "folder_path": folder_path,
+            },
+        )
     db.commit()
     db.refresh(access)
 
@@ -94,16 +113,35 @@ def grant_folder_access(
     return FolderAccessRow(
         access=access,
         user=user,
-        folder_path=resolve_folder_path(db, folder),
+        folder_path=folder_path,
     )
 
 
-def revoke_folder_access(db: Session, access_id: uuid.UUID) -> None:
+def revoke_folder_access(
+    db: Session, access_id: uuid.UUID, *, event_context: EventContext | None = None
+) -> None:
     access = db.get(FolderAccess, access_id)
     if not access:
         raise ResourceNotFound("Folder access grant not found")
 
+    metadata = {
+        "access_id": str(access.id),
+        "user_id": str(access.user_id),
+        "folder_id": str(access.folder_id),
+        "permissions": access.permissions,
+    }
+    folder_ids = [access.folder_id]
     db.delete(access)
+    if event_context is not None:
+        create_event(
+            db,
+            source=event_context.source,
+            operation="folder.access.revoked",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            folder_ids=folder_ids,
+            metadata=metadata,
+        )
     db.commit()
     log.info(
         "folder_access_revoke",

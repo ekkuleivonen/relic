@@ -5,6 +5,7 @@ from arq.cron import cron
 
 from database import get_sessionmaker
 from parsers import base
+from services import events as event_service
 from services import storage_maintenance
 from services.parser_queue import redis_settings
 from utils.logging import get_logger
@@ -17,7 +18,12 @@ log = get_logger(__name__)
 async def parse_file(ctx, file_id: str) -> None:
     del ctx
     with get_sessionmaker()() as db:
-        base.parse_file(db, uuid.UUID(file_id))
+        parsed_file_id = uuid.UUID(file_id)
+        base.parse_file(
+            db,
+            parsed_file_id,
+            event_context=event_service.EventContext(source="processor"),
+        )
 
 
 async def purge_dereferenced_blobs_worker(ctx) -> None:
@@ -27,7 +33,9 @@ async def purge_dereferenced_blobs_worker(ctx) -> None:
         sm = get_sessionmaker()
         with sm() as db:
             storage_maintenance.purge_dereferenced_blobs_batch(
-                db, batch=S.STORAGE_MAINTENANCE_PURGE_BATCH
+                db,
+                batch=S.STORAGE_MAINTENANCE_PURGE_BATCH,
+                event_context=event_service.EventContext(source="maintenance"),
             )
 
     await asyncio.to_thread(run)
@@ -39,7 +47,10 @@ async def refresh_all_bucket_probes_worker(ctx) -> None:
     def run() -> None:
         sm = get_sessionmaker()
         with sm() as db:
-            storage_maintenance.probe_all_buckets(db)
+            storage_maintenance.probe_all_buckets(
+                db,
+                event_context=event_service.EventContext(source="maintenance"),
+            )
 
     await asyncio.to_thread(run)
 
@@ -54,6 +65,7 @@ async def rebalance_blob_storage_worker(ctx) -> None:
                 db,
                 migrate_limit=S.STORAGE_MAINTENANCE_MIGRATE_BATCH,
                 pressure_ratio=S.STORAGE_MAINTENANCE_BUCKET_PRESSURE_RATIO,
+                event_context=event_service.EventContext(source="maintenance"),
             )
 
     await asyncio.to_thread(run)

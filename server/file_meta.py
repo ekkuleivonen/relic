@@ -22,7 +22,7 @@ class FileMeta(BaseModel):
     original_filename: str
     tags: list[str]
     keywords: list[str]
-    summary: str | None
+    summary: str | None = None
     kvs: dict[str, KvsValue]
 
     @model_validator(mode="after")

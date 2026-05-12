@@ -1,8 +1,19 @@
 import * as React from "react"
-import { RefreshCw, Search, X } from "lucide-react"
+import { RefreshCw, Search, Trash2, X } from "lucide-react"
 
 import { EventsTable } from "@/components/events/events-table"
 import { OffsetPaginationBar } from "@/components/pagination-offset"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -13,7 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { EVENTS_PAGE_SIZE, useEvents } from "@/hooks/use-events"
+import { EVENTS_PAGE_SIZE, useClearEvents, useEvents } from "@/hooks/use-events"
 import { extractApiError } from "@/lib/api"
 import type { EventStatus, EventsQuery } from "@/types/events"
 
@@ -24,6 +35,7 @@ export function EventsPage() {
     limit: EVENTS_PAGE_SIZE,
     offset: 0,
   })
+  const [clearDialogOpen, setClearDialogOpen] = React.useState(false)
   const [draft, setDraft] = React.useState({
     source: "",
     operation: "",
@@ -34,6 +46,7 @@ export function EventsPage() {
     created_before: "",
   })
   const eventsQuery = useEvents(filters)
+  const clearEventsMutation = useClearEvents()
 
   function applyFilters(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -68,6 +81,16 @@ export function EventsPage() {
     setFilters((current) => ({ ...current, offset }))
   }
 
+  async function clearAuditLog() {
+    try {
+      await clearEventsMutation.mutateAsync()
+      setFilters({ limit: EVENTS_PAGE_SIZE, offset: 0 })
+      setClearDialogOpen(false)
+    } catch {
+      // Error toast is handled by the mutation hook.
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -78,15 +101,58 @@ export function EventsPage() {
             background processors.
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => void eventsQuery.refetch()}
-          disabled={eventsQuery.isFetching}
-        >
-          <RefreshCw className={eventsQuery.isFetching ? "animate-spin" : ""} />
-          Refresh
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <AlertDialog
+            open={clearDialogOpen}
+            onOpenChange={setClearDialogOpen}
+          >
+            <AlertDialogTrigger asChild>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={clearEventsMutation.isPending}
+              >
+                <Trash2 />
+                Clear Audit Log
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Clear the audit log?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This permanently deletes every event from the audit log. New
+                  events will continue to be recorded after the table is cleared.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={clearEventsMutation.isPending}>
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  disabled={clearEventsMutation.isPending}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    void clearAuditLog()
+                  }}
+                >
+                  {clearEventsMutation.isPending ? "Clearing..." : "Clear"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void eventsQuery.refetch()}
+            disabled={eventsQuery.isFetching}
+          >
+            <RefreshCw
+              className={eventsQuery.isFetching ? "animate-spin" : ""}
+            />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <Card>

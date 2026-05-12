@@ -1,7 +1,7 @@
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response, status
 from pydantic import BaseModel, ConfigDict
 
 from api.users import UserRead
@@ -88,3 +88,9 @@ async def list_events(
         limit=page.limit,
         offset=page.offset,
     )
+
+
+@router.delete("/")
+async def clear_events(db: DbSession) -> Response:
+    event_service.clear_events(db)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

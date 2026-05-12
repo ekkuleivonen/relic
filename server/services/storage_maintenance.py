@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, selectinload
 from models import Blob, Bucket, File
 from schema_plan import BucketTier
 from services import buckets as bucket_service
+from services.events import EventContext, create_event
 from services.folder_storage_policy import effective_cooldown_days, effective_min_tier
 from services.objects import delete_blob_bytes, fetch_blob_bytes, upload_blob
 from services.placement import (
@@ -32,6 +33,7 @@ def purge_dereferenced_blobs_batch(
     db: Session,
     *,
     batch: int,
+    event_context: EventContext | None = None,
 ) -> dict[str, Any]:
     """
     For blobs with refcount < 1, delete remote keys and Blob rows.
@@ -52,6 +54,8 @@ def purge_dereferenced_blobs_batch(
     deleted_rows = 0
     freed_bytes = 0
     errors = 0
+    deleted_blob_ids: list[uuid.UUID] = []
+    failed_blob_ids: list[uuid.UUID] = []
     for blob in blobs:
         try:
             with db.begin_nested():
@@ -74,10 +78,32 @@ def purge_dereferenced_blobs_batch(
                     )
                 freed_bytes += int(blob.size_bytes)
                 deleted_rows += 1
+                deleted_blob_ids.append(blob.id)
                 db.delete(blob)
         except Exception:
             errors += 1
+            failed_blob_ids.append(blob.id)
 
+    should_emit_event = event_context is not None and (
+        deleted_rows > 0 or errors > 0
+    )
+    if should_emit_event:
+        create_event(
+            db,
+            source=event_context.source,
+            operation="blob.purged",
+            status="failed" if errors else "succeeded",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            blob_ids=[*deleted_blob_ids, *failed_blob_ids],
+            metadata={
+                "scanned": len(blobs),
+                "deleted_rows": deleted_rows,
+                "freed_bytes": freed_bytes,
+                "errors": errors,
+                "failed_blob_ids": [str(blob_id) for blob_id in failed_blob_ids],
+            },
+        )
     db.commit()
 
     log.info(
@@ -95,13 +121,15 @@ def purge_dereferenced_blobs_batch(
     }
 
 
-def probe_all_buckets(db: Session) -> dict[str, Any]:
+def probe_all_buckets(
+    db: Session, *, event_context: EventContext | None = None
+) -> dict[str, Any]:
     buckets = bucket_service.list_buckets(db)
     ok = 0
     failed = 0
     for b in buckets:
         try:
-            bucket_service.probe_bucket(db, b.id)
+            bucket_service.probe_bucket(db, b.id, event_context=event_context)
             ok += 1
         except Exception as exc:
             failed += 1
@@ -247,6 +275,7 @@ def rebalance_blob_storage_batch(
     *,
     migrate_limit: int,
     pressure_ratio: float,
+    event_context: EventContext | None = None,
 ) -> dict[str, Any]:
     """
     Migrate blobs according to lifecycle (folder min tier + cooldown) and bucket
@@ -330,7 +359,22 @@ def rebalance_blob_storage_batch(
             skipped += 1
             continue
 
+        source_bucket_id = bucket.id
         if _migrate_blob_to_bucket_inner(db, blob, dest):
+            if event_context is not None:
+                create_event(
+                    db,
+                    source=event_context.source,
+                    operation="blob.migrated",
+                    actor_user_id=event_context.actor_user_id,
+                    request_id=event_context.request_id,
+                    blob_ids=[blob.id],
+                    metadata={
+                        "source_bucket_id": str(source_bucket_id),
+                        "destination_bucket_id": str(dest.id),
+                        "size_bytes": blob.size_bytes,
+                    },
+                )
             moved += 1
             db.commit()
         else:

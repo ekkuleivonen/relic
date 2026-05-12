@@ -1,11 +1,13 @@
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from api.dependencies import AdminUser
 from api.users import UserRead
 from database import DbSession
+from services import events as event_service
 from services import access_keys as access_key_service
 from services.access_keys import AccessKeyRow, CreatedAccessKey
 
@@ -83,7 +85,7 @@ async def list_access_keys(db: DbSession) -> list[AccessKeyRead]:
 
 @router.post("/")
 async def create_access_key(
-    payload: AccessKeyCreate, db: DbSession
+    payload: AccessKeyCreate, request: Request, db: DbSession, current_user: AdminUser
 ) -> AccessKeyCreated:
     """
     POST /access-keys -> mint a new access key.
@@ -95,6 +97,11 @@ async def create_access_key(
         db,
         user_id=payload.user_id,
         name=payload.name,
+        event_context=event_service.context_from_headers(
+            request.headers,
+            source="relic_api",
+            actor_user_id=current_user.id,
+        ),
     )
     return AccessKeyCreated.from_created(created)
 
@@ -109,19 +116,40 @@ async def get_access_key(key_id: str, db: DbSession) -> AccessKeyRead:
 
 
 @router.post("/{key_id}/revoke")
-async def revoke_access_key(key_id: str, db: DbSession) -> AccessKeyRead:
+async def revoke_access_key(
+    key_id: str, request: Request, db: DbSession, current_user: AdminUser
+) -> AccessKeyRead:
     """
     POST /access-keys/{id}/revoke -> set revoked_at to now.
     Idempotent. Revoked keys are kept for audit; use DELETE to remove.
     """
-    return AccessKeyRead.from_row(access_key_service.revoke_access_key(db, key_id))
+    row = access_key_service.revoke_access_key(
+        db,
+        key_id,
+        event_context=event_service.context_from_headers(
+            request.headers,
+            source="relic_api",
+            actor_user_id=current_user.id,
+        ),
+    )
+    return AccessKeyRead.from_row(row)
 
 
 @router.delete("/{key_id}")
-async def delete_access_key(key_id: str, db: DbSession) -> Response:
+async def delete_access_key(
+    key_id: str, request: Request, db: DbSession, current_user: AdminUser
+) -> Response:
     """
     DELETE /access-keys/{id} -> hard delete the key row.
     Self for own; admin for any.
     """
-    access_key_service.delete_access_key(db, key_id)
+    access_key_service.delete_access_key(
+        db,
+        key_id,
+        event_context=event_service.context_from_headers(
+            request.headers,
+            source="relic_api",
+            actor_user_id=current_user.id,
+        ),
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

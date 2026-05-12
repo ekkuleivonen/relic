@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import Blob, Bucket
+from services.events import EventContext, create_event
 from services.placement import (
     BucketUsage,
     clear_bucket_usage_cache,
@@ -45,21 +46,45 @@ def get_bucket_read(db: Session, bucket_id: uuid.UUID) -> dict[str, Any]:
     return bucket_read(bucket, derive_bucket_usages(db, [bucket.id])[bucket.id])
 
 
-def create_bucket(db: Session, values: dict[str, Any]) -> Bucket:
+def create_bucket(
+    db: Session, values: dict[str, Any], *, event_context: EventContext | None = None
+) -> Bucket:
     ensure_bucket_name_available(db, values["name"])
     bucket = Bucket(**values)
     db.add(bucket)
+    db.flush()
+    if event_context is not None:
+        create_event(
+            db,
+            source=event_context.source,
+            operation="bucket.created",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            metadata={
+                "bucket_id": str(bucket.id),
+                "name": bucket.name,
+                "tier": int(bucket.tier),
+            },
+        )
     db.commit()
     db.refresh(bucket)
     return bucket
 
 
-def create_bucket_read(db: Session, values: dict[str, Any]) -> dict[str, Any]:
-    bucket = create_bucket(db, values)
+def create_bucket_read(
+    db: Session, values: dict[str, Any], *, event_context: EventContext | None = None
+) -> dict[str, Any]:
+    bucket = create_bucket(db, values, event_context=event_context)
     return bucket_read(bucket, derive_bucket_usages(db, [bucket.id])[bucket.id])
 
 
-def update_bucket(db: Session, bucket_id: uuid.UUID, values: dict[str, Any]) -> Bucket:
+def update_bucket(
+    db: Session,
+    bucket_id: uuid.UUID,
+    values: dict[str, Any],
+    *,
+    event_context: EventContext | None = None,
+) -> Bucket:
     bucket = get_bucket(db, bucket_id)
     if "name" in values:
         ensure_bucket_name_available(db, values["name"], excluding_id=bucket.id)
@@ -67,19 +92,39 @@ def update_bucket(db: Session, bucket_id: uuid.UUID, values: dict[str, Any]) -> 
     for key, value in values.items():
         setattr(bucket, key, value)
 
+    db.flush()
+    if event_context is not None:
+        create_event(
+            db,
+            source=event_context.source,
+            operation="bucket.updated",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            metadata={
+                "bucket_id": str(bucket.id),
+                "name": bucket.name,
+                "changed_fields": sorted(values),
+            },
+        )
     db.commit()
     db.refresh(bucket)
     return bucket
 
 
 def update_bucket_read(
-    db: Session, bucket_id: uuid.UUID, values: dict[str, Any]
+    db: Session,
+    bucket_id: uuid.UUID,
+    values: dict[str, Any],
+    *,
+    event_context: EventContext | None = None,
 ) -> dict[str, Any]:
-    bucket = update_bucket(db, bucket_id, values)
+    bucket = update_bucket(db, bucket_id, values, event_context=event_context)
     return bucket_read(bucket, derive_bucket_usages(db, [bucket.id])[bucket.id])
 
 
-def delete_bucket(db: Session, bucket_id: uuid.UUID) -> None:
+def delete_bucket(
+    db: Session, bucket_id: uuid.UUID, *, event_context: EventContext | None = None
+) -> None:
     bucket = get_bucket(db, bucket_id)
     blob_count = db.scalar(
         select(func.count()).select_from(Blob).where(Blob.bucket_id == bucket.id)
@@ -90,7 +135,17 @@ def delete_bucket(db: Session, bucket_id: uuid.UUID) -> None:
             detail={"message": "Bucket still has blobs", "blob_count": blob_count},
         )
 
+    metadata = {"bucket_id": str(bucket.id), "name": bucket.name, "tier": int(bucket.tier)}
     db.delete(bucket)
+    if event_context is not None:
+        create_event(
+            db,
+            source=event_context.source,
+            operation="bucket.deleted",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            metadata=metadata,
+        )
     db.commit()
     clear_bucket_usage_cache(bucket.id)
 
@@ -115,11 +170,14 @@ def bucket_read(bucket: Bucket, usage: BucketUsage) -> dict[str, Any]:
     }
 
 
-def probe_bucket(db: Session, bucket_id: uuid.UUID) -> BucketProbeResult:
+def probe_bucket(
+    db: Session, bucket_id: uuid.UUID, *, event_context: EventContext | None = None
+) -> BucketProbeResult:
     bucket = get_bucket(db, bucket_id)
     probe_key = f"__relic_probe__/{uuid.uuid4()}"
     probe_body = b"relic-probe"
     reachable = True
+    error: Exception | None = None
 
     try:
         client = boto3.client(
@@ -141,9 +199,39 @@ def probe_bucket(db: Session, bucket_id: uuid.UUID) -> BucketProbeResult:
         bucket.probe_latency_delete_ms = timed_ms(
             lambda: client.delete_object(Bucket=bucket.bucket, Key=probe_key)
         )
-    except (BotoCoreError, ClientError):
+    except (BotoCoreError, ClientError, OSError, ValueError) as exc:
         reachable = False
+        error = exc
 
+    should_emit_event = event_context is not None and (
+        event_context.source != "maintenance" or not reachable
+    )
+    if should_emit_event:
+        metadata = {
+            "bucket_id": str(bucket.id),
+            "name": bucket.name,
+            "reachable": reachable,
+            "probe_latency_put_ms": bucket.probe_latency_put_ms,
+            "probe_latency_head_ms": bucket.probe_latency_head_ms,
+            "probe_latency_get_ms": bucket.probe_latency_get_ms,
+            "probe_latency_delete_ms": bucket.probe_latency_delete_ms,
+        }
+        if error is not None:
+            metadata.update(
+                {
+                    "error_type": error.__class__.__name__,
+                    "error_message": str(error),
+                }
+            )
+        create_event(
+            db,
+            source=event_context.source,
+            operation="bucket.probed",
+            status="succeeded" if reachable else "failed",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            metadata=metadata,
+        )
     db.commit()
     db.refresh(bucket)
     return BucketProbeResult(bucket=bucket, reachable=reachable)
@@ -155,7 +243,9 @@ def timed_ms(operation) -> int:
     return max(1, round((time.perf_counter() - started) * 1000))
 
 
-def drain_bucket(db: Session, bucket_id: uuid.UUID) -> None:
+def drain_bucket(
+    db: Session, bucket_id: uuid.UUID, *, event_context: EventContext | None = None
+) -> None:
     get_bucket(db, bucket_id)
     raise BadRequestError("Bucket drain requires the background migration worker")
 

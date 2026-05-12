@@ -1,12 +1,13 @@
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
-from models import Base, User
+from models import Base, Event, User
 from schema_plan import UserRole
 from utils.passwords import hash_password
 
@@ -59,6 +60,26 @@ def test_login_sets_session_cookie_and_returns_user(client, db_session):
     assert response.status_code == 200
     assert response.json()["user"]["email"] == "ada@example.com"
     assert "relic_session" in response.cookies
+    event = db_session.scalar(select(Event).where(Event.operation == "auth.login.succeeded"))
+    assert event is not None
+    assert event.actor_user_id is not None
+    assert event.meta == {"email": "ada@example.com"}
+
+
+def test_failed_login_writes_audit_event(client, db_session):
+    add_user(db_session)
+
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "ada@example.com", "password": "wrong"},
+    )
+
+    assert response.status_code == 400
+    event = db_session.scalar(select(Event).where(Event.operation == "auth.login.failed"))
+    assert event is not None
+    assert event.status == "failed"
+    assert event.actor_user_id is None
+    assert event.meta == {"email": "ada@example.com"}
 
 
 def test_session_requires_valid_cookie(client):
@@ -96,3 +117,6 @@ def test_logout_clears_session(client, db_session):
 
     assert response.status_code == 204
     assert client.get("/api/auth/session").status_code == 401
+    event = db_session.scalar(select(Event).where(Event.operation == "auth.logout"))
+    assert event is not None
+    assert event.actor_user_id is not None

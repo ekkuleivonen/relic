@@ -16,6 +16,7 @@ from models import (
     PARSE_STATUS_IN_PROGRESS,
 )
 from services import objects as object_service
+from services.events import EventContext, create_event
 from utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -23,17 +24,26 @@ log = get_logger(__name__)
 PREFIX_BYTES = 4096
 
 
-def parse_file(db: Session, file_id: uuid.UUID) -> File:
+def parse_file(
+    db: Session, file_id: uuid.UUID, *, event_context: EventContext | None = None
+) -> File:
+    stage = "load_file"
+    parser_meta: dict | None = None
     file = require_file(db, file_id)
     file.parse_status = PARSE_STATUS_IN_PROGRESS
     db.commit()
 
     try:
+        stage = "load_blob"
         blob = require_blob(db, file.blob_id)
+        stage = "load_bucket"
         bucket = require_bucket(db, blob.bucket_id)
+        stage = "read_prefix"
         prefix = read_blob_prefix(bucket=bucket, bucket_key=blob.bucket_key)
+        stage = "detect_mimetype"
         parser_meta = build_base_parser_meta(file=file, blob=blob, prefix=prefix)
 
+        stage = "toolchain"
         maybe_run_toolchain(
             parser_meta=parser_meta,
             file_id=file_id,
@@ -43,14 +53,52 @@ def parse_file(db: Session, file_id: uuid.UUID) -> File:
             prefix=prefix,
         )
 
+        stage = "validate"
         validate_parser_meta(parser_meta=parser_meta)
+        stage = "commit_metadata"
         file.meta = parser_meta
         file.parse_status = PARSE_STATUS_COMPLETED
+        if event_context is not None:
+            create_event(
+                db,
+                source=event_context.source,
+                operation="file.metadata.updated",
+                actor_user_id=event_context.actor_user_id,
+                request_id=event_context.request_id,
+                file_ids=[file.id],
+                folder_ids=[file.folder_id],
+                blob_ids=[file.blob_id],
+                metadata={
+                    "processor": "parse_file",
+                    "parse_status": file.parse_status,
+                    "mimetype": file.meta.get("mimetype"),
+                },
+            )
         db.commit()
         db.refresh(file)
         return file
-    except Exception:
+    except Exception as exc:
         file.parse_status = PARSE_STATUS_FAILED
+        if event_context is not None:
+            create_event(
+                db,
+                source=event_context.source,
+                operation="parse.failed",
+                status="failed",
+                actor_user_id=event_context.actor_user_id,
+                request_id=event_context.request_id,
+                file_ids=[file.id],
+                folder_ids=[file.folder_id],
+                blob_ids=[file.blob_id],
+                metadata={
+                    "processor": "parse_file",
+                    "stage": stage,
+                    "file_name": file.name,
+                    "mimetype": parser_meta.get("mimetype") if parser_meta else None,
+                    "error_type": exc.__class__.__name__,
+                    "error_message": truncate_error_message(str(exc)),
+                },
+            )
         db.commit()
         raise
 
@@ -66,6 +114,12 @@ def build_base_parser_meta(*, file: File, blob: Blob, prefix: bytes) -> dict:
         mimetype=detect_mime_type(prefix=prefix, filename=file.name),
     )
     return merge_parser_meta(existing=existing, parsed=detected_meta)
+
+
+def truncate_error_message(message: str, *, limit: int = 1000) -> str:
+    if len(message) <= limit:
+        return message
+    return f"{message[:limit]}..."
 
 
 def validate_parser_meta(*, parser_meta: dict) -> None:

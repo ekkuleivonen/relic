@@ -5,89 +5,34 @@ like a file manager and more like dependable storage infrastructure.
 
 ## Near Term
 
-### Durable Event and Audit Foundation
+### Audit Retention and Event Policy
 
-Relic should establish an append-only event foundation before building folder
-analytics or storage intelligence. Audit logging can then become both a
-human-readable security surface and the raw material for later rollups.
+Relic now has a durable PostgreSQL event table and an admin audit log UI. The
+next audit work is about operational policy and long-term scale rather than the
+core foundation.
 
-Core principles:
-
-- Persist an event row in PostgreSQL in the request path for every successful
-  gateway and API operation, including high-volume reads such as GET and HEAD.
-- For mutating operations, write the event row in the same transaction as the
-  filesystem, access, user, bucket, or metadata mutation.
-- For read-only operations, write a durable event in its own transaction before
-  considering the request complete, so access history is not best-effort
-  queue-only telemetry.
-- Treat ARQ as the processor and delivery layer, not as the source of truth for
-  auditability.
-- Enqueue processors by `event_id`, so queue outages can be recovered by
-  scanning persisted unprocessed events.
-- Keep request handling synchronous only for the work needed to preserve core
-  invariants: object bytes are confirmed in backing storage before a successful
-  file reference is committed, and committed references should not point at
-  missing bytes.
-- Store stable, versioned event payloads with enough context for audit,
-  analytics, replay, and external integrations.
-- Keep performance measurements out of the durable event payload by default.
+- Add configurable retention by event category, with separate treatment for
+  high-volume access events such as GET/download versus mutation and security
+  events.
+- Add retention trimming jobs that delete or archive old events according to
+  policy.
+- Decide whether a separate `audit_events` projection is needed, or whether the
+  durable `events` table remains the primary human-readable audit surface.
+- Add category-aware UI affordances for security, mutation, access, processor,
+  and maintenance events.
+- Keep performance measurements out of durable event payloads by default.
   Relic should expose operational timings and byte counters as Prometheus
   metrics instead, with request IDs bridging events, logs, and future traces.
 
-Initial event envelope:
-
-```json
-{
-  "source": "s3_gateway",
-  "operation": "PUT",
-  "status": "succeeded",
-  "actor_user_id": "...",
-  "request_id": "...",
-  "file_ids": ["..."],
-  "folder_ids": ["..."],
-  "blob_ids": ["..."],
-  "metadata": {
-    "bucket": "photos",
-    "key": "2026/a.jpg",
-    "etag": "..."
-  }
-}
-```
-
-Audit coverage:
-
-- User login/logout events.
-- S3 gateway object events: PUT, GET, HEAD, DELETE, COPY, and future multipart
-  lifecycle operations.
-- Relic API file events: upload, download, copy, move, rename, metadata update,
-  and delete.
-- Folder create, copy, move, rename, delete, and policy-change events.
-- Folder access grant, update, and revoke events.
-- Access key creation and revocation events.
-- Bucket backend creation, update, probe, and deletion events.
-- Processor and maintenance events such as metadata parsing, blob migration,
-  dereferenced blob purge, and retention trimming.
-
-Audit product surface:
-
-- Admin UI for filtering audit records by actor, target, folder, event type,
-  source, status, and time range.
-- Clear distinction between high-volume access events, such as GET/download,
-  and lower-volume mutation/security events, while still persisting both.
-- Configurable retention by event category.
-- A path to derive `audit_events` as a human-readable projection over the
-  durable technical event stream.
-
 ### Async Processors
 
-The current parser workers should become a broader processor system. Parsing is
-one processor type; audit materialization, event delivery, previews, stats
-rollups, and storage maintenance can use the same pattern.
+The current parser and maintenance workers should become a broader processor
+system. Parsing is one processor type; event delivery, previews, stats rollups,
+and storage maintenance can use the same pattern.
 
-Processor responsibilities:
+Future processor responsibilities:
 
 - Parse metadata for file-created or metadata-replaced events.
-- Write or update audit projections from durable events.
 - Emit follow-up events such as `file.metadata.updated`.
 - Deliver events to external sinks.
 - Build derived rollups for folder stats and storage usage.
@@ -96,7 +41,8 @@ Processor responsibilities:
 
 Processor design goals:
 
-- Process by `event_id`, not by ad hoc file IDs.
+- Process by `event_id`, not by ad hoc file IDs, where a processor is reacting
+  to an existing durable event.
 - Keep processor operations idempotent.
 - Allow failed processors to be retried without duplicating audit records or
   corrupting metadata.
@@ -116,42 +62,12 @@ guardrails.
 
 ## Platform Layer
 
-### Event Sources
-
-Both the S3 gateway and the normal JSON API should emit the same event envelope
-for comparable operations.
-
-S3 gateway events should capture:
-
-- `source: "s3_gateway"`.
-- The S3 operation, such as PUT, GET, HEAD, DELETE, COPY, and future multipart
-  operations.
-- Authenticated user and request ID.
-- Related file, folder, and blob IDs.
-- Gateway metadata such as bucket, key, range request, ETag, and copy source.
-
-Relic API events should capture:
-
-- `source: "relic_api"`.
-- The application operation, such as file move, folder rename, access grant, or
-  bucket probe.
-- Authenticated user and request ID.
-- Related file, folder, blob, bucket, access key, or user IDs.
-- API metadata needed for audit and replay.
-
-Maintenance workers should emit periodic operational events:
-
-- `blob.purged`
-- `blob.migrated`
-- `bucket.probed`
-- `audit_events.trimmed`
-- `events.trimmed`
-- Processor retry or failure summaries.
-
 ### Durable Event Stream
 
 External systems should be able to subscribe to Relic changes without polling.
-This should be a durable feed, not a transient websocket-only stream.
+Relic already persists internal audit events; the next step is to expose a
+stable integration stream with cursors, delivery semantics, and versioned public
+event contracts.
 
 Initial event types:
 
@@ -189,8 +105,6 @@ Initial event types:
 Design goals:
 
 - Persist events with monotonically increasing offsets or cursors.
-- Make event persistence part of the synchronous success path for both reads
-  and writes; processors may lag, but the durable event should not.
 - Include actor, target, timestamp, tenant or deployment scope, request ID, and
   enough metadata for consumers to decide whether to fetch more detail.
 - Keep event payloads stable and versioned.

@@ -2,13 +2,15 @@ import io
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from models import Base, Blob
+from models import Base, Blob, Event
 from schema_plan import BucketTier
+from services.events import EventContext
 from services.placement import clear_bucket_usage_cache, get_bucket_usage
-from services.storage_maintenance import purge_dereferenced_blobs_batch
+from services.storage_maintenance import probe_all_buckets, purge_dereferenced_blobs_batch
 from tests.factories.models import BlobFactory, BucketFactory
 
 
@@ -80,7 +82,11 @@ def test_purge_deletes_dereferenced_blob_and_adjusts_counters(
 
     fake_storage.objects[(bucket_row.bucket, blob_row.bucket_key)] = b"payload"
 
-    out = purge_dereferenced_blobs_batch(db_session, batch=50)
+    out = purge_dereferenced_blobs_batch(
+        db_session,
+        batch=50,
+        event_context=EventContext(source="maintenance"),
+    )
     assert out["deleted_rows"] == 1
     assert out["freed_bytes"] == 100
     assert out["errors"] == 0
@@ -90,6 +96,10 @@ def test_purge_deletes_dereferenced_blob_and_adjusts_counters(
     assert usage.object_count == 0
     assert usage.current_size_bytes == 0
     assert fake_storage.objects == {}
+    event = db_session.scalars(select(Event)).one()
+    assert event.operation == "blob.purged"
+    assert event.status == "succeeded"
+    assert event.blob_ids == [str(blob_row.id)]
 
 
 def test_purge_skips_positive_refcount(db_session, fake_storage):
@@ -109,10 +119,52 @@ def test_purge_skips_positive_refcount(db_session, fake_storage):
 
     fake_storage.objects[(bucket_row.bucket, blob_row.bucket_key)] = b"x"
 
-    out = purge_dereferenced_blobs_batch(db_session, batch=50)
+    out = purge_dereferenced_blobs_batch(
+        db_session,
+        batch=50,
+        event_context=EventContext(source="maintenance"),
+    )
     assert out["deleted_rows"] == 0
     assert out["scanned"] == 0
     assert db_session.get(Blob, blob_row.id) is not None
     usage = get_bucket_usage(db_session, bucket_row.id)
     assert usage.object_count == 1
     assert usage.current_size_bytes == 10
+    assert db_session.scalars(select(Event)).all() == []
+
+
+def test_successful_scheduled_probe_does_not_emit_audit_event(
+    db_session, monkeypatch
+):
+    class FakeS3Client:
+        def put_object(self, Bucket, Key, Body):
+            return None
+
+        def head_object(self, Bucket, Key):
+            return None
+
+        def get_object(self, Bucket, Key):
+            class Body:
+                def read(self):
+                    return b"relic-probe"
+
+            return {"Body": Body()}
+
+        def delete_object(self, Bucket, Key):
+            return None
+
+    monkeypatch.setattr(
+        "services.buckets.boto3.client",
+        lambda *args, **kwargs: FakeS3Client(),
+    )
+    bucket_row = BucketFactory.build(tier=int(BucketTier.HOT))
+    db_session.add(bucket_row)
+    db_session.commit()
+
+    result = probe_all_buckets(
+        db_session,
+        event_context=EventContext(source="maintenance"),
+    )
+
+    assert result == {"bucket_count": 1, "ok": 1, "failed": 0}
+    assert db_session.scalars(select(Event)).all() == []

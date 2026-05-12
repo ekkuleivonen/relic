@@ -19,6 +19,7 @@ from managers.exceptions import (
     ResourceNotFound,
 )
 from models import User
+from services import events as event_service
 from services import objects as object_service
 from services import parser_queue
 from services import s3_signing
@@ -119,7 +120,7 @@ async def put_object(bucket: str, key: str, request: Request, db: DbSession) -> 
 
         copy_source = request.headers.get("x-amz-copy-source")
         if copy_source is not None:
-            response, file_id = handle_copy_object(
+            response, result = handle_copy_object(
                 db=db,
                 request=request,
                 user=user,
@@ -127,7 +128,7 @@ async def put_object(bucket: str, key: str, request: Request, db: DbSession) -> 
                 dest_key=key,
                 copy_source=copy_source,
             )
-            await parser_queue.enqueue_parse_file_best_effort(file_id)
+            await parser_queue.enqueue_parse_file_best_effort(result.file.id)
             return response
 
         spooled = await spool_request_body(request)
@@ -140,6 +141,11 @@ async def put_object(bucket: str, key: str, request: Request, db: DbSession) -> 
             size_bytes=spooled.size_bytes,
             ingest_meta=extract_user_metadata(request),
             current_user=user,
+            event_context=event_service.context_from_headers(
+                request.headers,
+                source="s3_gateway",
+                actor_user_id=user.id,
+            ),
         )
         await parser_queue.enqueue_parse_file_best_effort(result.file.id)
     except s3_signing.S3SigningError as exc:
@@ -158,7 +164,7 @@ def handle_copy_object(
     dest_bucket: str,
     dest_key: str,
     copy_source: str,
-) -> tuple[Response, uuid.UUID]:
+) -> tuple[Response, object_service.CopyObjectResult]:
     source_bucket, source_key = parse_copy_source(copy_source)
     metadata_directive = (
         request.headers.get("x-amz-metadata-directive")
@@ -173,6 +179,11 @@ def handle_copy_object(
         ingest_meta=extract_user_metadata(request),
         metadata_directive=metadata_directive,
         current_user=user,
+        event_context=event_service.context_from_headers(
+            request.headers,
+            source="s3_gateway",
+            actor_user_id=user.id,
+        ),
     )
     last_modified = result.file.updated_at.strftime("%Y-%m-%dT%H:%M:%S.000Z")
     body = (
@@ -189,7 +200,7 @@ def handle_copy_object(
             media_type="application/xml",
             headers={"ETag": f'"{result.etag}"'},
         ),
-        result.file.id,
+        result,
     )
 
 
@@ -281,6 +292,17 @@ async def head_object(bucket: str, key: str, request: Request, db: DbSession) ->
         result = object_service.get_object(
             db, bucket_name=bucket, key=key, current_user=user
         )
+        event_service.record_event(
+            db,
+            source="s3_gateway",
+            operation="object.head",
+            actor_user_id=user.id,
+            request_id=event_service.request_id_from_headers(request.headers),
+            file_ids=[result.file.id],
+            folder_ids=[result.file.folder_id],
+            blob_ids=[result.blob.id],
+            metadata={"bucket": bucket, "key": key},
+        )
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
     except DomainError as exc:
@@ -310,6 +332,22 @@ async def get_object(bucket: str, key: str, request: Request, db: DbSession) -> 
             bucket=result.bucket,
             bucket_key=result.blob.bucket_key,
             range_header=request.headers.get("range"),
+        )
+        event_service.record_event(
+            db,
+            source="s3_gateway",
+            operation="object.get",
+            actor_user_id=user.id,
+            request_id=event_service.request_id_from_headers(request.headers),
+            file_ids=[result.file.id],
+            folder_ids=[result.file.folder_id],
+            blob_ids=[result.blob.id],
+            metadata={
+                "bucket": bucket,
+                "key": key,
+                "range": request.headers.get("range"),
+                "content_length": boto_response.get("ContentLength"),
+            },
         )
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
@@ -374,7 +412,15 @@ async def delete_object(bucket: str, key: str, request: Request, db: DbSession) 
                 status_code=403,
             )
         object_service.delete_object(
-            db, bucket_name=bucket, key=key, current_user=user
+            db,
+            bucket_name=bucket,
+            key=key,
+            current_user=user,
+            event_context=event_service.context_from_headers(
+                request.headers,
+                source="s3_gateway",
+                actor_user_id=user.id,
+            ),
         )
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)

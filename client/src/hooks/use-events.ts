@@ -1,16 +1,37 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 
-import { apiRequest } from "@/lib/api"
+import { apiRequest, extractApiError } from "@/lib/api"
 import type { EventsQuery, EventsResponse } from "@/types/events"
 
 export const EVENTS_PAGE_SIZE = 50
 
-export const eventsQueryKey = (query: EventsQuery) => ["events", query] as const
+export const eventsQueryRootKey = ["events"] as const
+export const eventsQueryKey = (query: EventsQuery) =>
+  [...eventsQueryRootKey, query] as const
 
 export function useEvents(query: EventsQuery) {
   return useQuery({
     queryKey: eventsQueryKey(query),
     queryFn: () => apiRequest<EventsResponse>(`/events/${toQueryString(query)}`),
+  })
+}
+
+export function useClearEvents() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<void>("/events/", {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      toast.success("Audit log cleared")
+      void queryClient.invalidateQueries({ queryKey: eventsQueryRootKey })
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
   })
 }
 

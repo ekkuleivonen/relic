@@ -2,13 +2,13 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
-from models import Base, Bucket, User
+from models import Base, Bucket, Event, User
 from schema_plan import BucketTier, UserRole
 from services.auth import create_session_token
 from tests.factories.models import BlobFactory, BucketFactory
@@ -164,7 +164,7 @@ def test_delete_bucket_with_blobs_returns_conflict(client, db_session):
     assert response.json()["detail"]["blob_count"] == 1
 
 
-def test_probe_bucket_updates_operation_latencies(client, monkeypatch):
+def test_probe_bucket_updates_operation_latencies(client, db_session, monkeypatch):
     class FakeS3Client:
         def put_object(self, Bucket, Key, Body):
             return None
@@ -197,3 +197,10 @@ def test_probe_bucket_updates_operation_latencies(client, monkeypatch):
     assert body["probe_latency_head_ms"] >= 1
     assert body["probe_latency_get_ms"] >= 1
     assert body["probe_latency_delete_ms"] >= 1
+    event = db_session.scalars(
+        select(Event).where(Event.operation == "bucket.probed")
+    ).one()
+    assert event.source == "relic_api"
+    assert event.status == "succeeded"
+    assert event.meta["reachable"] is True
+    assert event.meta["probe_latency_put_ms"] >= 1

@@ -2,7 +2,8 @@ import datetime as dt
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import Select, func, select
+from starlette.datastructures import Headers
+from sqlalchemy import Select, delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from managers.exceptions import BadRequestError
@@ -11,6 +12,13 @@ from models import Event
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 SUPPORTED_STATUSES = frozenset({"succeeded", "failed"})
+
+
+@dataclass(frozen=True)
+class EventContext:
+    source: str
+    actor_user_id: uuid.UUID | None = None
+    request_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -26,7 +34,7 @@ def create_event(
     *,
     source: str,
     operation: str,
-    status: str,
+    status: str = "succeeded",
     actor_user_id: uuid.UUID | None = None,
     request_id: str | None = None,
     file_ids: list[uuid.UUID | str] | None = None,
@@ -48,6 +56,59 @@ def create_event(
     db.add(event)
     db.flush()
     return event
+
+
+def record_event(
+    db: Session,
+    *,
+    source: str,
+    operation: str,
+    status: str = "succeeded",
+    actor_user_id: uuid.UUID | None = None,
+    request_id: str | None = None,
+    file_ids: list[uuid.UUID | str] | None = None,
+    folder_ids: list[uuid.UUID | str] | None = None,
+    blob_ids: list[uuid.UUID | str] | None = None,
+    metadata: dict | None = None,
+) -> Event:
+    event = create_event(
+        db,
+        source=source,
+        operation=operation,
+        status=status,
+        actor_user_id=actor_user_id,
+        request_id=request_id,
+        file_ids=file_ids,
+        folder_ids=folder_ids,
+        blob_ids=blob_ids,
+        metadata=metadata,
+    )
+    db.commit()
+    db.refresh(event)
+    return event
+
+
+def clear_events(db: Session) -> int:
+    result = db.execute(delete(Event))
+    db.commit()
+    return result.rowcount or 0
+
+
+def context_from_headers(
+    headers: Headers,
+    *,
+    source: str,
+    actor_user_id: uuid.UUID | None = None,
+) -> EventContext:
+    return EventContext(
+        source=source,
+        actor_user_id=actor_user_id,
+        request_id=request_id_from_headers(headers),
+    )
+
+
+def request_id_from_headers(headers: Headers) -> str | None:
+    return headers.get("x-request-id") or headers.get("x-correlation-id")
 
 
 def list_events(

@@ -1,14 +1,17 @@
 import datetime as dt
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Cookie, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 import settings as S
+from managers.exceptions import BadRequestError
 from api.dependencies import CurrentUser
 from database import DbSession
 from schema_plan import UserRole
 from services import auth as auth_service
+from services import events as event_service
 
 router = APIRouter()
 
@@ -39,11 +42,21 @@ class SessionRead(BaseModel):
 
 @router.post("/login")
 async def login(payload: LoginRequest, response: Response, db: DbSession) -> SessionRead:
-    user = auth_service.authenticate_user(
-        db,
-        email=payload.email,
-        password=payload.password,
-    )
+    try:
+        user = auth_service.authenticate_user(
+            db,
+            email=payload.email,
+            password=payload.password,
+        )
+    except BadRequestError:
+        event_service.record_event(
+            db,
+            source="relic_api",
+            operation="auth.login.failed",
+            status="failed",
+            metadata={"email": payload.email.lower()},
+        )
+        raise
     response.set_cookie(
         key=S.SESSION_COOKIE_NAME,
         value=auth_service.create_session_token(user),
@@ -52,16 +65,34 @@ async def login(payload: LoginRequest, response: Response, db: DbSession) -> Ses
         secure=S.SESSION_COOKIE_SECURE,
         samesite="lax",
     )
+    event_service.record_event(
+        db,
+        source="relic_api",
+        operation="auth.login.succeeded",
+        actor_user_id=user.id,
+        metadata={"email": user.email},
+    )
     return SessionRead(user=SessionUserRead.model_validate(user))
 
 
 @router.post("/logout")
-async def logout(response: Response) -> Response:
+async def logout(
+    response: Response,
+    db: DbSession,
+    session_token: Annotated[str | None, Cookie(alias=S.SESSION_COOKIE_NAME)] = None,
+) -> Response:
+    user = auth_service.get_session_user(db, session_token)
     response.delete_cookie(
         key=S.SESSION_COOKIE_NAME,
         httponly=True,
         secure=S.SESSION_COOKIE_SECURE,
         samesite="lax",
+    )
+    event_service.record_event(
+        db,
+        source="relic_api",
+        operation="auth.logout",
+        actor_user_id=user.id if user else None,
     )
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
