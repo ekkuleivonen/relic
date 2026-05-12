@@ -566,8 +566,8 @@ def test_delete_recursive_cascades_and_decrements_blob_refcount(
     assert response.status_code == 204
     assert db_session.get(Folder, photos.id) is None
     assert db_session.get(Folder, raw.id) is None
-    # Blob should have been GC'd (refcount 0)
-    assert db_session.get(Blob, blob.id) is None
+    db_session.refresh(blob)
+    assert blob.refcount == 0
 
 
 def test_delete_recursive_only_decrements_for_this_subtree(

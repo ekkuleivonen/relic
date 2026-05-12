@@ -102,6 +102,8 @@ def test_get_and_update_bucket(client):
         f"/api/buckets/{bucket_id}",
         json={
             "name": "garage-hot-renamed",
+            "endpoint": "http://garage-hot:3900",
+            "region": "garage-renamed",
             "bucket": "blobs-renamed",
             "tier": BucketTier.WARM,
             "max_size_bytes": 2_000_000_000,
@@ -111,9 +113,25 @@ def test_get_and_update_bucket(client):
     assert update_response.status_code == 200
     updated = update_response.json()
     assert updated["name"] == "garage-hot-renamed"
+    assert updated["endpoint"] == "http://garage-hot:3900"
+    assert updated["region"] == "garage-renamed"
     assert updated["bucket"] == "blobs-renamed"
     assert updated["tier"] == BucketTier.WARM
     assert updated["max_size_bytes"] == 2_000_000_000
+
+
+def test_bucket_usage_is_derived_from_blobs(client, db_session):
+    bucket_id = uuid.UUID(client.post("/api/buckets/", json=bucket_payload()).json()["id"])
+    db_session.add(BlobFactory(bucket_id=bucket_id, size_bytes=12))
+    db_session.add(BlobFactory(bucket_id=bucket_id, size_bytes=30))
+    db_session.commit()
+
+    response = client.get(f"/api/buckets/{bucket_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["object_count"] == 2
+    assert body["current_size_bytes"] == 42
 
 
 def test_bucket_credentials_are_encrypted_at_rest(client, db_session):

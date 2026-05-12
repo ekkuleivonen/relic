@@ -63,8 +63,6 @@ export function BucketForm({
     bucketRecord ? "GB" : ""
   )
 
-  const isEdit = bucketRecord !== undefined
-
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (values.tier === "" || maxSizeUnit === "") {
@@ -101,11 +99,11 @@ export function BucketForm({
         <FieldLabel
           htmlFor="bucket-endpoint"
           label="Endpoint"
-          tooltip="Base S3-compatible endpoint, for example http://localhost:3900."
+          tooltip="Base S3-compatible endpoint as seen by the API server. In Docker Compose, use http://garage-hot:3900 rather than localhost."
         />
         <Input
           id="bucket-endpoint"
-          placeholder="http://localhost:3900"
+          placeholder="http://garage-hot:3900"
           value={values.endpoint}
           onChange={(event) =>
             setValues((current) => ({
@@ -113,7 +111,6 @@ export function BucketForm({
               endpoint: event.target.value,
             }))
           }
-          disabled={isEdit}
           required
         />
       </div>
@@ -131,7 +128,6 @@ export function BucketForm({
           onChange={(event) =>
             setValues((current) => ({ ...current, region: event.target.value }))
           }
-          disabled={isEdit}
           required
         />
       </div>
@@ -226,7 +222,7 @@ export function BucketForm({
           <FieldLabel
             htmlFor="bucket-max-size"
             label="Max Size"
-            tooltip="User-provided write limit for this bucket. Relic uses this with internally maintained usage counters."
+            tooltip="User-provided write limit for this bucket. Relic derives usage from stored blobs when placing new data."
           />
           <div className="grid grid-cols-[1fr_auto] gap-2">
             <Input

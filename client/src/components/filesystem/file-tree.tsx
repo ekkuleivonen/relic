@@ -1,7 +1,7 @@
 import * as React from "react"
 import { useDraggable, useDroppable } from "@dnd-kit/core"
 import { ChevronRight, Folder } from "lucide-react"
-import { Link } from "react-router"
+import { useNavigate } from "react-router"
 
 import { FolderContextMenu } from "@/components/filesystem/folder-context-menu"
 import {
@@ -9,9 +9,11 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import { Input } from "@/components/ui/input"
 import { DRAG_TYPE_FOLDER } from "@/hooks/use-folder-dnd"
 import { useFolderDragState } from "@/hooks/use-folder-drag-state"
 import { useNativeFileDrop } from "@/hooks/use-native-file-drop"
+import { useUpdateFolder } from "@/hooks/use-folders"
 import { PERM, can } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import type { FolderTreeNode } from "@/types/filesystem"
@@ -52,6 +54,8 @@ function TreeNode({
   selectedFolderId,
   expandedFolderIds,
 }: TreeNodeProps) {
+  const navigate = useNavigate()
+  const rename = useUpdateFolder()
   const sortedChildren = React.useMemo(
     () => [...node.children].sort((a, b) => a.name.localeCompare(b.name)),
     [node.children]
@@ -63,6 +67,11 @@ function TreeNode({
   const dragState = useFolderDragState()
   const isRoot = node.parent_id === null
   const canWriteHere = can(node.effective_permissions, PERM.WRITE)
+  const canRename = !isRoot && canWriteHere
+  const [editing, setEditing] = React.useState(false)
+  const [draftName, setDraftName] = React.useState(node.name)
+  const navTimerRef = React.useRef<number | null>(null)
+  const renameCommitRef = React.useRef(false)
   const draggable = useDraggable({
     id: `tree-folder:${node.id}`,
     data: { type: DRAG_TYPE_FOLDER, folder: node },
@@ -90,6 +99,61 @@ function TreeNode({
   )
 
   const showHighlight = droppable.isOver || nativeDrop.isOver
+
+  React.useEffect(
+    () => () => {
+      if (navTimerRef.current != null) {
+        window.clearTimeout(navTimerRef.current)
+      }
+    },
+    []
+  )
+
+  function clearNavTimer() {
+    if (navTimerRef.current != null) {
+      window.clearTimeout(navTimerRef.current)
+      navTimerRef.current = null
+    }
+  }
+
+  function scheduleOpenFolder() {
+    if (draggable.isDragging) return
+    clearNavTimer()
+    navTimerRef.current = window.setTimeout(() => {
+      navigate(href)
+      navTimerRef.current = null
+    }, 280)
+  }
+
+  async function commitRename() {
+    if (renameCommitRef.current) return
+    const trimmed = draftName.trim()
+    if (!trimmed) {
+      setDraftName(node.name)
+      setEditing(false)
+      return
+    }
+    if (trimmed === node.name) {
+      setEditing(false)
+      return
+    }
+    renameCommitRef.current = true
+    try {
+      await rename.mutateAsync({ id: node.id, name: trimmed })
+      setEditing(false)
+    } catch {
+      setDraftName(node.name)
+      // useUpdateFolder toasts the error
+    } finally {
+      renameCommitRef.current = false
+    }
+  }
+
+  function cancelRename() {
+    setDraftName(node.name)
+    setEditing(false)
+  }
+
   const rowContent = (
     <div
       ref={setRefs}
@@ -112,19 +176,70 @@ function TreeNode({
       ) : (
         <span className="size-7" />
       )}
-      <Link
-        to={href}
-        className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2"
-        draggable={false}
-        onClick={(event) => {
-          if (draggable.isDragging) {
+      {editing ? (
+        <div className="flex min-w-0 flex-1 items-center gap-2 py-1 pr-2">
+          <Folder className="size-4 shrink-0" />
+          <Input
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+            onBlur={() => void commitRename()}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault()
+                cancelRename()
+              } else if (event.key === "Enter") {
+                event.preventDefault()
+                void commitRename()
+              }
+            }}
+            disabled={rename.isPending}
+            className="h-7 py-1 text-sm"
+            autoFocus
+            onFocus={(event) => event.target.select()}
+            draggable={false}
+            onClick={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+          />
+        </div>
+      ) : canRename ? (
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2 text-left"
+          draggable={false}
+          onClick={(event) => {
+            if (draggable.isDragging) {
+              event.preventDefault()
+              return
+            }
+            scheduleOpenFolder()
+          }}
+          onDoubleClick={(event) => {
             event.preventDefault()
-          }
-        }}
-      >
-        <Folder className="size-4 shrink-0" />
-        <span className="truncate">{getNodeLabel(node, pathSegments)}</span>
-      </Link>
+            clearNavTimer()
+            setDraftName(node.name)
+            setEditing(true)
+          }}
+        >
+          <Folder className="size-4 shrink-0" />
+          <span className="truncate">{getNodeLabel(node, pathSegments)}</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-2 text-left"
+          draggable={false}
+          onClick={(event) => {
+            if (draggable.isDragging) {
+              event.preventDefault()
+              return
+            }
+            navigate(href)
+          }}
+        >
+          <Folder className="size-4 shrink-0" />
+          <span className="truncate">{getNodeLabel(node, pathSegments)}</span>
+        </button>
+      )}
     </div>
   )
 

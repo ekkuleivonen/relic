@@ -10,6 +10,11 @@ from sqlalchemy.orm import Session
 
 from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import Blob, Bucket
+from services.placement import (
+    BucketUsage,
+    clear_bucket_usage_cache,
+    derive_bucket_usages,
+)
 
 
 @dataclass(frozen=True)
@@ -22,11 +27,22 @@ def list_buckets(db: Session) -> list[Bucket]:
     return list(db.scalars(select(Bucket).order_by(Bucket.name)))
 
 
+def list_bucket_reads(db: Session) -> list[dict[str, Any]]:
+    buckets = list_buckets(db)
+    usages = derive_bucket_usages(db, [bucket.id for bucket in buckets])
+    return [bucket_read(bucket, usages[bucket.id]) for bucket in buckets]
+
+
 def get_bucket(db: Session, bucket_id: uuid.UUID) -> Bucket:
     bucket = db.get(Bucket, bucket_id)
     if not bucket:
         raise ResourceNotFound("Bucket not found")
     return bucket
+
+
+def get_bucket_read(db: Session, bucket_id: uuid.UUID) -> dict[str, Any]:
+    bucket = get_bucket(db, bucket_id)
+    return bucket_read(bucket, derive_bucket_usages(db, [bucket.id])[bucket.id])
 
 
 def create_bucket(db: Session, values: dict[str, Any]) -> Bucket:
@@ -36,6 +52,11 @@ def create_bucket(db: Session, values: dict[str, Any]) -> Bucket:
     db.commit()
     db.refresh(bucket)
     return bucket
+
+
+def create_bucket_read(db: Session, values: dict[str, Any]) -> dict[str, Any]:
+    bucket = create_bucket(db, values)
+    return bucket_read(bucket, derive_bucket_usages(db, [bucket.id])[bucket.id])
 
 
 def update_bucket(db: Session, bucket_id: uuid.UUID, values: dict[str, Any]) -> Bucket:
@@ -51,6 +72,13 @@ def update_bucket(db: Session, bucket_id: uuid.UUID, values: dict[str, Any]) -> 
     return bucket
 
 
+def update_bucket_read(
+    db: Session, bucket_id: uuid.UUID, values: dict[str, Any]
+) -> dict[str, Any]:
+    bucket = update_bucket(db, bucket_id, values)
+    return bucket_read(bucket, derive_bucket_usages(db, [bucket.id])[bucket.id])
+
+
 def delete_bucket(db: Session, bucket_id: uuid.UUID) -> None:
     bucket = get_bucket(db, bucket_id)
     blob_count = db.scalar(
@@ -64,6 +92,27 @@ def delete_bucket(db: Session, bucket_id: uuid.UUID) -> None:
 
     db.delete(bucket)
     db.commit()
+    clear_bucket_usage_cache(bucket.id)
+
+
+def bucket_read(bucket: Bucket, usage: BucketUsage) -> dict[str, Any]:
+    return {
+        "id": bucket.id,
+        "name": bucket.name,
+        "endpoint": bucket.endpoint,
+        "region": bucket.region,
+        "bucket": bucket.bucket,
+        "key_id": bucket.key_id,
+        "secret_access_key": bucket.secret_access_key,
+        "tier": bucket.tier,
+        "max_size_bytes": bucket.max_size_bytes,
+        "object_count": usage.object_count,
+        "current_size_bytes": usage.current_size_bytes,
+        "probe_latency_put_ms": bucket.probe_latency_put_ms,
+        "probe_latency_head_ms": bucket.probe_latency_head_ms,
+        "probe_latency_get_ms": bucket.probe_latency_get_ms,
+        "probe_latency_delete_ms": bucket.probe_latency_delete_ms,
+    }
 
 
 def probe_bucket(db: Session, bucket_id: uuid.UUID) -> BucketProbeResult:

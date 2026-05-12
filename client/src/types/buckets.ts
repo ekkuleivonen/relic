@@ -40,6 +40,8 @@ export type BucketUpdateInput = Partial<
   Pick<
     BucketCreateInput,
     | "name"
+    | "endpoint"
+    | "region"
     | "bucket"
     | "key_id"
     | "secret_access_key"

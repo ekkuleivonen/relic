@@ -15,12 +15,13 @@ from managers.exceptions import ConflictError, ResourceNotFound
 from models import Base, Blob, Bucket, File, Folder, FolderAccess, PARSE_STATUS_PENDING
 from schema_plan import BucketTier, Permission, UserRole
 from services import objects as object_service
-from services.placement import choose_bucket
+from services.placement import choose_bucket, clear_bucket_usage_cache, get_bucket_usage
 from tests.factories.models import BlobFactory, BucketFactory, UserFactory
 
 
 @pytest.fixture()
 def db_session():
+    clear_bucket_usage_cache()
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -30,6 +31,7 @@ def db_session():
     SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     with SessionLocal() as session:
         yield session
+    clear_bucket_usage_cache()
 
 
 @pytest.fixture()
@@ -97,10 +99,10 @@ def test_choose_bucket_filters_capacity_and_prefers_latency(db_session):
         db_session,
         name="full",
         max_size_bytes=10,
-        current_size_bytes=9,
     )
     slow = add_bucket(db_session, name="slow")
     fast = add_bucket(db_session, name="fast")
+    db_session.add(BlobFactory.build(bucket_id=full.id, size_bytes=9))
     mark_healthy(full, 1)
     mark_healthy(slow, 50)
     mark_healthy(fast, 5)
@@ -116,8 +118,8 @@ def test_choose_bucket_raises_when_no_bucket_has_capacity(db_session):
         db_session,
         name="tiny",
         max_size_bytes=3,
-        current_size_bytes=3,
     )
+    db_session.add(BlobFactory.build(bucket_id=bucket.id, size_bytes=3))
     mark_healthy(bucket)
     db_session.commit()
 
@@ -177,9 +179,9 @@ def test_put_object_uploads_new_blob_and_creates_file(
     assert blob.refcount == 1
     assert blob.bucket_id == physical_bucket.id
     assert blob.size_bytes == len(body)
-    db_session.refresh(physical_bucket)
-    assert physical_bucket.object_count == 1
-    assert physical_bucket.current_size_bytes == len(body)
+    usage = get_bucket_usage(db_session, physical_bucket.id)
+    assert usage.object_count == 1
+    assert usage.current_size_bytes == len(body)
 
     child_folder = db_session.scalar(
         select(Folder).where(Folder.parent_id == bucket_folder.id, Folder.name == "2026")
@@ -267,10 +269,10 @@ def test_put_object_dedupes_existing_blob(db_session, bucket_folder, monkeypatch
 
     assert result.file.name == "copy.txt"
     db_session.refresh(blob)
-    db_session.refresh(physical_bucket)
     assert blob.refcount == 2
-    assert physical_bucket.object_count == 0
-    assert physical_bucket.current_size_bytes == 0
+    usage = get_bucket_usage(db_session, physical_bucket.id)
+    assert usage.object_count == 1
+    assert usage.current_size_bytes == blob.size_bytes
 
 
 def test_put_object_rejects_existing_file_name(

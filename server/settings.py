@@ -27,16 +27,14 @@ configure_logging(
 )
 
 # =============================================================================
-# Database
+# Postgres
 # =============================================================================
 
-DATABASE_URL: str = env.str(
-    "DATABASE_URL",
-    default=env.str(
-        "DATABASE_URL",
-        default="postgresql://relic:relic@localhost:5432/relic",
-    ),
-)
+POSTGRES_HOST: str = env.str("POSTGRES_HOST", default="localhost")
+POSTGRES_PORT: int = env.int("POSTGRES_PORT", default=5432)
+POSTGRES_DB: str = env.str("POSTGRES_DB", default="relic")
+POSTGRES_USER: str = env.str("POSTGRES_USER", default="relic")
+POSTGRES_PASSWORD: str = env.str("POSTGRES_PASSWORD", default="relic")
 
 # =============================================================================
 # Encryption
@@ -61,7 +59,9 @@ RELIC_ADMIN_PASSWORD: str = env.str("RELIC_ADMIN_PASSWORD", default="relic-admin
 
 SESSION_SECRET: str = env.str("SESSION_SECRET", default=ENCRYPTION_SECRET)
 SESSION_COOKIE_NAME: str = env.str("SESSION_COOKIE_NAME", default="relic_session")
-SESSION_MAX_AGE_SECONDS: int = env.int("SESSION_MAX_AGE_SECONDS", default=60 * 60 * 24 * 7)
+SESSION_MAX_AGE_SECONDS: int = env.int(
+    "SESSION_MAX_AGE_SECONDS", default=60 * 60 * 24 * 7
+)
 SESSION_COOKIE_SECURE: bool = env.bool("SESSION_COOKIE_SECURE", default=False)
 
 # =============================================================================
@@ -168,3 +168,17 @@ REDIS_HOST: str = env.str("REDIS_HOST", default="localhost")
 REDIS_PORT: int = env.int("REDIS_PORT", default=6379)
 REDIS_PASSWORD: str = env.str("REDIS_PASSWORD", default="replace_me")
 PARSER_QUEUE_NAME: str = env.str("PARSER_QUEUE_NAME", default="relic:parser")
+
+# Storage maintenance (arq cron + jobs; see parsers/worker.py)
+STORAGE_MAINTENANCE_PURGE_BATCH: int = env.int(
+    "STORAGE_MAINTENANCE_PURGE_BATCH",
+    default=80,
+)
+STORAGE_MAINTENANCE_MIGRATE_BATCH: int = env.int(
+    "STORAGE_MAINTENANCE_MIGRATE_BATCH",
+    default=24,
+)
+STORAGE_MAINTENANCE_BUCKET_PRESSURE_RATIO: float = env.float(
+    "STORAGE_MAINTENANCE_BUCKET_PRESSURE_RATIO",
+    default=0.85,
+)

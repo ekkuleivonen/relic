@@ -34,6 +34,8 @@ class BucketUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
+    endpoint: str | None = Field(default=None, min_length=1)
+    region: str | None = Field(default=None, min_length=1, max_length=128)
     bucket: str | None = Field(default=None, min_length=1, max_length=255)
     tier: BucketTier | None = None
     max_size_bytes: int | None = Field(default=None, gt=0)
@@ -69,9 +71,9 @@ class BucketProbeRead(BucketRead):
 async def list_buckets(request: Request, db: DbSession) -> list[BucketRead]:
     """
     GET /buckets -> list all configured buckets.
-    Includes internally-maintained counters and probe latency snapshots.
+    Includes blob-derived usage and probe latency snapshots.
     """
-    return bucket_service.list_buckets(db)
+    return bucket_service.list_bucket_reads(db)
 
 
 @router.post("/")
@@ -80,15 +82,15 @@ async def create_bucket(request: Request, payload: BucketCreate, db: DbSession) 
     POST /buckets -> register a new bucket backend.
     Body: { name, endpoint, region, bucket, key_id, secret_access_key, tier, max_size_bytes }
     """
-    return bucket_service.create_bucket(db, payload.model_dump())
+    return bucket_service.create_bucket_read(db, payload.model_dump())
 
 
 @router.get("/{bucket_id}")
 async def get_bucket(bucket_id: uuid.UUID, request: Request, db: DbSession) -> BucketRead:
     """
-    GET /buckets/{id} -> single bucket with counters and probe latencies.
+    GET /buckets/{id} -> single bucket with blob-derived usage and probe latencies.
     """
-    return bucket_service.get_bucket(db, bucket_id)
+    return bucket_service.get_bucket_read(db, bucket_id)
 
 
 @router.patch("/{bucket_id}")
@@ -97,10 +99,11 @@ async def update_bucket(
 ) -> BucketRead:
     """
     PATCH /buckets/{id} -> update mutable fields.
-    Body: { name?, bucket?, tier?, max_size_bytes?, key_id?, secret_access_key? }
-    endpoint/region are immutable - register a new bucket instead.
+    Body: { name?, endpoint?, region?, bucket?, tier?, max_size_bytes?, key_id?, secret_access_key? }
     """
-    return bucket_service.update_bucket(db, bucket_id, payload.model_dump(exclude_unset=True))
+    return bucket_service.update_bucket_read(
+        db, bucket_id, payload.model_dump(exclude_unset=True)
+    )
 
 
 @router.delete("/{bucket_id}")
@@ -124,7 +127,7 @@ async def probe_bucket(
     Normally a cron job does this; this is the manual override.
     """
     result = bucket_service.probe_bucket(db, bucket_id)
-    bucket_data = BucketRead.model_validate(result.bucket).model_dump()
+    bucket_data = bucket_service.get_bucket_read(db, result.bucket.id)
     return BucketProbeRead(**bucket_data, reachable=result.reachable)
 
 

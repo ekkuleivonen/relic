@@ -56,6 +56,8 @@ export function BucketsPage() {
       bucketId: editingBucket.id,
       input: {
         name: values.name,
+        endpoint: values.endpoint,
+        region: values.region,
         bucket: values.bucket,
         key_id: values.key_id,
         secret_access_key: values.secret_access_key,
@@ -134,8 +136,8 @@ export function BucketsPage() {
           <DialogHeader>
             <DialogTitle>Edit Bucket</DialogTitle>
             <DialogDescription>
-              Endpoint and region are immutable. Register a new bucket backend
-              if either needs to change.
+              Update connection details, credentials, tier, or capacity for this
+              backend.
             </DialogDescription>
           </DialogHeader>
           {editingBucket && (

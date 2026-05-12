@@ -217,8 +217,8 @@ async def delete_folder(
     """
     DELETE /folders/{id} -> delete folder.
     Refuses if folder has files or subfolders unless ?recursive=true.
-    Recursive delete decrements refcounts on all referenced blobs;
-    blobs hitting refcount 0 are GC'd.
+    Recursive delete removes files and decrements refcounts on referenced blobs;
+    refcount-zero blobs are purged asynchronously by the storage maintenance worker (arq cron).
     Cannot delete root.
     """
     folders_service.delete_folder(

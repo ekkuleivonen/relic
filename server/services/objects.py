@@ -17,7 +17,10 @@ from models import Blob, Bucket, File, Folder, PARSE_STATUS_PENDING, User
 from schema_plan import BucketTier, Permission
 from services import folder_access as folder_access_service
 from services.folder_storage_policy import effective_min_tier
-from services.placement import choose_bucket
+from services.placement import adjust_bucket_usage_cache, choose_bucket
+from utils.logging import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -83,7 +86,9 @@ def put_object(
         size_bytes=size_bytes,
     )
     digest_hex = digest.hex()
-    blob = db.scalar(select(Blob).where(Blob.content_hash == digest))
+    blob = db.scalar(
+        select(Blob).where(Blob.content_hash == digest, Blob.refcount > 0)
+    )
 
     if blob:
         blob.refcount += 1
@@ -239,8 +244,9 @@ def create_blob(
     blob.bucket_key = build_blob_bucket_key(blob)
     upload_blob(bucket=bucket, bucket_key=blob.bucket_key, body=body)
 
-    bucket.object_count += 1
-    bucket.current_size_bytes += size_bytes
+    adjust_bucket_usage_cache(
+        bucket.id, object_count_delta=1, size_bytes_delta=size_bytes
+    )
     return blob
 
 
@@ -261,6 +267,14 @@ def upload_blob(*, bucket: Bucket, bucket_key: str, body: BinaryIO) -> None:
         )
         client.put_object(Bucket=bucket.bucket, Key=bucket_key, Body=body)
     except (BotoCoreError, ClientError) as exc:
+        log.warning(
+            "blob_upload_failed",
+            bucket_id=str(bucket.id),
+            bucket_name=bucket.name,
+            endpoint=bucket.endpoint,
+            remote_bucket=bucket.bucket,
+            error=str(exc),
+        )
         raise BadRequestError("Failed to upload object to bucket") from exc
 
 
@@ -277,8 +291,11 @@ def delete_object(
     current_user: User | None = None,
 ) -> DeleteObjectResult:
     """
-    Delete a File by bucket+key. Decrements blob refcount; when the refcount
-    hits zero, removes the Blob row and purges the underlying bytes.
+    Delete a File by bucket+key and decrement the Blob refcount.
+
+    refcount == 0 means the Blob is logically dereferenced and will be deleted
+    (including backing object-store bytes and bucket counters) by the periodic
+    arq storage maintenance purge job—not on this API path.
 
     S3 DELETE is idempotent: missing keys still return success. We mirror that
     so external clients (DuckLake, rclone) get the contract they expect.
@@ -309,21 +326,11 @@ def delete_object(
 
     if blob is not None:
         blob.refcount -= 1
-        if blob.refcount <= 0:
-            gc_blob(db, blob)
+        if blob.refcount < 0:
+            blob.refcount = 0
 
     db.commit()
     return DeleteObjectResult(existed=True)
-
-
-def gc_blob(db: Session, blob: Blob) -> None:
-    """Remove the Blob row and purge bytes from the underlying bucket."""
-    bucket = db.get(Bucket, blob.bucket_id)
-    if bucket is not None:
-        delete_blob_bytes(bucket=bucket, bucket_key=blob.bucket_key)
-        bucket.object_count = max(0, bucket.object_count - 1)
-
-    db.delete(blob)
 
 
 def delete_blob_bytes(*, bucket: Bucket, bucket_key: str) -> None:

@@ -1,18 +1,22 @@
 from functools import lru_cache
 from typing import Annotated
 
+import settings as S
 from fastapi import Depends
 from sqlalchemy import create_engine
+from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session, sessionmaker
-
-import settings as S
 
 
 def get_database_url() -> str:
-    url = S.DATABASE_URL
-    if url.startswith("postgresql://"):
-        return url.replace("postgresql://", "postgresql+psycopg://", 1)
-    return url
+    return URL.create(
+        drivername="postgresql+psycopg",
+        username=S.POSTGRES_USER,
+        password=S.POSTGRES_PASSWORD,
+        host=S.POSTGRES_HOST,
+        port=S.POSTGRES_PORT,
+        database=S.POSTGRES_DB,
+    ).render_as_string(hide_password=False)
 
 
 @lru_cache

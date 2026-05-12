@@ -152,6 +152,12 @@ def delete_folder(
     folder_id: uuid.UUID,
     recursive: bool = False,
 ) -> None:
+    """
+    Delete a folder subtree. Removes File rows and decrements Blob refcounts.
+
+    Blobs whose refcount reaches 0 remain until ``storage_maintenance`` purge
+    removes them via the arq worker (including object-store keys and counters).
+    """
     folder = folder_access_service.require_folder(db, folder_id)
     if folder.parent_id is None:
         raise BadRequestError("Cannot delete the root folder")
@@ -188,8 +194,8 @@ def delete_folder(
         if blob is None:
             continue
         blob.refcount -= dec
-        if blob.refcount <= 0:
-            db.delete(blob)
+        if blob.refcount < 0:
+            blob.refcount = 0
 
     db.commit()
     log.info(

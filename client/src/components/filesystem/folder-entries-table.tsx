@@ -25,6 +25,7 @@ import { useRenameFile } from "@/hooks/use-files"
 import { useNativeFileDrop } from "@/hooks/use-native-file-drop"
 import { DRAG_TYPE_FOLDER } from "@/hooks/use-folder-dnd"
 import { useFolderDragState } from "@/hooks/use-folder-drag-state"
+import { useUpdateFolder } from "@/hooks/use-folders"
 import { formatBytes, formatRelativeTime } from "@/lib/format"
 import { PERM, can } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
@@ -160,9 +161,18 @@ type FolderRowProps = {
   entry: Extract<FileSystemEntry, { kind: "folder" }>
 }
 
+const NAME_NAV_DELAY_MS = 280
+
 function FolderRow({ entry }: FolderRowProps) {
+  const navigate = useNavigate()
+  const rename = useUpdateFolder()
   const dragState = useFolderDragState()
   const canWriteHere = can(entry.node.effective_permissions, PERM.WRITE)
+  const canRename = entry.node.parent_id !== null && canWriteHere
+  const [editing, setEditing] = React.useState(false)
+  const [draftName, setDraftName] = React.useState(entry.name)
+  const navTimerRef = React.useRef<number | null>(null)
+  const renameCommitRef = React.useRef(false)
   const draggable = useDraggable({
     id: `table-folder:${entry.id}`,
     data: { type: DRAG_TYPE_FOLDER, folder: entry.node },
@@ -192,6 +202,60 @@ function FolderRow({ entry }: FolderRowProps) {
   const typeLabel = `${childCount} ${childCount === 1 ? "subfolder" : "subfolders"}`
   const showHighlight = droppable.isOver || nativeDrop.isOver
 
+  React.useEffect(
+    () => () => {
+      if (navTimerRef.current != null) {
+        window.clearTimeout(navTimerRef.current)
+      }
+    },
+    []
+  )
+
+  function clearNavTimer() {
+    if (navTimerRef.current != null) {
+      window.clearTimeout(navTimerRef.current)
+      navTimerRef.current = null
+    }
+  }
+
+  function scheduleOpenFolder() {
+    if (draggable.isDragging) return
+    clearNavTimer()
+    navTimerRef.current = window.setTimeout(() => {
+      navigate(entry.href)
+      navTimerRef.current = null
+    }, NAME_NAV_DELAY_MS)
+  }
+
+  async function commitRename() {
+    if (renameCommitRef.current) return
+    const trimmed = draftName.trim()
+    if (!trimmed) {
+      setDraftName(entry.name)
+      setEditing(false)
+      return
+    }
+    if (trimmed === entry.name) {
+      setEditing(false)
+      return
+    }
+    renameCommitRef.current = true
+    try {
+      await rename.mutateAsync({ id: entry.id, name: trimmed })
+      setEditing(false)
+    } catch {
+      setDraftName(entry.name)
+      // useUpdateFolder toasts the error
+    } finally {
+      renameCommitRef.current = false
+    }
+  }
+
+  function cancelRename() {
+    setDraftName(entry.name)
+    setEditing(false)
+  }
+
   return (
     <FolderContextMenu folder={entry.node} asChild>
       <TableRow
@@ -210,18 +274,62 @@ function FolderRow({ entry }: FolderRowProps) {
           <RowIcon kind="folder" />
         </TableCell>
         <TableCell className="font-medium">
-          <Link
-            to={entry.href}
-            className="hover:underline"
-            onClick={(event) => {
-              if (draggable.isDragging) {
+          {editing ? (
+            <Input
+              value={draftName}
+              onChange={(event) => setDraftName(event.target.value)}
+              onBlur={() => void commitRename()}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault()
+                  cancelRename()
+                } else if (event.key === "Enter") {
+                  event.preventDefault()
+                  void commitRename()
+                }
+              }}
+              disabled={rename.isPending}
+              className="h-8 py-1"
+              autoFocus
+              onFocus={(event) => event.target.select()}
+              draggable={false}
+              onClick={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+            />
+          ) : canRename ? (
+            <button
+              type="button"
+              className="hover:underline text-left"
+              onClick={(event) => {
+                if (draggable.isDragging) {
+                  event.preventDefault()
+                  return
+                }
+                scheduleOpenFolder()
+              }}
+              onDoubleClick={(event) => {
                 event.preventDefault()
-              }
-            }}
-            draggable={false}
-          >
-            {entry.name}
-          </Link>
+                clearNavTimer()
+                setDraftName(entry.name)
+                setEditing(true)
+              }}
+            >
+              {entry.name}
+            </button>
+          ) : (
+            <Link
+              to={entry.href}
+              className="hover:underline"
+              onClick={(event) => {
+                if (draggable.isDragging) {
+                  event.preventDefault()
+                }
+              }}
+              draggable={false}
+            >
+              {entry.name}
+            </Link>
+          )}
         </TableCell>
         <TableCell className="text-muted-foreground">{typeLabel}</TableCell>
         <TableCell className="text-right text-muted-foreground">—</TableCell>
@@ -236,8 +344,6 @@ function FolderRow({ entry }: FolderRowProps) {
 type FileRowProps = {
   entry: Extract<FileSystemEntry, { kind: "blob" }>
 }
-
-const FILE_NAME_NAV_DELAY_MS = 280
 
 function FileRow({ entry }: FileRowProps) {
   const navigate = useNavigate()
@@ -295,7 +401,7 @@ function FileRow({ entry }: FileRowProps) {
     navTimerRef.current = window.setTimeout(() => {
       navigate(`/file/${encodeURIComponent(entry.id)}`)
       navTimerRef.current = null
-    }, FILE_NAME_NAV_DELAY_MS)
+    }, NAME_NAV_DELAY_MS)
   }
 
   async function commitRename() {

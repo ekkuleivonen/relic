@@ -10,9 +10,11 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
+import settings as S
 from models import Base, Blob, File, Folder, FolderAccess
 from schema_plan import BucketTier, Permission
 from services.auth import create_session_token
+from services.storage_maintenance import purge_dereferenced_blobs_batch
 from tests.factories.models import BucketFactory, UserFactory
 
 
@@ -208,6 +210,7 @@ def test_presigned_delete_drops_file_and_blob(
     response = client.delete(signed["url"], headers=signed["headers"])
     assert response.status_code == 204
     assert db_session.scalar(select(File).where(File.id == file.id)) is None
+    purge_dereferenced_blobs_batch(db_session, batch=S.STORAGE_MAINTENANCE_PURGE_BATCH)
     assert db_session.scalar(select(Blob).where(Blob.id == blob_id)) is None
     assert fake_storage.objects == {}
 

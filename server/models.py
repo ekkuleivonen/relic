@@ -89,8 +89,6 @@ class Bucket(Base, TimestampMixin):
     )
     tier: Mapped[int] = mapped_column(Integer, nullable=False)
     max_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    object_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    current_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     probe_latency_put_ms: Mapped[int | None] = mapped_column(Integer)
     probe_latency_head_ms: Mapped[int | None] = mapped_column(Integer)
     probe_latency_get_ms: Mapped[int | None] = mapped_column(Integer)
@@ -117,15 +115,22 @@ class Bucket(Base, TimestampMixin):
 
 class Blob(Base, TimestampMixin):
     __tablename__ = "blobs"
+    __table_args__ = (
+        Index(
+            "uq_blobs_content_hash_live",
+            "content_hash",
+            unique=True,
+            postgresql_where=text("refcount > 0"),
+            sqlite_where=text("refcount > 0"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     bucket_id: Mapped[uuid.UUID] = mapped_column(
         GUID(), ForeignKey("buckets.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     bucket_key: Mapped[str] = mapped_column(Text, nullable=False)
-    content_hash: Mapped[bytes] = mapped_column(
-        LargeBinary(32), nullable=False, unique=True
-    )
+    content_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     refcount: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     accessed_at: Mapped[dt.datetime] = mapped_column(

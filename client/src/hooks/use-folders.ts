@@ -14,7 +14,7 @@ type UpdateFolderInput = {
   id: string
   name?: string
   parent_id?: string
-  min_tier?: number
+  min_tier?: number | null
   cooldown_days?: number | null
 }
 
