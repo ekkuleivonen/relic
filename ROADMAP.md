@@ -3,86 +3,14 @@
 This roadmap captures the next product layers that would make Relic feel less
 like a file manager and more like dependable storage infrastructure.
 
-The async processor architecture (three queues, `file_events` outbox,
-`processors` registry, pull-model dispatcher, `meta_extract` substrate,
-audited rewind / skip-stuck-event admin actions) is **live**. Its design
-contract lives in `README.md` under "Event Log and Processors". This roadmap
-covers what extends or builds on top of that substrate.
+The async processor architecture (hot/warm/cold tiers, `audit_events`,
+`file_events`, `maintenance_events`, `processors` registry, pull-model
+dispatcher, `meta_extract` substrate, audited rewind / skip-stuck-event
+admin actions) is **live**. Its design contract lives in `README.md` under
+"Event Log and Processors". This roadmap covers what extends or builds on
+top of that substrate.
 
 ## Near Term
-
-### `maintenance_events` — internal cold-path log
-
-The third event table. Resource-level outcomes of cold-path workers, written
-by `worker_maintenance`. Not an outbox — nothing reads it to fire more work.
-External sinks never see it. Lives behind an admin UI for forensics ("why
-did this blob land in cold storage 14 days ago?").
-
-Event kinds (composed of `job` + `action`):
-
-| `job` | `action` values |
-| --- | --- |
-| `purge_dereferenced_blobs` | `blob.purged`, `blob.purge_failed` |
-| `rebalance_blob_storage` | `blob.migrated`, `blob.migration_skipped`, `blob.migration_failed` |
-| `bucket_probe` | `bucket.probe_ok`, `bucket.probe_failed` |
-| `trim_audit_events` | `audit.trimmed` |
-| `trim_file_events` | `file_event.trimmed` |
-| `trim_maintenance_events` | `maintenance_event.trimmed` |
-| `reconcile_bucket_drift` | `blob.reconciled`, `blob.reconcile_mismatch` (future) |
-
-One row per resource-level outcome, not one row per batch. `batch_id` groups
-all rows from a single cron firing.
-
-Envelope:
-
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | `uuid` PK | |
-| `created_at` | `timestamptz` | `default now()` |
-| `job` | `text` | e.g. `rebalance_blob_storage`. Indexed. |
-| `action` | `text` | e.g. `blob.migrated`. Indexed. |
-| `status` | `text` | `succeeded` / `failed` / `skipped`. |
-| `batch_id` | `uuid` | Groups events from one cron firing. Indexed. |
-| `bucket_id` | `uuid` FK | `ON DELETE SET NULL`. NULL when not bucket-scoped. |
-| `blob_id` | `uuid` | **Not** a foreign key — blob row may be gone by the time we log. |
-| `duration_ms` | `int` NULL | |
-| `meta` | `jsonb` | Action-specific details. |
-
-`maintenance_events` has no `actor_user_id`, no `request_id`, no `offset`,
-and no `dispatched_at`. It is system-emitted, untriggered by any request,
-and not consumed by anyone. Retention is governed by `EVENT_RETENTION_DAYS`
-along with the other event tables.
-
-`meta` examples by action:
-
-```jsonc
-// blob.purged
-{ "freed_bytes": 1048576, "bucket_key": "ab/cd/..." }
-
-// blob.migrated
-{ "from_bucket_id": "...", "to_bucket_id": "...",
-  "from_tier": 1, "to_tier": 2,
-  "reason": "lifecycle.cooldown", "size_bytes": 1048576 }
-
-// blob.migration_skipped
-{ "from_bucket_id": "...", "reason": "destination_full",
-  "size_bytes": 1048576 }
-
-// bucket.probe_ok
-{ "put_ms": 12, "head_ms": 4, "get_ms": 7, "delete_ms": 5 }
-
-// bucket.probe_failed
-{ "phase": "head", "error_class": "BotoCoreError",
-  "error_message": "..." }
-
-// audit.trimmed
-{ "retention_days": 90, "deleted_rows": 1234 }
-```
-
-Shippable work item: model + alembic migration; emit from
-`purge_dereferenced_blobs`, `rebalance_blob_storage`, `bucket_probe`, and
-the retention-trim jobs; expose a paginated admin browser similar to the
-File Events page.
 
 ### Prometheus Metrics
 

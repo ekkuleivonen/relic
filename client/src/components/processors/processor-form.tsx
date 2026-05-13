@@ -1,5 +1,6 @@
 import * as React from "react"
 
+import { FolderCombobox } from "@/components/folder-access/folder-combobox"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,13 +12,16 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import type { FolderPathEntry } from "@/lib/folder-path"
 import type {
   ProcessorCreateInput,
+  ProcessorFolderScope,
   ProcessorSubstrate,
 } from "@/types/processors"
 
 type ProcessorFormProps = {
   substrates: ProcessorSubstrate[]
+  folders: FolderPathEntry[]
   isSubmitting: boolean
   onCancel: () => void
   onSubmit: (input: ProcessorCreateInput) => Promise<void> | void
@@ -25,6 +29,7 @@ type ProcessorFormProps = {
 
 export function ProcessorForm({
   substrates,
+  folders,
   isSubmitting,
   onCancel,
   onSubmit,
@@ -33,6 +38,11 @@ export function ProcessorForm({
   const [kind, setKind] = React.useState<string | undefined>(undefined)
   const [enabled, setEnabled] = React.useState(true)
   const [subscribedTypesRaw, setSubscribedTypesRaw] = React.useState("")
+  const [folderScopes, setFolderScopes] = React.useState<ProcessorFolderScope[]>(
+    []
+  )
+  const [selectedFolderId, setSelectedFolderId] = React.useState("")
+  const [cascade, setCascade] = React.useState(true)
   const [configRaw, setConfigRaw] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
 
@@ -83,8 +93,30 @@ export function ProcessorForm({
       kind: effectiveKind,
       enabled,
       subscribed_event_types: subscribed,
+      folder_scopes: folderScopes.length > 0 ? folderScopes : undefined,
       config,
     })
+  }
+
+  function addFolderScope() {
+    if (!selectedFolderId) {
+      setError("Choose a folder scope before adding it")
+      return
+    }
+    setError(null)
+    setFolderScopes((current) => {
+      const existing = current.find((scope) => scope.folder_id === selectedFolderId)
+      if (existing) {
+        return current.map((scope) =>
+          scope.folder_id === selectedFolderId
+            ? { ...scope, cascade: scope.cascade || cascade }
+            : scope
+        )
+      }
+      return [...current, { folder_id: selectedFolderId, cascade }]
+    })
+    setSelectedFolderId("")
+    setCascade(true)
   }
 
   return (
@@ -136,6 +168,45 @@ export function ProcessorForm({
       </div>
 
       <div className="space-y-2">
+        <Label>Folder scopes</Label>
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <FolderCombobox
+            folders={folders}
+            value={selectedFolderId || undefined}
+            onChange={setSelectedFolderId}
+            disabled={folders.length === 0}
+            placeholder={
+              folders.length === 0 ? "No folders available" : "Select a folder"
+            }
+          />
+          <Button type="button" variant="outline" onClick={addFolderScope}>
+            Add Scope
+          </Button>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={cascade}
+            onChange={(event) => setCascade(event.target.checked)}
+            className="size-4"
+          />
+          Include descendants
+        </label>
+        <FolderScopeList
+          scopes={folderScopes}
+          folders={folders}
+          onRemove={(folderId) =>
+            setFolderScopes((current) =>
+              current.filter((scope) => scope.folder_id !== folderId)
+            )
+          }
+        />
+        <p className="text-xs text-muted-foreground">
+          Empty means this processor receives matching events from every folder.
+        </p>
+      </div>
+
+      <div className="space-y-2">
         <Label htmlFor="processor-config">Config (JSON)</Label>
         <Textarea
           id="processor-config"
@@ -181,5 +252,44 @@ export function ProcessorForm({
         </Button>
       </div>
     </form>
+  )
+}
+
+function FolderScopeList({
+  scopes,
+  folders,
+  onRemove,
+}: {
+  scopes: ProcessorFolderScope[]
+  folders: FolderPathEntry[]
+  onRemove: (folderId: string) => void
+}) {
+  if (scopes.length === 0) {
+    return null
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      {scopes.map((scope) => {
+        const folder = folders.find((entry) => entry.id === scope.folder_id)
+        return (
+          <div
+            key={scope.folder_id}
+            className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs"
+          >
+            <span className="font-mono">
+              {folder?.path ?? scope.folder_id}
+              {scope.cascade ? "/*" : ""}
+            </span>
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => onRemove(scope.folder_id)}
+            >
+              Remove
+            </button>
+          </div>
+        )
+      })}
+    </div>
   )
 }

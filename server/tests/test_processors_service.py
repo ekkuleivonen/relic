@@ -25,6 +25,7 @@ from services.event_context import EventContext
 from services.file_events import create_file_event
 from tests.factories.models import (
     FileEventFactory,
+    FolderFactory,
     ProcessorFactory,
     UserFactory,
 )
@@ -57,16 +58,19 @@ def _make_event(
     *,
     event_type: str = "file.created",
     file_id: uuid.UUID | None = None,
+    folder_id: uuid.UUID | None = None,
 ) -> FileEvent:
     event = FileEventFactory.build(
         event_type=event_type,
         file_id=file_id or uuid.uuid4(),
+        folder_id=folder_id,
         offset=None,
     )
     return create_file_event(
         db,
         event_type=event.event_type,
         file_id=event.file_id,
+        folder_id=event.folder_id,
         payload={},
     )
 
@@ -114,6 +118,36 @@ def test_create_processor_rejects_invalid_event_type(db_session):
             name="x",
             kind="meta_extract",
             subscribed_event_types=["file.bogus"],
+        )
+
+
+def test_create_processor_normalizes_folder_scopes(db_session):
+    folder = FolderFactory.build()
+    db_session.add(folder)
+    db_session.flush()
+
+    processor = processor_service.create_processor(
+        db_session,
+        name="scoped",
+        kind="meta_extract",
+        folder_scopes=[
+            {"folder_id": str(folder.id), "cascade": False},
+            {"folder_id": str(folder.id), "cascade": True},
+        ],
+    )
+
+    assert processor.folder_scopes == [
+        {"folder_id": str(folder.id), "cascade": True}
+    ]
+
+
+def test_create_processor_rejects_missing_folder_scope(db_session):
+    with pytest.raises(ResourceNotFound):
+        processor_service.create_processor(
+            db_session,
+            name="scoped",
+            kind="meta_extract",
+            folder_scopes=[{"folder_id": str(uuid.uuid4()), "cascade": True}],
         )
 
 
@@ -246,6 +280,67 @@ def test_collect_pending_jobs_skips_disabled_processor(db_session):
     assert processor_service.collect_pending_jobs(db_session) == []
 
 
+def test_collect_pending_jobs_filters_by_exact_folder_scope(db_session):
+    root = FolderFactory.build(name="")
+    db_session.add(root)
+    db_session.flush()
+    in_scope_folder = FolderFactory.build(name="in-scope", parent_id=root.id)
+    out_of_scope_folder = FolderFactory.build(name="out-of-scope", parent_id=root.id)
+    db_session.add_all([in_scope_folder, out_of_scope_folder])
+    db_session.flush()
+    processor = ProcessorFactory.build(
+        name="meta_extract",
+        subscribed_event_types=["file.created"],
+        folder_scopes=[
+            {"folder_id": str(in_scope_folder.id), "cascade": False}
+        ],
+    )
+    db_session.add(processor)
+    db_session.flush()
+
+    _make_event(
+        db_session, event_type="file.created", folder_id=out_of_scope_folder.id
+    )
+    in_scope = _make_event(
+        db_session, event_type="file.created", folder_id=in_scope_folder.id
+    )
+    db_session.commit()
+
+    jobs = processor_service.collect_pending_jobs(db_session)
+
+    assert [job.event_id for job in jobs] == [in_scope.id]
+
+
+def test_collect_pending_jobs_filters_by_cascading_folder_scope(db_session):
+    root = FolderFactory.build(name="")
+    db_session.add(root)
+    db_session.flush()
+    child = FolderFactory.build(name="child", parent_id=root.id)
+    sibling = FolderFactory.build(name="sibling", parent_id=root.id)
+    db_session.add_all([child, sibling])
+    db_session.flush()
+    grandchild = FolderFactory.build(name="grandchild", parent_id=child.id)
+    db_session.add(grandchild)
+    db_session.flush()
+    processor = ProcessorFactory.build(
+        name="meta_extract",
+        subscribed_event_types=["file.created"],
+        folder_scopes=[{"folder_id": str(child.id), "cascade": True}],
+    )
+    db_session.add(processor)
+    db_session.flush()
+
+    _make_event(db_session, event_type="file.created", folder_id=sibling.id)
+    in_scope = _make_event(
+        db_session, event_type="file.created", folder_id=grandchild.id
+    )
+    db_session.commit()
+
+    jobs = processor_service.collect_pending_jobs(db_session)
+
+    assert [job.event_id for job in jobs] == [in_scope.id]
+
+
 def test_get_processor_with_lag_reports_pending(db_session):
     processor = ProcessorFactory.build(
         name="meta_extract", subscribed_event_types=["file.created"]
@@ -259,6 +354,35 @@ def test_get_processor_with_lag_reports_pending(db_session):
     info = processor_service.get_processor_with_lag(db_session, processor.id)
     assert info.pending_count == 1
     assert info.head_offset == 2
+
+
+def test_get_processor_with_lag_respects_folder_scope(db_session):
+    root = FolderFactory.build(name="")
+    db_session.add(root)
+    db_session.flush()
+    in_scope_folder = FolderFactory.build(name="in-scope", parent_id=root.id)
+    out_of_scope_folder = FolderFactory.build(name="out-of-scope", parent_id=root.id)
+    db_session.add_all([in_scope_folder, out_of_scope_folder])
+    db_session.flush()
+    processor = ProcessorFactory.build(
+        name="meta_extract",
+        subscribed_event_types=["file.created"],
+        folder_scopes=[
+            {"folder_id": str(in_scope_folder.id), "cascade": False}
+        ],
+    )
+    db_session.add(processor)
+    db_session.flush()
+    _make_event(
+        db_session, event_type="file.created", folder_id=in_scope_folder.id
+    )
+    _make_event(
+        db_session, event_type="file.created", folder_id=out_of_scope_folder.id
+    )
+    db_session.commit()
+
+    info = processor_service.get_processor_with_lag(db_session, processor.id)
+    assert info.pending_count == 1
 
 
 def test_execute_processor_event_advances_cursor_on_success(
@@ -430,6 +554,55 @@ def test_execute_processor_event_refuses_non_subscribed(
         bootstrap_db.add(processor)
         bootstrap_db.flush()
         event = _make_event(bootstrap_db, event_type="file.deleted")
+        processor_id = processor.id
+        event_id = event.id
+        starting_cursor = processor.last_committed_offset
+        bootstrap_db.commit()
+
+    result = processor_service.execute_processor_event(
+        session_factory,
+        processor_id=processor_id,
+        event_id=event_id,
+    )
+
+    assert result.status == "skipped_missing_event"
+    assert result.advanced_to_offset is None
+    with session_factory() as verify_db:
+        refreshed = verify_db.get(Processor, processor_id)
+        assert refreshed.last_committed_offset == starting_cursor
+
+
+def test_execute_processor_event_refuses_folder_scope_mismatch(
+    session_factory, monkeypatch
+):
+    monkeypatch.setattr(
+        "processors.meta_extract.base.parse_file", lambda db, file_id: None
+    )
+
+    with session_factory() as bootstrap_db:
+        root = FolderFactory.build(name="")
+        bootstrap_db.add(root)
+        bootstrap_db.flush()
+        in_scope_folder = FolderFactory.build(name="in-scope", parent_id=root.id)
+        out_of_scope_folder = FolderFactory.build(
+            name="out-of-scope", parent_id=root.id
+        )
+        bootstrap_db.add_all([in_scope_folder, out_of_scope_folder])
+        bootstrap_db.flush()
+        processor = ProcessorFactory.build(
+            name="meta_extract",
+            subscribed_event_types=["file.created"],
+            folder_scopes=[
+                {"folder_id": str(in_scope_folder.id), "cascade": False}
+            ],
+        )
+        bootstrap_db.add(processor)
+        bootstrap_db.flush()
+        event = _make_event(
+            bootstrap_db,
+            event_type="file.created",
+            folder_id=out_of_scope_folder.id,
+        )
         processor_id = processor.id
         event_id = event.id
         starting_cursor = processor.last_committed_offset

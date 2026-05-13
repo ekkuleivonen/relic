@@ -5,6 +5,7 @@ export type Processor = {
   enabled: boolean
   source: "seed" | "admin"
   subscribed_event_types: string[]
+  folder_scopes: ProcessorFolderScope[]
   config: Record<string, unknown>
   last_committed_offset: number
   last_committed_at: string | null
@@ -16,6 +17,11 @@ export type Processor = {
   pending_count: number
   created_at: string
   updated_at: string
+}
+
+export type ProcessorFolderScope = {
+  folder_id: string
+  cascade: boolean
 }
 
 export type ProcessorListResponse = {
@@ -38,12 +44,14 @@ export type ProcessorCreateInput = {
   kind: string
   enabled?: boolean
   subscribed_event_types?: string[]
+  folder_scopes?: ProcessorFolderScope[]
   config?: Record<string, unknown>
 }
 
 export type ProcessorUpdateInput = {
   enabled?: boolean
   subscribed_event_types?: string[]
+  folder_scopes?: ProcessorFolderScope[]
   config?: Record<string, unknown>
 }
 

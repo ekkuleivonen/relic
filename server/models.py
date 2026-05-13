@@ -293,6 +293,37 @@ class FileEvent(Base):
     actor: Mapped[User | None] = relationship()
 
 
+class MaintenanceEvent(Base):
+    __tablename__ = "maintenance_events"
+    __table_args__ = (
+        Index("ix_maintenance_events_job_created_at", "job", "created_at"),
+        Index("ix_maintenance_events_action_created_at", "action", "created_at"),
+        Index("ix_maintenance_events_status_created_at", "status", "created_at"),
+        Index("ix_maintenance_events_batch_id_created_at", "batch_id", "created_at"),
+        Index("ix_maintenance_events_bucket_id_created_at", "bucket_id", "created_at"),
+        Index("ix_maintenance_events_blob_id_created_at", "blob_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    job: Mapped[str] = mapped_column(String(128), nullable=False)
+    action: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(64), nullable=False)
+    batch_id: Mapped[uuid.UUID] = mapped_column(GUID(), nullable=False)
+    bucket_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("buckets.id", ondelete="SET NULL")
+    )
+    # Deliberately not a foreign key: cold-path rows may describe a blob that
+    # has already been purged by the time an operator inspects the event.
+    blob_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+
+    bucket: Mapped[Bucket | None] = relationship()
+
+
 PROCESSOR_SOURCE_SEED = "seed"
 PROCESSOR_SOURCE_ADMIN = "admin"
 
@@ -323,6 +354,9 @@ class Processor(Base, TimestampMixin):
     )
     subscribed_event_types: Mapped[list[str]] = mapped_column(
         JSONType, nullable=False, default=list
+    )
+    folder_scopes: Mapped[list[dict]] = mapped_column(
+        JSONType, nullable=False, default=list, server_default=text("'[]'")
     )
     config: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
     last_committed_offset: Mapped[int] = mapped_column(

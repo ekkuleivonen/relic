@@ -30,6 +30,7 @@ from models import (
     PROCESSOR_SOURCE_ADMIN,
     PROCESSOR_SOURCE_SEED,
     FileEvent,
+    Folder,
     Processor,
 )
 from processors.registry import (
@@ -42,6 +43,7 @@ from processors.registry import (
 from services import audit_events as audit_event_service
 from services.event_context import EventContext
 from services.file_events import create_file_event
+from services.filesystem import collect_descendant_folder_ids
 from utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -95,6 +97,7 @@ def create_processor(
     name: str,
     kind: str,
     subscribed_event_types: list[str] | None = None,
+    folder_scopes: list[dict] | None = None,
     config: dict | None = None,
     enabled: bool = True,
     source: str = PROCESSOR_SOURCE_ADMIN,
@@ -112,12 +115,14 @@ def create_processor(
     )
 
     cleaned_config = validate_config(kind=cleaned_kind, config=config)
+    cleaned_folder_scopes = _validate_folder_scopes(db, folder_scopes)
     processor = Processor(
         name=cleaned_name,
         kind=cleaned_kind,
         enabled=enabled,
         source=source,
         subscribed_event_types=types,
+        folder_scopes=cleaned_folder_scopes,
         config=cleaned_config,
         last_committed_offset=0,
     )
@@ -142,6 +147,7 @@ def create_processor(
                 "kind": processor.kind,
                 "source": processor.source,
                 "subscribed_event_types": processor.subscribed_event_types,
+                "folder_scopes": processor.folder_scopes,
             },
         )
     db.commit()
@@ -155,6 +161,7 @@ def upsert_seed_processor(
     name: str,
     kind: str,
     subscribed_event_types: list[str] | None = None,
+    folder_scopes: list[dict] | None = None,
     config: dict | None = None,
 ) -> Processor:
     """Idempotent seed entrypoint. Preserves cursor + enabled state on re-run."""
@@ -164,6 +171,8 @@ def upsert_seed_processor(
         existing.source = PROCESSOR_SOURCE_SEED
         if subscribed_event_types is not None:
             existing.subscribed_event_types = list(subscribed_event_types)
+        if folder_scopes is not None:
+            existing.folder_scopes = _validate_folder_scopes(db, folder_scopes)
         if config is not None:
             existing.config = validate_config(kind=kind, config=config)
         return existing
@@ -172,6 +181,7 @@ def upsert_seed_processor(
         name=name,
         kind=kind,
         subscribed_event_types=subscribed_event_types,
+        folder_scopes=folder_scopes,
         config=config,
         enabled=True,
         source=PROCESSOR_SOURCE_SEED,
@@ -185,12 +195,15 @@ def update_processor(
     processor_id: uuid.UUID,
     enabled: bool | None = None,
     subscribed_event_types: list[str] | None = None,
+    folder_scopes: list[dict] | None = None,
     config: dict | None = None,
     event_context: EventContext | None = None,
 ) -> Processor:
     processor = require_processor(db, processor_id)
     if processor.source == PROCESSOR_SOURCE_SEED and (
-        subscribed_event_types is not None or config is not None
+        subscribed_event_types is not None
+        or folder_scopes is not None
+        or config is not None
     ):
         raise BadRequestError(
             "Seeded processors only allow enabled state and cursor changes"
@@ -210,6 +223,14 @@ def update_processor(
                 "to": cleaned,
             }
             processor.subscribed_event_types = cleaned
+    if folder_scopes is not None:
+        cleaned_folder_scopes = _validate_folder_scopes(db, folder_scopes)
+        if cleaned_folder_scopes != processor.folder_scopes:
+            changes["folder_scopes"] = {
+                "from": list(processor.folder_scopes),
+                "to": cleaned_folder_scopes,
+            }
+            processor.folder_scopes = cleaned_folder_scopes
     if config is not None:
         cleaned_config = validate_config(kind=processor.kind, config=config)
         if cleaned_config != processor.config:
@@ -332,15 +353,9 @@ def get_processor_with_lag(db: Session, processor_id: uuid.UUID) -> ProcessorWit
 def _pending_count(db: Session, processor: Processor) -> int:
     if not processor.subscribed_event_types:
         return 0
+    stmt = _matching_events_stmt(db, processor).with_only_columns(func.count())
     return int(
-        db.scalar(
-            select(func.count())
-            .select_from(FileEvent)
-            .where(
-                FileEvent.offset > processor.last_committed_offset,
-                FileEvent.event_type.in_(processor.subscribed_event_types),
-            )
-        )
+        db.scalar(stmt)
         or 0
     )
 
@@ -381,11 +396,8 @@ def collect_pending_jobs(
         if not processor.subscribed_event_types:
             continue
         row = db.execute(
-            select(FileEvent.id, FileEvent.offset, FileEvent.event_type)
-            .where(
-                FileEvent.offset > processor.last_committed_offset,
-                FileEvent.event_type.in_(processor.subscribed_event_types),
-            )
+            _matching_events_stmt(db, processor)
+            .with_only_columns(FileEvent.id, FileEvent.offset, FileEvent.event_type)
             .order_by(FileEvent.offset.asc())
             .limit(1)
         ).one_or_none()
@@ -478,6 +490,15 @@ def execute_processor_event(
                 processor_id=str(processor_id),
                 event_id=str(event_id),
                 event_type=event.event_type,
+            )
+            return _result("skipped_missing_event", None, started_at)
+
+        if not _event_matches_folder_scopes(db, processor, event):
+            log.warning(
+                "processor_event_folder_scope_mismatch",
+                processor_id=str(processor_id),
+                event_id=str(event_id),
+                folder_id=str(event.folder_id) if event.folder_id else None,
             )
             return _result("skipped_missing_event", None, started_at)
 
@@ -639,8 +660,8 @@ def skip_stuck_event(
             "Event is already past the processor's cursor; nothing to skip"
         )
     next_event = db.execute(
-        select(FileEvent.id, FileEvent.offset)
-        .where(FileEvent.offset > processor.last_committed_offset)
+        _matching_events_stmt(db, processor)
+        .with_only_columns(FileEvent.id, FileEvent.offset)
         .order_by(FileEvent.offset.asc())
         .limit(1)
     ).one_or_none()
@@ -690,6 +711,46 @@ def list_substrates() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Event matching
+# ---------------------------------------------------------------------------
+
+
+def _matching_events_stmt(db: Session, processor: Processor):
+    stmt = select(FileEvent).where(
+        FileEvent.offset > processor.last_committed_offset,
+        FileEvent.event_type.in_(processor.subscribed_event_types),
+    )
+    folder_ids = _matching_folder_ids(db, processor)
+    if folder_ids is not None:
+        stmt = stmt.where(FileEvent.folder_id.in_(folder_ids))
+    return stmt
+
+
+def _event_matches_folder_scopes(
+    db: Session, processor: Processor, event: FileEvent
+) -> bool:
+    folder_ids = _matching_folder_ids(db, processor)
+    if folder_ids is None:
+        return True
+    return event.folder_id in folder_ids
+
+
+def _matching_folder_ids(db: Session, processor: Processor) -> set[uuid.UUID] | None:
+    scopes = processor.folder_scopes or []
+    if not scopes:
+        return None
+
+    folder_ids: set[uuid.UUID] = set()
+    for scope in scopes:
+        folder_id = uuid.UUID(str(scope["folder_id"]))
+        if scope.get("cascade", False):
+            folder_ids.update(collect_descendant_folder_ids(db, folder_id))
+        else:
+            folder_ids.add(folder_id)
+    return folder_ids
+
+
+# ---------------------------------------------------------------------------
 # Internal validators
 # ---------------------------------------------------------------------------
 
@@ -699,6 +760,39 @@ def _clean_required(value: str, field: str) -> str:
     if not cleaned:
         raise BadRequestError(f"{field} cannot be empty")
     return cleaned
+
+
+def _validate_folder_scopes(
+    db: Session, folder_scopes: list[dict] | None
+) -> list[dict[str, str | bool]]:
+    if folder_scopes is None:
+        return []
+    if not isinstance(folder_scopes, list):
+        raise BadRequestError("folder_scopes must be a list")
+
+    scoped: dict[uuid.UUID, bool] = {}
+    for raw_scope in folder_scopes:
+        if not isinstance(raw_scope, dict):
+            raise BadRequestError("folder_scopes entries must be objects")
+        raw_folder_id = raw_scope.get("folder_id")
+        if raw_folder_id is None:
+            raise BadRequestError("folder_scopes entries require folder_id")
+        try:
+            folder_id = uuid.UUID(str(raw_folder_id))
+        except ValueError as exc:
+            raise BadRequestError("folder_scopes folder_id must be a UUID") from exc
+        if db.get(Folder, folder_id) is None:
+            raise ResourceNotFound("Folder not found")
+
+        cascade = raw_scope.get("cascade", False)
+        if not isinstance(cascade, bool):
+            raise BadRequestError("folder_scopes cascade must be a boolean")
+        scoped[folder_id] = scoped.get(folder_id, False) or cascade
+
+    return [
+        {"folder_id": str(folder_id), "cascade": cascade}
+        for folder_id, cascade in scoped.items()
+    ]
 
 
 def _clean_reason(value: str | None) -> str:

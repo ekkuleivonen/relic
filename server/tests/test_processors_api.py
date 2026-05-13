@@ -15,7 +15,7 @@ from processors.registry import init_builtin_substrates
 from schema_plan import UserRole
 from services.auth import create_session_token
 from services.file_events import create_file_event
-from tests.factories.models import ProcessorFactory, UserFactory
+from tests.factories.models import FolderFactory, ProcessorFactory, UserFactory
 
 
 @pytest.fixture(autouse=True)
@@ -92,6 +92,30 @@ def test_create_processor_returns_lag(client, db_session):
     assert sorted(body["subscribed_event_types"]) == sorted(
         ["file.created", "file.updated", "file.copied", "file.moved"]
     )
+    assert body["folder_scopes"] == []
+
+
+def test_create_processor_accepts_folder_scopes(client, db_session):
+    folder = FolderFactory.build()
+    db_session.add(folder)
+    db_session.commit()
+
+    response = client.post(
+        "/api/processors/",
+        json={
+            "name": "meta_extract",
+            "kind": "meta_extract",
+            "folder_scopes": [
+                {"folder_id": str(folder.id), "cascade": True}
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["folder_scopes"] == [
+        {"folder_id": str(folder.id), "cascade": True}
+    ]
 
 
 def test_list_processors_reports_pending(client, db_session):

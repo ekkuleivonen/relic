@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from models import AuditEvent, Base, Blob
+from models import AuditEvent, Base, Blob, MaintenanceEvent
 from schema_plan import BucketTier
 from services.placement import clear_bucket_usage_cache, get_bucket_usage
 from services.storage_maintenance import probe_all_buckets, purge_dereferenced_blobs_batch
@@ -92,6 +92,13 @@ def test_purge_deletes_dereferenced_blob_and_adjusts_counters(
     assert usage.current_size_bytes == 0
     assert fake_storage.objects == {}
     assert db_session.scalars(select(AuditEvent)).all() == []
+    events = db_session.scalars(select(MaintenanceEvent)).all()
+    assert len(events) == 1
+    assert events[0].job == "purge_dereferenced_blobs"
+    assert events[0].action == "blob.purged"
+    assert events[0].status == "succeeded"
+    assert events[0].blob_id == blob_row.id
+    assert events[0].meta["freed_bytes"] == 100
 
 
 def test_purge_skips_positive_refcount(db_session, fake_storage):
@@ -119,9 +126,10 @@ def test_purge_skips_positive_refcount(db_session, fake_storage):
     assert usage.object_count == 1
     assert usage.current_size_bytes == 10
     assert db_session.scalars(select(AuditEvent)).all() == []
+    assert db_session.scalars(select(MaintenanceEvent)).all() == []
 
 
-def test_successful_scheduled_probe_does_not_emit_audit_event(
+def test_successful_scheduled_probe_emits_maintenance_event_not_audit_event(
     db_session, monkeypatch
 ):
     class FakeS3Client:
@@ -153,3 +161,15 @@ def test_successful_scheduled_probe_does_not_emit_audit_event(
 
     assert result == {"bucket_count": 1, "ok": 1, "failed": 0}
     assert db_session.scalars(select(AuditEvent)).all() == []
+    events = db_session.scalars(select(MaintenanceEvent)).all()
+    assert len(events) == 1
+    assert events[0].job == "bucket_probe"
+    assert events[0].action == "bucket.probe_ok"
+    assert events[0].status == "succeeded"
+    assert events[0].bucket_id == bucket_row.id
+    assert events[0].meta == {
+        "put_ms": bucket_row.probe_latency_put_ms,
+        "head_ms": bucket_row.probe_latency_head_ms,
+        "get_ms": bucket_row.probe_latency_get_ms,
+        "delete_ms": bucket_row.probe_latency_delete_ms,
+    }

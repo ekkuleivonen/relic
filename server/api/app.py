@@ -14,6 +14,7 @@ from .file_events import router as file_events_router
 from .files import router as files_router
 from .folder_access import router as folder_access_router
 from .folders import router as folders_router
+from .maintenance_events import router as maintenance_events_router
 from .processors import router as processors_router
 from .s3_gateway import router as s3_gateway_router
 from .uploads import router as uploads_router
@@ -100,6 +101,12 @@ app.include_router(
     file_events_router,
     prefix=f"{API_PREFIX}/file-events",
     tags=["file-events"],
+    dependencies=[Depends(require_admin)],
+)
+app.include_router(
+    maintenance_events_router,
+    prefix=f"{API_PREFIX}/maintenance-events",
+    tags=["maintenance-events"],
     dependencies=[Depends(require_admin)],
 )
 app.include_router(

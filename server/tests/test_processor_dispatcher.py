@@ -20,7 +20,7 @@ from models import Base
 from processors import dispatcher as dispatcher_module
 from processors.registry import init_builtin_substrates
 from services.file_events import create_file_event
-from tests.factories.models import ProcessorFactory
+from tests.factories.models import FolderFactory, ProcessorFactory
 
 
 @dataclass
@@ -165,6 +165,54 @@ def test_dispatch_pending_filters_by_subscribed_event_types(
         db.commit()
         processor_id = processor.id
         expected_event_id = subscribed.id
+
+    monkeypatch.setattr(dispatcher_module, "get_sessionmaker", lambda: session_factory)
+
+    redis = FakeArqRedis()
+    enqueued = asyncio.run(dispatcher_module.dispatch_pending(redis))
+
+    assert enqueued == 1
+    job = redis.enqueued[0]
+    assert job.kwargs["_job_id"] == f"{processor_id}:{expected_event_id}"
+
+
+def test_dispatch_pending_filters_by_folder_scope(session_factory, monkeypatch):
+    with session_factory() as db:
+        root = FolderFactory.build(name="")
+        db.add(root)
+        db.flush()
+        in_scope_folder = FolderFactory.build(name="in-scope", parent_id=root.id)
+        out_of_scope_folder = FolderFactory.build(
+            name="out-of-scope", parent_id=root.id
+        )
+        db.add_all([in_scope_folder, out_of_scope_folder])
+        db.flush()
+        processor = ProcessorFactory.build(
+            name="meta_extract",
+            subscribed_event_types=["file.created"],
+            folder_scopes=[
+                {"folder_id": str(in_scope_folder.id), "cascade": False}
+            ],
+        )
+        db.add(processor)
+        db.flush()
+        create_file_event(
+            db,
+            event_type="file.created",
+            file_id=uuid.uuid4(),
+            folder_id=out_of_scope_folder.id,
+            payload={},
+        )
+        expected = create_file_event(
+            db,
+            event_type="file.created",
+            file_id=uuid.uuid4(),
+            folder_id=in_scope_folder.id,
+            payload={},
+        )
+        db.commit()
+        processor_id = processor.id
+        expected_event_id = expected.id
 
     monkeypatch.setattr(dispatcher_module, "get_sessionmaker", lambda: session_factory)
 

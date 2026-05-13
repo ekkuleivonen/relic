@@ -30,6 +30,7 @@ class ProcessorRead(BaseModel):
     enabled: bool
     source: str
     subscribed_event_types: list[str]
+    folder_scopes: list["ProcessorFolderScope"]
     config: dict
     last_committed_offset: int
     last_committed_at: dt.datetime | None
@@ -52,6 +53,10 @@ class ProcessorRead(BaseModel):
             enabled=processor.enabled,
             source=processor.source,
             subscribed_event_types=list(processor.subscribed_event_types),
+            folder_scopes=[
+                ProcessorFolderScope.model_validate(scope)
+                for scope in processor.folder_scopes
+            ],
             config=dict(processor.config),
             last_committed_offset=int(processor.last_committed_offset),
             last_committed_at=processor.last_committed_at,
@@ -87,6 +92,13 @@ class ProcessorSubstratesResponse(BaseModel):
     items: list[ProcessorSubstrateRead]
 
 
+class ProcessorFolderScope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    folder_id: uuid.UUID
+    cascade: bool = False
+
+
 class ProcessorCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -94,6 +106,7 @@ class ProcessorCreateRequest(BaseModel):
     kind: str = Field(min_length=1, max_length=64)
     enabled: bool = True
     subscribed_event_types: list[str] | None = Field(default=None)
+    folder_scopes: list[ProcessorFolderScope] | None = Field(default=None)
     config: dict | None = Field(default=None)
 
 
@@ -102,6 +115,7 @@ class ProcessorUpdateRequest(BaseModel):
 
     enabled: bool | None = None
     subscribed_event_types: list[str] | None = None
+    folder_scopes: list[ProcessorFolderScope] | None = None
     config: dict | None = None
 
 
@@ -173,6 +187,11 @@ async def create_processor_route(
         kind=payload.kind,
         enabled=payload.enabled,
         subscribed_event_types=payload.subscribed_event_types,
+        folder_scopes=[
+            scope.model_dump(mode="json") for scope in payload.folder_scopes
+        ]
+        if payload.folder_scopes is not None
+        else None,
         config=payload.config,
         event_context=context_from_headers(
             request.headers, actor_user_id=current_user.id
@@ -195,6 +214,11 @@ async def update_processor_route(
         processor_id=processor_id,
         enabled=payload.enabled,
         subscribed_event_types=payload.subscribed_event_types,
+        folder_scopes=[
+            scope.model_dump(mode="json") for scope in payload.folder_scopes
+        ]
+        if payload.folder_scopes is not None
+        else None,
         config=payload.config,
         event_context=context_from_headers(
             request.headers, actor_user_id=current_user.id

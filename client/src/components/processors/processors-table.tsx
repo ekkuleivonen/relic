@@ -1,4 +1,5 @@
 import {
+  FolderCogIcon,
   PauseIcon,
   PlayIcon,
   RotateCcwIcon,
@@ -23,12 +24,15 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import type { FolderPathEntry } from "@/lib/folder-path"
 import type { Processor } from "@/types/processors"
 
 type ProcessorsTableProps = {
   processors: Processor[]
+  folders: FolderPathEntry[]
   isLoading: boolean
   onToggleEnabled: (processor: Processor) => void
+  onEditScopes: (processor: Processor) => void
   onRewind: (processor: Processor) => void
   onSkipStuck: (processor: Processor) => void
   onDelete: (processor: Processor) => void
@@ -37,8 +41,10 @@ type ProcessorsTableProps = {
 
 export function ProcessorsTable({
   processors,
+  folders,
   isLoading,
   onToggleEnabled,
+  onEditScopes,
   onRewind,
   onSkipStuck,
   onDelete,
@@ -71,6 +77,7 @@ export function ProcessorsTable({
           <TableHead>Failure</TableHead>
           <TableHead>Source</TableHead>
           <TableHead>Subscriptions</TableHead>
+          <TableHead>Folder scopes</TableHead>
           <TableHead className="text-right">Cursor</TableHead>
           <TableHead className="text-right">Head</TableHead>
           <TableHead className="text-right">Pending</TableHead>
@@ -104,6 +111,9 @@ export function ProcessorsTable({
               <TableCell>
                 <SubscriptionList types={processor.subscribed_event_types} />
               </TableCell>
+              <TableCell>
+                <FolderScopeBadges processor={processor} folders={folders} />
+              </TableCell>
               <TableCell className="text-right font-mono text-xs">
                 {processor.last_committed_offset.toLocaleString()}
               </TableCell>
@@ -131,6 +141,18 @@ export function ProcessorsTable({
                     disabled={isPending}
                   >
                     {processor.enabled ? <PauseIcon /> : <PlayIcon />}
+                  </ActionButton>
+                  <ActionButton
+                    label="Edit folder scopes"
+                    tooltip={
+                      isSeed
+                        ? "Seeded processors cannot change folder scopes."
+                        : "Limit this processor to selected folders."
+                    }
+                    onClick={() => onEditScopes(processor)}
+                    disabled={isPending || isSeed}
+                  >
+                    <FolderCogIcon />
                   </ActionButton>
                   <ActionButton
                     label="Rewind cursor"
@@ -224,6 +246,36 @@ function SubscriptionList({ types }: { types: string[] }) {
           {type}
         </Badge>
       ))}
+    </div>
+  )
+}
+
+function FolderScopeBadges({
+  processor,
+  folders,
+}: {
+  processor: Processor
+  folders: FolderPathEntry[]
+}) {
+  if (processor.folder_scopes.length === 0) {
+    return <span className="text-xs text-muted-foreground">all folders</span>
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {processor.folder_scopes.map((scope) => {
+        const folder = folders.find((entry) => entry.id === scope.folder_id)
+        const label = folder?.path ?? scope.folder_id
+        return (
+          <Badge
+            key={`${scope.folder_id}:${scope.cascade}`}
+            variant="outline"
+            className="font-mono text-xs"
+          >
+            {label}
+            {scope.cascade ? "/*" : ""}
+          </Badge>
+        )
+      })}
     </div>
   )
 }

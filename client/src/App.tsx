@@ -8,6 +8,7 @@ import { AuditEventsPage } from "@/pages/admin/audit-events-page"
 import { BucketsPage } from "@/pages/admin/buckets-page"
 import { FileEventsPage } from "@/pages/admin/file-events-page"
 import { FolderAccessPage } from "@/pages/admin/folder-access-page"
+import { MaintenanceEventsPage } from "@/pages/admin/maintenance-events-page"
 import { ProcessorsPage } from "@/pages/admin/processors-page"
 import { UsersPage } from "@/pages/admin/users-page"
 import { FileDetailPage } from "@/pages/file-detail-page"
@@ -28,6 +29,7 @@ export function App() {
           <Route path="folders" element={<FolderAccessPage />} />
           <Route path="audit-events" element={<AuditEventsPage />} />
           <Route path="file-events" element={<FileEventsPage />} />
+          <Route path="maintenance-events" element={<MaintenanceEventsPage />} />
           <Route path="processors" element={<ProcessorsPage />} />
           <Route
             path="files"

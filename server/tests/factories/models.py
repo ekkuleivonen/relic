@@ -1,4 +1,5 @@
 import factory
+import uuid
 
 from models import (
     AccessKey,
@@ -8,6 +9,7 @@ from models import (
     FileEvent,
     Folder,
     FolderAccess,
+    MaintenanceEvent,
     PROCESSOR_SOURCE_SEED,
     Processor,
     User,
@@ -109,6 +111,22 @@ class FileEventFactory(factory.Factory):
     payload = factory.LazyFunction(dict)
 
 
+class MaintenanceEventFactory(factory.Factory):
+    class Meta:
+        model = MaintenanceEvent
+
+    job = factory.Sequence(lambda n: f"maintenance-job-{n}")
+    action = factory.Sequence(lambda n: f"maintenance.action.{n}")
+    status = "succeeded"
+    batch_id = factory.Sequence(
+        lambda n: uuid.UUID(f"00000000-0000-0000-0000-{n + 1:012d}")
+    )
+    bucket_id = None
+    blob_id = None
+    duration_ms = 1
+    meta = factory.LazyFunction(dict)
+
+
 class ProcessorFactory(factory.Factory):
     class Meta:
         model = Processor
@@ -120,6 +138,7 @@ class ProcessorFactory(factory.Factory):
     subscribed_event_types = factory.LazyFunction(
         lambda: ["file.created", "file.updated"]
     )
+    folder_scopes = factory.LazyFunction(list)
     config = factory.LazyFunction(dict)
     last_committed_offset = 0
     last_committed_at = None

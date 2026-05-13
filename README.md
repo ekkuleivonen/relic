@@ -128,9 +128,27 @@ fast metadata extraction.
   (internal substrates today, external sinks planned). The Processors admin
   page surfaces cursor lag, lets admins pause/resume runs, and exposes
   auditable rewind and skip-stuck-event actions.
-- `maintenance_events` (planned — see `ROADMAP.md`) — internal-only log of
-  cold-path resource outcomes such as blob purges, migrations, and bucket
-  probes. Never delivered to external sinks.
+- `maintenance_events` (live) — internal-only log of cold-path resource
+  outcomes such as blob purges, migrations, bucket probes, and event
+  retention trims. Never delivered to external sinks. The Maintenance Events
+  admin page filters by job, action, status, batch ID, bucket ID, blob ID,
+  and time range.
+
+`maintenance_events` rows are emitted by `worker_maintenance` jobs. They are
+resource-level outcomes, not batch summaries; `batch_id` groups every row
+from one cron firing. The table envelope is `(id, created_at, job, action,
+status, batch_id, bucket_id, blob_id, duration_ms, meta)`. `bucket_id` is a
+nullable FK with `ON DELETE SET NULL`; `blob_id` is deliberately not a
+foreign key because purge events often describe blob rows that no longer
+exist. Current actions are:
+
+- `purge_dereferenced_blobs`: `blob.purged`, `blob.purge_failed`.
+- `rebalance_blob_storage`: `blob.migrated`, `blob.migration_skipped`,
+  `blob.migration_failed`.
+- `bucket_probe`: `bucket.probe_ok`, `bucket.probe_failed`.
+- `trim_audit_events`: `audit.trimmed`.
+- `trim_file_events`: `file_event.trimmed`.
+- `trim_maintenance_events`: `maintenance_event.trimmed`.
 
 High-volume object reads (`GET`, `HEAD`, signed-URL fetches) deliberately do
 not write event rows; their performance lives in Prometheus aggregates only.
@@ -357,8 +375,8 @@ Important environment variables include:
 - `DISPATCHER_BATCH_SIZE`, `DISPATCHER_SAFETY_INTERVAL_SECONDS`, and
   `DISPATCHER_LISTEN_BACKOFF_SECONDS` to tune the warm-path dispatcher.
 - `EVENT_RETENTION_DAYS` — single retention knob applied to every event table
-  (`audit_events` and `file_events` today; `maintenance_events` once it lands).
-  Per-table retention can be split out later if it becomes necessary.
+  (`audit_events`, `file_events`, and `maintenance_events`). Per-table
+  retention can be split out later if it becomes necessary.
 - Storage maintenance knobs such as `STORAGE_MAINTENANCE_PURGE_BATCH`,
   `STORAGE_MAINTENANCE_MIGRATE_BATCH`, and
   `STORAGE_MAINTENANCE_BUCKET_PRESSURE_RATIO`.
@@ -368,10 +386,10 @@ Important environment variables include:
 Relic is an early product with substantial core behavior in place. The web
 app, JSON API, object gateway, content-hash deduplication, tiered storage
 placement, `audit_events`, `file_events`, the `processors` registry, the
-`LISTEN/NOTIFY` warm-path dispatcher, and the seeded `meta_extract`
-substrate are all live and developed against. Still tracked in
-`ROADMAP.md`: the `maintenance_events` cold-path log, external activity
-sinks (webhook, SQS, Kafka, object-store), Prometheus metrics endpoint,
+`maintenance_events` cold-path log, the `LISTEN/NOTIFY` warm-path
+dispatcher, and the seeded `meta_extract` substrate are all live and
+developed against. Still tracked in `ROADMAP.md`: external activity sinks
+(webhook, SQS, Kafka, object-store), Prometheus metrics endpoint,
 production `/healthz` / `/readyz`, broader S3 gateway coverage
 (`ListObjectsV2`, multipart upload, etc.), import-from-bucket flows,
 quotas, retention, and versioning.

@@ -22,6 +22,7 @@ from services.audit_events import (
     timer_start,
 )
 from services.folder_storage_policy import effective_cooldown_days, effective_min_tier
+from services.maintenance_events import create_maintenance_event
 from services.objects import delete_blob_bytes, fetch_blob_bytes, upload_blob
 from services.placement import (
     adjust_bucket_usage_cache,
@@ -36,6 +37,10 @@ log = get_logger(__name__)
 @dataclass(frozen=True)
 class BlobMigrationResult:
     migrated: bool
+    status: str = "skipped"
+    reason: str | None = None
+    error_class: str | None = None
+    error_message: str | None = None
     db_latency_ms: int = 0
     remote_latency_ms: int = 0
 
@@ -44,12 +49,14 @@ def purge_dereferenced_blobs_batch(
     db: Session,
     *,
     batch: int,
+    batch_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     """
     For blobs with refcount < 1, delete remote keys and Blob rows.
 
     Uses row-level SKIP LOCKED when supported (PostgreSQL / recent SQLite).
     """
+    effective_batch_id = batch_id or uuid.uuid4()
     db_latency_ms = 0
     remote_latency_ms = 0
     dialect = db.get_bind().dialect.name
@@ -69,10 +76,15 @@ def purge_dereferenced_blobs_batch(
     freed_bytes = 0
     errors = 0
     for blob in blobs:
+        started_at = timer_start()
+        bucket_id = blob.bucket_id
+        blob_id = blob.id
+        size_bytes = int(blob.size_bytes)
+        bucket_key = blob.bucket_key
         try:
             with db.begin_nested():
                 db_started = timer_start()
-                bucket = db.get(Bucket, blob.bucket_id)
+                bucket = db.get(Bucket, bucket_id)
                 db_latency_ms += elapsed_ms(db_started, minimum=0)
                 if bucket is not None:
                     try:
@@ -93,12 +105,42 @@ def purge_dereferenced_blobs_batch(
                         object_count_delta=-1,
                         size_bytes_delta=-blob.size_bytes,
                     )
-                freed_bytes += int(blob.size_bytes)
+                freed_bytes += size_bytes
                 deleted_rows += 1
                 db.delete(blob)
                 db_latency_ms += elapsed_ms(db_started, minimum=0)
-        except Exception:
+            create_maintenance_event(
+                db,
+                job="purge_dereferenced_blobs",
+                action="blob.purged",
+                status="succeeded",
+                batch_id=effective_batch_id,
+                bucket_id=bucket_id,
+                blob_id=blob_id,
+                duration_ms=elapsed_ms(started_at, minimum=0),
+                metadata={
+                    "freed_bytes": size_bytes,
+                    "bucket_key": bucket_key,
+                },
+            )
+        except Exception as exc:
             errors += 1
+            create_maintenance_event(
+                db,
+                job="purge_dereferenced_blobs",
+                action="blob.purge_failed",
+                status="failed",
+                batch_id=effective_batch_id,
+                bucket_id=bucket_id,
+                blob_id=blob_id,
+                duration_ms=elapsed_ms(started_at, minimum=0),
+                metadata={
+                    "bucket_key": bucket_key,
+                    "size_bytes": size_bytes,
+                    "error_class": exc.__class__.__name__,
+                    "error_message": str(exc),
+                },
+            )
 
     db.commit()
 
@@ -117,21 +159,75 @@ def purge_dereferenced_blobs_batch(
     }
 
 
-def probe_all_buckets(db: Session) -> dict[str, Any]:
+def probe_all_buckets(
+    db: Session,
+    *,
+    batch_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    effective_batch_id = batch_id or uuid.uuid4()
     buckets = bucket_service.list_buckets(db)
     ok = 0
     failed = 0
     for b in buckets:
+        started_at = timer_start()
         try:
-            bucket_service.probe_bucket(db, b.id)
-            ok += 1
+            result = bucket_service.probe_bucket(db, b.id)
+            probed = result.bucket
+            if result.reachable:
+                ok += 1
+                create_maintenance_event(
+                    db,
+                    job="bucket_probe",
+                    action="bucket.probe_ok",
+                    status="succeeded",
+                    batch_id=effective_batch_id,
+                    bucket_id=probed.id,
+                    duration_ms=elapsed_ms(started_at, minimum=0),
+                    metadata={
+                        "put_ms": probed.probe_latency_put_ms,
+                        "head_ms": probed.probe_latency_head_ms,
+                        "get_ms": probed.probe_latency_get_ms,
+                        "delete_ms": probed.probe_latency_delete_ms,
+                    },
+                )
+            else:
+                failed += 1
+                create_maintenance_event(
+                    db,
+                    job="bucket_probe",
+                    action="bucket.probe_failed",
+                    status="failed",
+                    batch_id=effective_batch_id,
+                    bucket_id=probed.id,
+                    duration_ms=elapsed_ms(started_at, minimum=0),
+                    metadata={
+                        "put_ms": probed.probe_latency_put_ms,
+                        "head_ms": probed.probe_latency_head_ms,
+                        "get_ms": probed.probe_latency_get_ms,
+                        "delete_ms": probed.probe_latency_delete_ms,
+                    },
+                )
         except Exception as exc:
             failed += 1
+            create_maintenance_event(
+                db,
+                job="bucket_probe",
+                action="bucket.probe_failed",
+                status="failed",
+                batch_id=effective_batch_id,
+                bucket_id=b.id,
+                duration_ms=elapsed_ms(started_at, minimum=0),
+                metadata={
+                    "error_class": exc.__class__.__name__,
+                    "error_message": str(exc),
+                },
+            )
             log.warning(
                 "bucket_probe_failed_in_batch",
                 bucket_id=str(b.id),
                 error=str(exc),
             )
+    db.commit()
     return {"bucket_count": len(buckets), "ok": ok, "failed": failed}
 
 
@@ -195,7 +291,10 @@ def _migrate_blob_to_bucket_inner(
     destination: Bucket,
 ) -> BlobMigrationResult:
     if destination.id == blob.bucket_id:
-        return BlobMigrationResult(migrated=False)
+        return BlobMigrationResult(
+            migrated=False,
+            reason="same_bucket",
+        )
 
     db_latency_ms = 0
     remote_latency_ms = 0
@@ -204,6 +303,7 @@ def _migrate_blob_to_bucket_inner(
     if src is None:
         return BlobMigrationResult(
             migrated=False,
+            reason="source_bucket_missing",
             db_latency_ms=elapsed_ms(db_started, minimum=0),
         )
 
@@ -216,6 +316,7 @@ def _migrate_blob_to_bucket_inner(
         )
         return BlobMigrationResult(
             migrated=False,
+            reason="destination_full",
             db_latency_ms=elapsed_ms(db_started, minimum=0),
         )
     db_latency_ms += elapsed_ms(db_started, minimum=0)
@@ -261,12 +362,17 @@ def _migrate_blob_to_bucket_inner(
         )
         return BlobMigrationResult(
             migrated=False,
+            status="failed",
+            reason="migration_failed",
+            error_class=exc.__class__.__name__,
+            error_message=str(exc),
             db_latency_ms=db_latency_ms,
             remote_latency_ms=remote_latency_ms,
         )
 
     return BlobMigrationResult(
         migrated=True,
+        status="succeeded",
         db_latency_ms=db_latency_ms,
         remote_latency_ms=remote_latency_ms,
     )
@@ -295,12 +401,14 @@ def rebalance_blob_storage_batch(
     *,
     migrate_limit: int,
     pressure_ratio: float,
+    batch_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     """
     Migrate blobs according to lifecycle (folder min tier + cooldown) and bucket
     pressure. Pressure is evaluated jointly: overflow tries same-tier spill then
     progressively colder tiers respecting the lifecycle floor.
     """
+    effective_batch_id = batch_id or uuid.uuid4()
     buckets = list(db.scalars(select(Bucket)))
     bucket_usages = get_bucket_usages(db, [bucket.id for bucket in buckets])
     overcrowded_ids: set[uuid.UUID] = {
@@ -313,6 +421,7 @@ def rebalance_blob_storage_batch(
 
     moved = 0
     skipped = 0
+    failed = 0
     blobs = list(
         db.scalars(
             select(Blob)
@@ -327,16 +436,35 @@ def rebalance_blob_storage_batch(
         if moved >= migrate_limit:
             break
 
+        started_at = timer_start()
         bucket = blob.bucket
         if bucket is None:
             skipped += 1
+            create_maintenance_event(
+                db,
+                job="rebalance_blob_storage",
+                action="blob.migration_skipped",
+                status="skipped",
+                batch_id=effective_batch_id,
+                bucket_id=blob.bucket_id,
+                blob_id=blob.id,
+                duration_ms=elapsed_ms(started_at, minimum=0),
+                metadata={
+                    "reason": "source_bucket_missing",
+                    "size_bytes": blob.size_bytes,
+                },
+            )
             continue
 
         tier_floor = _tier_floor_for_blob(db, blob)
         dest: Bucket | None = None
+        reason = "no_destination"
+        desired_tier: int | None = None
 
         lifecycle_target = _target_tier_for_policy(db, blob)
         if lifecycle_target is not None and lifecycle_target > bucket.tier:
+            desired_tier = lifecycle_target
+            reason = "lifecycle.cooldown"
             try:
                 dest = choose_bucket(
                     db,
@@ -355,6 +483,8 @@ def rebalance_blob_storage_batch(
                 exclude_bucket_ids={bucket.id},
             )
             t_scan = bucket.tier
+            desired_tier = t_scan
+            reason = "bucket_pressure"
             while dest is None and t_scan < int(BucketTier.FROZEN):
                 t_scan += 1
                 if t_scan < tier_floor:
@@ -372,25 +502,103 @@ def rebalance_blob_storage_batch(
                 except Exception:
                     dest = None
                 if dest is not None:
+                    desired_tier = t_scan
                     break
 
         if dest is None or dest.id == bucket.id:
             skipped += 1
+            create_maintenance_event(
+                db,
+                job="rebalance_blob_storage",
+                action="blob.migration_skipped",
+                status="skipped",
+                batch_id=effective_batch_id,
+                bucket_id=bucket.id,
+                blob_id=blob.id,
+                duration_ms=elapsed_ms(started_at, minimum=0),
+                metadata={
+                    "from_bucket_id": str(bucket.id),
+                    "from_tier": int(bucket.tier),
+                    "target_tier": desired_tier,
+                    "reason": reason,
+                    "size_bytes": blob.size_bytes,
+                },
+            )
             continue
 
+        from_bucket_id = bucket.id
+        from_tier = int(bucket.tier)
+        to_bucket_id = dest.id
+        to_tier = int(dest.tier)
         migration = _migrate_blob_to_bucket_inner(db, blob, dest)
         if migration.migrated:
             moved += 1
+            create_maintenance_event(
+                db,
+                job="rebalance_blob_storage",
+                action="blob.migrated",
+                status="succeeded",
+                batch_id=effective_batch_id,
+                bucket_id=to_bucket_id,
+                blob_id=blob.id,
+                duration_ms=elapsed_ms(started_at, minimum=0),
+                metadata={
+                    "from_bucket_id": str(from_bucket_id),
+                    "to_bucket_id": str(to_bucket_id),
+                    "from_tier": from_tier,
+                    "to_tier": to_tier,
+                    "reason": reason,
+                    "size_bytes": blob.size_bytes,
+                    "db_latency_ms": migration.db_latency_ms,
+                    "remote_latency_ms": migration.remote_latency_ms,
+                },
+            )
             db.commit()
         else:
-            db.rollback()
-            skipped += 1
+            if migration.status == "failed":
+                failed += 1
+                action = "blob.migration_failed"
+                status = "failed"
+            else:
+                skipped += 1
+                action = "blob.migration_skipped"
+                status = "skipped"
+            create_maintenance_event(
+                db,
+                job="rebalance_blob_storage",
+                action=action,
+                status=status,
+                batch_id=effective_batch_id,
+                bucket_id=from_bucket_id,
+                blob_id=blob.id,
+                duration_ms=elapsed_ms(started_at, minimum=0),
+                metadata={
+                    "from_bucket_id": str(from_bucket_id),
+                    "to_bucket_id": str(to_bucket_id),
+                    "from_tier": from_tier,
+                    "to_tier": to_tier,
+                    "reason": migration.reason or reason,
+                    "size_bytes": blob.size_bytes,
+                    "db_latency_ms": migration.db_latency_ms,
+                    "remote_latency_ms": migration.remote_latency_ms,
+                    **(
+                        {
+                            "error_class": migration.error_class,
+                            "error_message": migration.error_message,
+                        }
+                        if migration.error_class or migration.error_message
+                        else {}
+                    ),
+                },
+            )
+            db.commit()
 
     log.info(
         "blob_rebalance_batch",
         moved=moved,
         skipped=skipped,
+        failed=failed,
         migrate_limit=migrate_limit,
         pressure_ratio=pressure_ratio,
     )
-    return {"moved": moved, "skipped": skipped}
+    return {"moved": moved, "skipped": skipped, "failed": failed}
