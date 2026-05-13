@@ -13,8 +13,9 @@ At a high level, Relic separates logical files from physical blobs:
   manage users and SigV4 access keys.
 - The backend deduplicates identical content by hash, tracks blob reference
   counts, and places bytes into tiered storage backends.
-- A worker parses files into a common metadata schema and runs storage
-  maintenance jobs for cleanup, bucket probing, and lifecycle migration.
+- Background **processors** enrich files with searchable metadata (today: the
+  `meta_extract` substrate, with more substrates planned), and a separate
+  **maintenance** path runs cleanup, bucket probing, and lifecycle migration.
 
 ## Current Features
 
@@ -44,10 +45,11 @@ At a high level, Relic separates logical files from physical blobs:
 - Canonical file metadata schema with size, extension, MIME type, original
   filename, tags, keywords, summary, and scalar key/value metadata.
 
-### Parsing
+### Metadata Extraction
 
-Uploaded and copied files are queued for asynchronous parsing. The parser
-currently detects or enriches metadata for:
+Uploaded and copied files are queued for asynchronous metadata extraction via
+the `meta_extract` processor substrate. It currently detects or enriches
+metadata for:
 
 - Images.
 - CSV files.
@@ -61,8 +63,8 @@ currently detects or enriches metadata for:
 - Archives.
 - Plain text and other readable text formats.
 
-Parser output is merged with upload-time metadata while preserving user-provided
-values where they overlap.
+Processor output is merged with upload-time metadata while preserving
+user-provided values where they overlap.
 
 ### Storage
 
@@ -85,25 +87,41 @@ values where they overlap.
 - Admin screens for users, folder grants, buckets, and access keys.
 - SigV4 access keys for S3-style API access.
 
-### Audit Log
+### Event Log
 
-- Durable `audit_events` table for identity, access, bucket, and folder audit
-  records.
-- Audit-worthy mutations write audit events in the same database transaction as
-  the user, folder, bucket, or access change.
-- Object/content activity such as S3 object writes/deletes, file metadata
-  updates, parsing, blob maintenance, and signed URL creation is not written to
-  the audit log.
-- Audit records capture operation, status, actor, request ID, related
-  file/folder/blob IDs, and operation-specific metadata.
-- Audit retention is controlled by `EVENT_RETENTION_DAYS`; the maintenance
-  worker deletes any audit event older than that age during its regular cron
-  tick.
-- Admin audit log UI with filters for operation, status, request ID, actor, and
-  time range.
-- Expandable event details that show metadata and related entity IDs for
-  investigation.
-- Admin-only audit log clearing for local or operational reset workflows.
+Relic uses one event table today and is planning two more, plus a processor
+registry. They are deliberately separated by audience and write path:
+
+- `audit_events` (live) — actor-driven audit records for identity, access,
+  bucket, folder admin changes, and (planned) processor cursor changes such
+  as `processor.cursor.skipped` and `processor.cursor.rewound`. Written in
+  the same database transaction as the canonical mutation. Captures
+  operation, status, actor, request ID, related file/folder/blob IDs, and
+  operation-specific metadata. Surfaces in an admin audit log UI with filters
+  for operation, status, request ID, actor, and time range, plus expandable
+  per-event detail and an admin-only clear action for local/operational
+  resets.
+- `file_events` (planned, see `ROADMAP.md`) — outbox for content activity
+  (`file.*`, `folder.*`, `processor.<substrate>.*`). External sinks and warm
+  processors subscribe to this stream through per-processor cursors; it is
+  not part of the audit log.
+- `maintenance_events` (planned, see `ROADMAP.md`) — internal-only log of
+  cold-path resource outcomes such as blob purges and migrations. Never
+  delivered to external sinks.
+- `processors` (planned, see `ROADMAP.md`) — registry table holding identity,
+  config, enabled state, and the `last_committed_offset` cursor for every
+  warm-path subscriber (internal substrates and external sinks alike).
+  Per-event handler errors live in operational logs and Prometheus; the
+  primary stalled-processor signal is `relic_processor_cursor_lag` plus the
+  `last_committed_offset` column.
+
+High-volume object reads (S3 `GET`, `HEAD`, signed-URL fetches) do not write
+event rows; their performance is observable through Prometheus once the
+metrics endpoint lands.
+
+Retention across all event tables is controlled by `EVENT_RETENTION_DAYS`. The
+maintenance worker trims rows older than that age during its regular cron
+tick. `processors` is registry data and is not subject to retention.
 
 ### API and S3 Gateway
 
@@ -120,16 +138,21 @@ stubbed and not ready for general S3 browser compatibility.
 
 ## Architecture
 
-Relic is split into a React client, a FastAPI server, and an ARQ worker:
+Relic is split into a React client, a FastAPI server, and ARQ workers:
 
 - `client/` is a Vite, React, TypeScript, Tailwind, and shadcn/ui app.
 - `server/api/` contains the HTTP API and S3 gateway routes.
 - `server/services/` contains the filesystem, object, bucket, search, access,
   placement, audit event, and maintenance logic.
-- `server/parsers/` contains the metadata parser queue and toolchains.
+- `server/parsers/` contains the metadata-extraction processor and its
+  toolchains. It will be reorganized as `server/processors/meta_extract/` once
+  additional processor substrates land; the roadmap captures the layout.
 - PostgreSQL stores users, folders, files, blobs, access grants, access keys,
-  bucket registrations, and durable audit events.
-- Redis backs ARQ parser and maintenance jobs.
+  bucket registrations, and durable event tables.
+- Redis backs ARQ processor and maintenance jobs. The current MVP runs a single
+  queue; the roadmap splits this into a warm `relic:processing` queue (one
+  worker pool) and a cold `relic:maintenance` queue (separate pool) so a slow
+  rebalance batch never delays metadata extraction.
 - Garage is used by the local Docker setup as two S3-compatible object stores,
   one hot and one cold.
 
@@ -140,7 +163,7 @@ The repository includes a Docker Compose stack for the full local product:
 - PostgreSQL.
 - Redis.
 - API server.
-- Parser and maintenance worker.
+- Background worker for metadata extraction and storage maintenance.
 - React client served by nginx.
 - Two Garage object-store instances.
 - Garage web UIs for both object stores.
@@ -235,9 +258,11 @@ Important environment variables include:
 - `RELIC_SIGNING_TTL_SECONDS`, `RELIC_SIGNING_REGION`,
   `RELIC_SIGNING_KEY_ID`, `RELIC_SIGNING_SECRET`, `RELIC_SIGNING_KEYS`, and
   `RELIC_SIGNING_CURRENT_KEY_ID` for presigned S3 gateway URLs.
-- Parser byte caps such as `IMAGE_PARSE_MAX_BYTES`, `PDF_PARSE_MAX_BYTES`,
-  `TEXT_PARSE_MAX_BYTES`, and related per-format limits.
-- `EVENT_RETENTION_DAYS` for the single event retention policy.
+- `meta_extract` per-toolchain byte caps such as `IMAGE_PARSE_MAX_BYTES`,
+  `PDF_PARSE_MAX_BYTES`, `TEXT_PARSE_MAX_BYTES`, and related per-format limits.
+- `EVENT_RETENTION_DAYS` — single retention knob applied to every event table
+  (`audit_events` today; `file_events` and `maintenance_events` once they
+  land). Per-table retention can be split out later if it becomes necessary.
 - Storage maintenance knobs such as `STORAGE_MAINTENANCE_PURGE_BATCH`,
   `STORAGE_MAINTENANCE_MIGRATE_BATCH`, and
   `STORAGE_MAINTENANCE_BUCKET_PRESSURE_RATIO`.
@@ -245,6 +270,8 @@ Important environment variables include:
 ## Product Status
 
 Relic is an early product implementation with substantial core behavior in
-place. The web app, JSON API, metadata parsing, storage placement, and object
-gateway paths are actively developed. Health endpoints are still placeholders,
-and full S3 bucket/listing compatibility is not complete yet.
+place. The web app, JSON API, metadata extraction, storage placement, and
+object gateway paths are actively developed. Health endpoints are still
+placeholders, the planned `file_events` outbox and `maintenance_events` log
+are tracked in `ROADMAP.md`, and full S3 bucket/listing compatibility is not
+complete yet.

@@ -18,9 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
-
 from utils.crypto import decrypt_string, encrypt_string
-
 
 JSONType = JSON().with_variant(JSONB, "postgresql")
 GUID = Uuid
@@ -127,7 +125,10 @@ class Blob(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     bucket_id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), ForeignKey("buckets.id", ondelete="RESTRICT"), nullable=False, index=True
+        GUID(),
+        ForeignKey("buckets.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
     )
     bucket_key: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
@@ -230,9 +231,15 @@ class AuditEvent(Base, TimestampMixin):
         GUID(), ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
     request_id: Mapped[str | None] = mapped_column(String(255), index=True)
+    # file_ids are legacy, can be dropped soonish
     file_ids: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
-    folder_ids: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
+    folder_ids: Mapped[list[str]] = mapped_column(
+        JSONType, nullable=False, default=list
+    )
+    # blob_ids are legacy, can be dropped soonish i guess?
     blob_ids: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
-    meta: Mapped[dict] = mapped_column("metadata", JSONType, nullable=False, default=dict)
+    meta: Mapped[dict] = mapped_column(
+        "metadata", JSONType, nullable=False, default=dict
+    )
 
     actor: Mapped[User | None] = relationship()
