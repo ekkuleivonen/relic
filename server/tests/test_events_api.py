@@ -11,6 +11,7 @@ from database import get_db
 from models import Base, Event
 from schema_plan import UserRole
 from services.auth import create_session_token
+from services.events import trim_events_older_than
 from tests.factories.models import EventFactory, UserFactory
 
 
@@ -166,3 +167,32 @@ def test_clear_events_requires_admin(db_session):
 
     assert response.status_code == 403
     assert len(db_session.scalars(select(Event)).all()) == 1
+
+
+def test_trim_events_older_than_deletes_only_events_before_cutoff(db_session):
+    now = dt.datetime.now(dt.UTC)
+    old_event = EventFactory.build(
+        request_id="req-old",
+        created_at=now - dt.timedelta(days=31),
+        updated_at=now - dt.timedelta(days=31),
+    )
+    cutoff_event = EventFactory.build(
+        request_id="req-cutoff",
+        created_at=now - dt.timedelta(days=30),
+        updated_at=now - dt.timedelta(days=30),
+    )
+    recent_event = EventFactory.build(
+        request_id="req-recent",
+        created_at=now - dt.timedelta(days=1),
+        updated_at=now - dt.timedelta(days=1),
+    )
+    db_session.add_all([old_event, cutoff_event, recent_event])
+    db_session.commit()
+
+    deleted = trim_events_older_than(db_session, retention_days=30, now=now)
+
+    remaining_request_ids = {
+        event.request_id for event in db_session.scalars(select(Event)).all()
+    }
+    assert deleted == 1
+    assert remaining_request_ids == {"req-cutoff", "req-recent"}

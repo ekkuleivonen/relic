@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FolderDragStateProvider } from "@/components/filesystem/folder-drag-state-provider"
@@ -36,6 +37,7 @@ import {
   useFolderFiles,
   useFolderTree,
 } from "@/hooks/use-filesystem"
+import { useUpdateFolder } from "@/hooks/use-folders"
 import { useNativeFileDrop } from "@/hooks/use-native-file-drop"
 import { extractApiError } from "@/lib/api"
 import { PERM, can } from "@/lib/permissions"
@@ -193,9 +195,10 @@ function FilesystemPageInner() {
                   />
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <h1 className="text-2xl font-semibold tracking-tight">
-                        {selectedFolder?.name || "Filesystem"}
-                      </h1>
+                      <FolderTitle
+                        key={selectedFolder?.id ?? "root"}
+                        folder={selectedFolder}
+                      />
                       <p className="text-sm text-muted-foreground">
                         Browse, organize, and manage folders.
                       </p>
@@ -261,6 +264,90 @@ function FilesystemPageInner() {
         </DragOverlay>
       </FolderDragStateProvider>
     </DndContext>
+  )
+}
+
+function FolderTitle({ folder }: { folder: FolderTreeNode | undefined }) {
+  const rename = useUpdateFolder()
+  const canRename =
+    folder !== undefined &&
+    folder.parent_id !== null &&
+    can(folder.effective_permissions, PERM.WRITE)
+  const [editing, setEditing] = React.useState(false)
+  const [draftName, setDraftName] = React.useState(folder?.name ?? "")
+  const renameCommitRef = React.useRef(false)
+
+  async function commitRename() {
+    if (!folder || renameCommitRef.current) return
+    const trimmed = draftName.trim()
+    if (!trimmed) {
+      setDraftName(folder.name)
+      setEditing(false)
+      return
+    }
+    if (trimmed === folder.name) {
+      setEditing(false)
+      return
+    }
+    renameCommitRef.current = true
+    try {
+      await rename.mutateAsync({ id: folder.id, name: trimmed })
+      setEditing(false)
+    } catch {
+      setDraftName(folder.name)
+      // useUpdateFolder toasts the error
+    } finally {
+      renameCommitRef.current = false
+    }
+  }
+
+  function cancelRename() {
+    setDraftName(folder?.name ?? "")
+    setEditing(false)
+  }
+
+  if (!folder || !canRename) {
+    return (
+      <h1 className="text-2xl font-semibold tracking-tight">
+        {folder?.name || "Filesystem"}
+      </h1>
+    )
+  }
+
+  if (editing) {
+    return (
+      <Input
+        value={draftName}
+        onChange={(event) => setDraftName(event.target.value)}
+        onBlur={() => void commitRename()}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault()
+            cancelRename()
+          } else if (event.key === "Enter") {
+            event.preventDefault()
+            void commitRename()
+          }
+        }}
+        disabled={rename.isPending}
+        className="h-9 max-w-md text-2xl font-semibold tracking-tight"
+        autoFocus
+        onFocus={(event) => event.target.select()}
+      />
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      className="text-left text-2xl font-semibold tracking-tight hover:underline"
+      onDoubleClick={() => {
+        setDraftName(folder.name)
+        setEditing(true)
+      }}
+    >
+      {folder.name}
+    </button>
   )
 }
 

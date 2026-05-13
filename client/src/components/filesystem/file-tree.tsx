@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useDraggable, useDroppable } from "@dnd-kit/core"
-import { ChevronRight, Folder } from "lucide-react"
+import { ChevronRight, Folder, FolderOpen } from "lucide-react"
 import { useNavigate } from "react-router"
 
 import { FolderContextMenu } from "@/components/filesystem/folder-context-menu"
@@ -63,6 +63,7 @@ function TreeNode({
   const hasChildren = sortedChildren.length > 0
   const href = buildFolderHref(node.id, pathSegments)
   const isSelected = selectedFolderId === node.id
+  const [open, setOpen] = React.useState(expandedFolderIds.has(node.id))
 
   const dragState = useFolderDragState()
   const isRoot = node.parent_id === null
@@ -170,7 +171,9 @@ function TreeNode({
     >
       {hasChildren ? (
         <CollapsibleTrigger className="flex size-7 items-center justify-center rounded-md">
-          <ChevronRight className="size-4 transition-transform data-[state=open]:rotate-90" />
+          <ChevronRight
+            className={cn("size-4 transition-transform", open && "rotate-90")}
+          />
           <span className="sr-only">Toggle {node.name || "root"}</span>
         </CollapsibleTrigger>
       ) : (
@@ -178,7 +181,7 @@ function TreeNode({
       )}
       {editing ? (
         <div className="flex min-w-0 flex-1 items-center gap-2 py-1 pr-2">
-          <Folder className="size-4 shrink-0" />
+          <TreeFolderIcon open={open && hasChildren} />
           <Input
             value={draftName}
             onChange={(event) => setDraftName(event.target.value)}
@@ -220,7 +223,7 @@ function TreeNode({
             setEditing(true)
           }}
         >
-          <Folder className="size-4 shrink-0" />
+          <TreeFolderIcon open={open && hasChildren} />
           <span className="truncate">{getNodeLabel(node, pathSegments)}</span>
         </button>
       ) : (
@@ -236,7 +239,7 @@ function TreeNode({
             navigate(href)
           }}
         >
-          <Folder className="size-4 shrink-0" />
+          <TreeFolderIcon open={open && hasChildren} />
           <span className="truncate">{getNodeLabel(node, pathSegments)}</span>
         </button>
       )}
@@ -254,7 +257,7 @@ function TreeNode({
   }
 
   return (
-    <Collapsible defaultOpen={expandedFolderIds.has(node.id)}>
+    <Collapsible open={open} onOpenChange={setOpen}>
       {wrappedRow}
       <CollapsibleContent className="ml-4 border-l pl-2">
         {sortedChildren.map((child) => (
@@ -269,6 +272,11 @@ function TreeNode({
       </CollapsibleContent>
     </Collapsible>
   )
+}
+
+function TreeFolderIcon({ open }: { open: boolean }) {
+  const Icon = open ? FolderOpen : Folder
+  return <Icon className="size-4 shrink-0" />
 }
 
 function getNodeLabel(node: FolderTreeNode, pathSegments: string[]) {

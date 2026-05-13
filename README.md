@@ -95,6 +95,10 @@ values where they overlap.
   synchronously before the request is considered complete.
 - Event records capture source, operation, status, actor, request ID, related
   file/folder/blob IDs, and operation-specific metadata.
+- Event retention is controlled by `EVENT_RETENTION_DAYS`; the maintenance
+  worker deletes any event older than that age during its regular cron tick.
+- The durable `events` table is the primary human-readable audit surface; there
+  is no separate audit projection.
 - Admin audit log UI with filters for source, operation, status, request ID,
   actor, and time range.
 - Expandable event details that show metadata and related entity IDs for
@@ -235,6 +239,7 @@ Important environment variables include:
   `RELIC_SIGNING_CURRENT_KEY_ID` for presigned S3 gateway URLs.
 - Parser byte caps such as `IMAGE_PARSE_MAX_BYTES`, `PDF_PARSE_MAX_BYTES`,
   `TEXT_PARSE_MAX_BYTES`, and related per-format limits.
+- `EVENT_RETENTION_DAYS` for the single event retention policy.
 - Storage maintenance knobs such as `STORAGE_MAINTENANCE_PURGE_BATCH`,
   `STORAGE_MAINTENANCE_MIGRATE_BATCH`, and
   `STORAGE_MAINTENANCE_BUCKET_PRESSURE_RATIO`.

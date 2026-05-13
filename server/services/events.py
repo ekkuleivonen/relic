@@ -117,6 +117,19 @@ def clear_events(db: Session) -> int:
     return result.rowcount or 0
 
 
+def trim_events_older_than(
+    db: Session,
+    *,
+    retention_days: int,
+    now: dt.datetime | None = None,
+) -> int:
+    effective_now = now or dt.datetime.now(dt.UTC)
+    cutoff = effective_now - dt.timedelta(days=retention_days)
+    result = db.execute(delete(Event).where(Event.created_at < cutoff))
+    db.commit()
+    return result.rowcount or 0
+
+
 def context_from_headers(
     headers: Headers,
     *,

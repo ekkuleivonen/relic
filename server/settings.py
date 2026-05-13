@@ -170,6 +170,7 @@ REDIS_PASSWORD: str = env.str("REDIS_PASSWORD", default="replace_me")
 PARSER_QUEUE_NAME: str = env.str("PARSER_QUEUE_NAME", default="relic:parser")
 
 # Storage maintenance (arq cron + jobs; see parsers/worker.py)
+EVENT_RETENTION_DAYS: int = env.int("EVENT_RETENTION_DAYS", default=90)
 STORAGE_MAINTENANCE_PURGE_BATCH: int = env.int(
     "STORAGE_MAINTENANCE_PURGE_BATCH",
     default=80,

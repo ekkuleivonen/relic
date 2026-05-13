@@ -5,25 +5,6 @@ like a file manager and more like dependable storage infrastructure.
 
 ## Near Term
 
-### Audit Retention and Event Policy
-
-Relic now has a durable PostgreSQL event table and an admin audit log UI. The
-next audit work is about operational policy and long-term scale rather than the
-core foundation.
-
-- Add configurable retention by event category, with separate treatment for
-  high-volume access events such as GET/download versus mutation and security
-  events.
-- Add retention trimming jobs that delete or archive old events according to
-  policy.
-- Decide whether a separate `audit_events` projection is needed, or whether the
-  durable `events` table remains the primary human-readable audit surface.
-- Add category-aware UI affordances for security, mutation, access, processor,
-  and maintenance events.
-- Keep performance measurements out of durable event payloads by default.
-  Relic should expose operational timings and byte counters as Prometheus
-  metrics instead, with request IDs bridging events, logs, and future traces.
-
 ### Async Processors
 
 The current parser and maintenance workers should become a broader processor
@@ -284,10 +265,6 @@ become operational inspection tools.
 
 ## Open Product Questions
 
-- How long should different event categories be retained, especially
-  high-volume GET/download events versus mutation and security events?
-- Should `audit_events` be a separate table, or a human-readable projection over
-  the durable `events` table?
 - Which Prometheus labels are worth supporting at launch, and what cardinality
   budget should Relic enforce?
 - Should Relic add OpenTelemetry tracing for sampled per-request timing

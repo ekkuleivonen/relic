@@ -71,11 +71,31 @@ async def rebalance_blob_storage_worker(ctx) -> None:
     await asyncio.to_thread(run)
 
 
+async def trim_old_events_worker(ctx) -> None:
+    del ctx
+
+    def run() -> None:
+        sm = get_sessionmaker()
+        with sm() as db:
+            deleted_rows = event_service.trim_events_older_than(
+                db,
+                retention_days=S.EVENT_RETENTION_DAYS,
+            )
+        log.info(
+            "event_retention_trimmed",
+            retention_days=S.EVENT_RETENTION_DAYS,
+            deleted_rows=deleted_rows,
+        )
+
+    await asyncio.to_thread(run)
+
+
 async def storage_maintenance_tick(ctx) -> None:
     redis = ctx["redis"]
     await redis.enqueue_job("purge_dereferenced_blobs_worker")
     await redis.enqueue_job("refresh_all_bucket_probes_worker")
     await redis.enqueue_job("rebalance_blob_storage_worker")
+    await redis.enqueue_job("trim_old_events_worker")
     log.info(
         "storage_maintenance_tick_enqueued",
         queue=S.PARSER_QUEUE_NAME,
@@ -88,6 +108,7 @@ class WorkerSettings:
         purge_dereferenced_blobs_worker,
         refresh_all_bucket_probes_worker,
         rebalance_blob_storage_worker,
+        trim_old_events_worker,
     ]
     cron_jobs = [
         cron(

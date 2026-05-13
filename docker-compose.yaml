@@ -11,6 +11,7 @@ x-server-environment: &server-environment
   SESSION_SECRET: ${SESSION_SECRET:-dev-encryption-secret-change-me}
   SESSION_COOKIE_SECURE: "false"
   S3_CORS_ALLOWED_ORIGINS: ${S3_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8000}
+  EVENT_RETENTION_DAYS: "${EVENT_RETENTION_DAYS:-90}"
 
 x-server-service: &server-service
   image: relic-server:local
