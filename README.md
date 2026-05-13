@@ -213,6 +213,16 @@ New substrates plug in by registering a `kind`, a pydantic config model,
 and a handler. First-party substrates are upserted from `server/seed.py`;
 admin-managed substrates (future external sinks) are created from the API.
 
+### Health and Readiness
+
+- `/healthz` reports basic API process liveness.
+- `/readyz` checks database connectivity, Redis queue connectivity, processor
+  registry access, object-store probe state, and configuration warnings.
+- Readiness includes queue depth and oldest pending job age for the
+  `relic:processing` and `relic:maintenance` queues.
+- Object-store readiness uses the latest bucket probe state; the probe worker
+  remains responsible for doing remote PUT/HEAD/GET/DELETE checks.
+
 ### API and S3 Gateway
 
 - FastAPI JSON API under `/api`.
@@ -387,9 +397,9 @@ Relic is an early product with substantial core behavior in place. The web
 app, JSON API, object gateway, content-hash deduplication, tiered storage
 placement, `audit_events`, `file_events`, the `processors` registry, the
 `maintenance_events` cold-path log, the `LISTEN/NOTIFY` warm-path
-dispatcher, and the seeded `meta_extract` substrate are all live and
-developed against. Still tracked in `ROADMAP.md`: external activity sinks
-(webhook, SQS, Kafka, object-store), Prometheus metrics endpoint,
-production `/healthz` / `/readyz`, broader S3 gateway coverage
-(`ListObjectsV2`, multipart upload, etc.), import-from-bucket flows,
-quotas, retention, and versioning.
+dispatcher, the seeded `meta_extract` substrate, and production health /
+readiness endpoints are all live and developed against. Still tracked in
+`ROADMAP.md`: broader S3 gateway coverage (`ListObjectsV2`, multipart
+upload, etc.), external activity sinks (webhook, SQS, Kafka, object-store),
+Prometheus metrics endpoint, import-from-bucket flows, quotas, retention, and
+versioning.

@@ -12,83 +12,23 @@ top of that substrate.
 
 ## Near Term
 
-### Prometheus Metrics
-
-Relic exposes operational performance data through a Prometheus scrape
-endpoint. Event tables answer "what happened" with full-fidelity, queryable
-history; metrics answer "how is the system performing" with low-cardinality
-aggregates. High-volume read paths (S3 `GET` / `HEAD`, signed-URL fetches)
-only live in metrics — they never write to `file_events`.
-
-Initial endpoint:
-
-- `/metrics` for Prometheus-compatible counters, histograms, and gauges.
-
-Gateway metrics:
-
-- `relic_gateway_requests_total{operation,status,bucket,tier}`
-- `relic_gateway_duration_seconds{operation,status,bucket,tier}`
-- `relic_gateway_bytes_total{operation,direction,bucket,tier}`
-- `relic_gateway_range_requests_total{operation,status,bucket,tier}`
-- `relic_backend_duration_seconds{operation,phase,status,bucket,tier}`
-- `relic_backend_errors_total{operation,phase,bucket,tier,error_class}`
-- `relic_event_write_duration_seconds{table,event_type,status}` (covers
-  `audit_events`, `file_events`, `maintenance_events`)
-
-API metrics:
-
-- `relic_api_requests_total{route,operation,status}`
-- `relic_api_duration_seconds{route,operation,status}`
-- `relic_api_payload_bytes_total{route,direction,status}`
-- `relic_api_audit_write_duration_seconds{route,operation,status}`
-
-Processor and maintenance metrics:
-
-- `relic_processor_jobs_total{processor,kind,status}`
-- `relic_processor_duration_seconds{processor,kind,status}`
-- `relic_processor_queue_depth{queue}` (labels: `relic:processing`,
-  `relic:maintenance`)
-- `relic_processor_queue_wait_seconds{processor}`
-- `relic_processor_cursor_lag{processor,kind}` — gauge of
-  `max(file_events.offset) - processors.last_committed_offset`. Primary
-  stalled-processor signal; pairs with `relic_processor_cursor_age_seconds`
-  to catch "recently progressed but now stuck" cases.
-- `relic_processor_cursor_age_seconds{processor,kind}` — gauge of
-  `now() - processors.last_committed_at`.
-- `relic_processor_cursor_skips_total{processor,kind}` — counter
-  incremented by the admin skip-stuck-event action.
-- `relic_meta_extract_bytes_total{toolchain,status}`
-- `relic_meta_extract_duration_seconds{toolchain,status}`
-- `relic_maintenance_batches_total{job,status}`
-- `relic_maintenance_duration_seconds{job,status}`
-- `relic_maintenance_rows_total{job,action,outcome}` (matches
-  `maintenance_events.action`)
-- `relic_bucket_probe_duration_seconds{bucket,tier,operation,status}`
-- `relic_bucket_capacity_bytes{bucket,tier,state}`
-
-Cardinality rules:
-
-- Safe labels include operation, route template, status, bucket, tier,
-  phase, processor, toolchain, queue, and coarse object size band.
-- Avoid file ID, folder ID, user ID, request ID, object key, MIME type, and
-  raw error message labels.
-- Store high-cardinality identity in `audit_events`, `file_events`,
-  `maintenance_events`, and logs; correlate via `request_id`.
-- Use OpenTelemetry traces later for sampled per-request timing forensics
-  rather than persisting every timing breakdown in PostgreSQL.
-
 ### Health and Operations
 
 The deployment surface needs production-grade health signals and
 operational guardrails.
 
-- Implement `/healthz` and `/readyz`.
-- Expose API, database, Redis, processing worker, maintenance worker, and
-  object-store readiness.
-- Add clear startup checks for missing secrets and unsafe production
-  defaults.
-- Worker status visibility for both queues: queue depth, oldest pending job
-  age, per-processor cursor lag versus the head of `file_events`.
+- `/healthz` and `/readyz` are shipped.
+- `/readyz` exposes API, database, Redis queue, processor registry, object-store
+  probe-state, and configuration readiness.
+- Configuration readiness warns on local-development defaults for secrets.
+- Worker status visibility is partially shipped through queue depth and oldest
+  pending job age for both queues. Remaining work: explicit worker heartbeat
+  state and per-processor cursor lag versus the head of `file_events`.
+
+After health/readiness, prioritize S3 gateway coverage next. It is the best
+follow-up if the immediate goal is client compatibility. Pick external activity
+sinks instead if downstream event delivery becomes more urgent, or admin
+file/blob inspection if operator inventory is the bigger UX gap.
 
 ## Platform Layer
 
@@ -108,11 +48,10 @@ metadata enricher.
 - Kafka or NATS sink (`kind=kafka`) for infrastructure users.
 - Object-store sink (`kind=object_store`) that writes event batches to a
   configured bucket.
-- Admin UI for creating sinks (CRUD on `processors`), pausing them
-  (`enabled=false`), rewinding cursors, executing the skip-stuck-event
-  action, inspecting cursor lag, and viewing the audit trail of cursor
-  changes. The CRUD spine is already shipped; the missing piece is the
-  CRUD UI on the admin side and the sink kinds themselves.
+- Processor admin CRUD, pause/resume, cursor rewind, skip-stuck-event, cursor
+  lag inspection, and cursor audit trail views are shipped. The remaining
+  admin work is sink-specific creation/editing affordances once the sink kinds
+  themselves exist.
 
 The activity contract external sinks consume:
 
@@ -285,6 +224,73 @@ should become operational inspection tools.
 - Blob-to-file reference inspection.
 - Manual purge or repair workflows with strong safety checks.
 - Storage migration status and retry controls.
+
+## Final Observability Pass
+
+### Prometheus Metrics
+
+Relic exposes operational performance data through a Prometheus scrape
+endpoint. Event tables answer "what happened" with full-fidelity, queryable
+history; metrics answer "how is the system performing" with low-cardinality
+aggregates. High-volume read paths (S3 `GET` / `HEAD`, signed-URL fetches)
+only live in metrics — they never write to `file_events`.
+
+Initial endpoint:
+
+- `/metrics` for Prometheus-compatible counters, histograms, and gauges.
+
+Gateway metrics:
+
+- `relic_gateway_requests_total{operation,status,bucket,tier}`
+- `relic_gateway_duration_seconds{operation,status,bucket,tier}`
+- `relic_gateway_bytes_total{operation,direction,bucket,tier}`
+- `relic_gateway_range_requests_total{operation,status,bucket,tier}`
+- `relic_backend_duration_seconds{operation,phase,status,bucket,tier}`
+- `relic_backend_errors_total{operation,phase,bucket,tier,error_class}`
+- `relic_event_write_duration_seconds{table,event_type,status}` (covers
+  `audit_events`, `file_events`, `maintenance_events`)
+
+API metrics:
+
+- `relic_api_requests_total{route,operation,status}`
+- `relic_api_duration_seconds{route,operation,status}`
+- `relic_api_payload_bytes_total{route,direction,status}`
+- `relic_api_audit_write_duration_seconds{route,operation,status}`
+
+Processor and maintenance metrics:
+
+- `relic_processor_jobs_total{processor,kind,status}`
+- `relic_processor_duration_seconds{processor,kind,status}`
+- `relic_processor_queue_depth{queue}` (labels: `relic:processing`,
+  `relic:maintenance`)
+- `relic_processor_queue_wait_seconds{processor}`
+- `relic_processor_cursor_lag{processor,kind}` — gauge of
+  `max(file_events.offset) - processors.last_committed_offset`. Primary
+  stalled-processor signal; pairs with `relic_processor_cursor_age_seconds`
+  to catch "recently progressed but now stuck" cases.
+- `relic_processor_cursor_age_seconds{processor,kind}` — gauge of
+  `now() - processors.last_committed_at`.
+- `relic_processor_cursor_skips_total{processor,kind}` — counter
+  incremented by the admin skip-stuck-event action.
+- `relic_meta_extract_bytes_total{toolchain,status}`
+- `relic_meta_extract_duration_seconds{toolchain,status}`
+- `relic_maintenance_batches_total{job,status}`
+- `relic_maintenance_duration_seconds{job,status}`
+- `relic_maintenance_rows_total{job,action,outcome}` (matches
+  `maintenance_events.action`)
+- `relic_bucket_probe_duration_seconds{bucket,tier,operation,status}`
+- `relic_bucket_capacity_bytes{bucket,tier,state}`
+
+Cardinality rules:
+
+- Safe labels include operation, route template, status, bucket, tier,
+  phase, processor, toolchain, queue, and coarse object size band.
+- Avoid file ID, folder ID, user ID, request ID, object key, MIME type, and
+  raw error message labels.
+- Store high-cardinality identity in `audit_events`, `file_events`,
+  `maintenance_events`, and logs; correlate via `request_id`.
+- Use OpenTelemetry traces later for sampled per-request timing forensics
+  rather than persisting every timing breakdown in PostgreSQL.
 
 ## Open Product Questions
 

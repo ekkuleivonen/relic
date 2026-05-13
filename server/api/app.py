@@ -1,8 +1,11 @@
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 import settings as S
+from database import DbSession
 from processors.registry import init_builtin_substrates
+from services import health as health_service
 from .access_keys import router as access_keys_router
 from .audit_events import router as audit_events_router
 from .auth import router as auth_router
@@ -122,9 +125,15 @@ app.include_router(s3_gateway_router, prefix="/s3", tags=["s3"])
 
 @app.get("/healthz")
 def healthz():
-    raise NotImplementedError("Not implemented")
+    return health_service.health_response()
 
 
 @app.get("/readyz")
-def readyz():
-    raise NotImplementedError("Not implemented")
+async def readyz(db: DbSession):
+    payload = await health_service.readiness_response(db)
+    if payload["status"] != health_service.STATUS_OK:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=payload,
+        )
+    return payload
