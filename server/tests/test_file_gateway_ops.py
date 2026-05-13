@@ -480,6 +480,126 @@ def test_presigned_head_does_not_emit_audit_event(
     )
 
 
+def test_multipart_upload_completes_object(
+    client, db_session, user, photos_folder, physical_bucket, fake_storage
+):
+    grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
+    create = s3_signing.sign_request_url(
+        method="POST",
+        bucket="photos",
+        key="large.bin",
+        headers={},
+        user_id=user.id,
+        host="testserver",
+        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        query_params={"uploads": ""},
+    )
+
+    create_response = client.post(create.url, headers=create.headers)
+
+    assert create_response.status_code == 200, create_response.text
+    upload_id = create_response.text.split("<UploadId>", 1)[1].split("</UploadId>", 1)[0]
+    uploaded_parts = []
+    for part_number, content in [(1, b"hello "), (2, b"world")]:
+        signed = s3_signing.sign_request_url(
+            method="PUT",
+            bucket="photos",
+            key="large.bin",
+            headers={},
+            user_id=user.id,
+            host="testserver",
+            ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+            query_params={"partNumber": str(part_number), "uploadId": upload_id},
+        )
+        response = client.put(signed.url, content=content, headers=signed.headers)
+        assert response.status_code == 200, response.text
+        uploaded_parts.append((part_number, response.headers["etag"]))
+
+    complete_body = (
+        "<CompleteMultipartUpload>"
+        + "".join(
+            f"<Part><PartNumber>{part_number}</PartNumber><ETag>{etag}</ETag></Part>"
+            for part_number, etag in uploaded_parts
+        )
+        + "</CompleteMultipartUpload>"
+    )
+    complete = s3_signing.sign_request_url(
+        method="POST",
+        bucket="photos",
+        key="large.bin",
+        headers={},
+        user_id=user.id,
+        host="testserver",
+        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        query_params={"uploadId": upload_id},
+    )
+
+    complete_response = client.post(
+        complete.url, content=complete_body, headers=complete.headers
+    )
+
+    assert complete_response.status_code == 200, complete_response.text
+    file = db_session.scalar(select(File).where(File.name == "large.bin"))
+    assert file is not None
+    blob = db_session.get(Blob, file.blob_id)
+    assert blob.size_bytes == len(b"hello world")
+    assert fake_storage.objects[(physical_bucket.bucket, blob.bucket_key)] == b"hello world"
+    assert not [
+        key
+        for (_bucket, key) in fake_storage.objects
+        if key.startswith("__relic_multipart_uploads/")
+    ]
+
+
+def test_multipart_upload_abort_removes_temp_parts(
+    client, db_session, user, photos_folder, physical_bucket, fake_storage
+):
+    grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
+    create = s3_signing.sign_request_url(
+        method="POST",
+        bucket="photos",
+        key="large.bin",
+        headers={},
+        user_id=user.id,
+        host="testserver",
+        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        query_params={"uploads": ""},
+    )
+    create_response = client.post(create.url, headers=create.headers)
+    upload_id = create_response.text.split("<UploadId>", 1)[1].split("</UploadId>", 1)[0]
+    signed = s3_signing.sign_request_url(
+        method="PUT",
+        bucket="photos",
+        key="large.bin",
+        headers={},
+        user_id=user.id,
+        host="testserver",
+        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        query_params={"partNumber": "1", "uploadId": upload_id},
+    )
+    assert client.put(signed.url, content=b"part", headers=signed.headers).status_code == 200
+    assert any(
+        key.startswith("__relic_multipart_uploads/")
+        for (_bucket, key) in fake_storage.objects
+    )
+    abort = s3_signing.sign_request_url(
+        method="DELETE",
+        bucket="photos",
+        key="large.bin",
+        headers={},
+        user_id=user.id,
+        host="testserver",
+        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        query_params={"uploadId": upload_id},
+    )
+
+    response = client.delete(abort.url, headers=abort.headers)
+
+    assert response.status_code == 204
+    assert fake_storage.objects == {}
+    assert db_session.scalar(select(File).where(File.name == "large.bin")) is None
+
+
 def test_presigned_download_passes_range_header(
     client, db_session, user, photos_folder, physical_bucket, fake_storage
 ):

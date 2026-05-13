@@ -224,6 +224,64 @@ class File(Base, TimestampMixin):
         return self.uploader.name if self.uploader else None
 
 
+class MultipartUpload(Base, TimestampMixin):
+    __tablename__ = "multipart_uploads"
+    __table_args__ = (
+        Index("ix_multipart_uploads_uploaded_by_created_at", "uploaded_by", "created_at"),
+        Index("ix_multipart_uploads_bucket_key", "bucket_name", "object_key"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    bucket_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    folder_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    uploaded_by: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    storage_bucket_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("buckets.id", ondelete="RESTRICT"), nullable=False
+    )
+    meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+
+    folder: Mapped[Folder] = relationship()
+    user: Mapped[User] = relationship()
+    storage_bucket: Mapped[Bucket] = relationship()
+    parts: Mapped[list["MultipartUploadPart"]] = relationship(
+        back_populates="upload",
+        cascade="all, delete-orphan",
+        order_by="MultipartUploadPart.part_number",
+    )
+
+
+class MultipartUploadPart(Base, TimestampMixin):
+    __tablename__ = "multipart_upload_parts"
+    __table_args__ = (
+        UniqueConstraint(
+            "upload_id",
+            "part_number",
+            name="uq_multipart_upload_parts_upload_part_number",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    upload_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
+        ForeignKey("multipart_uploads.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    part_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    bucket_key: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    etag: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    upload: Mapped[MultipartUpload] = relationship(back_populates="parts")
+
+
 class AuditEvent(Base, TimestampMixin):
     __tablename__ = "audit_events"
     __table_args__ = (

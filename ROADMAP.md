@@ -157,13 +157,16 @@ Derived views:
 The current gateway focuses on object operations. Broader compatibility
 would make Relic easier to use with existing tooling.
 
-- `ListBuckets`.
-- `HeadBucket`.
+- `ListBuckets` (shipped).
+- `HeadBucket` (shipped).
 - `ListObjectsV2` with prefixes, delimiters, pagination, and continuation
-  tokens.
-- Multipart upload lifecycle.
+  tokens (shipped).
+- Live compatibility smoke harness for current presigned-URL gateway flows
+  (shipped).
+- Multipart upload lifecycle (shipped).
 - Compatibility testing against common clients such as AWS CLI, boto3,
-  rclone, and DuckLake.
+  rclone, and DuckLake once access-key `Authorization` header auth is
+  supported.
 
 ### Import and Sync
 

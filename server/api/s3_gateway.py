@@ -1,5 +1,7 @@
 import hashlib
 import tempfile
+import uuid
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import BinaryIO
 from urllib.parse import unquote
@@ -20,6 +22,7 @@ from models import User
 from services.event_context import context_from_headers
 from services import objects as object_service
 from services import s3_listing
+from services import s3_multipart
 from services import s3_signing
 
 router = APIRouter()
@@ -241,6 +244,149 @@ def render_list_objects_v2(page: s3_listing.ListObjectsV2Page) -> str:
     return body
 
 
+@router.post("/{bucket}/{key:path}")
+async def multipart_post(
+    bucket: str, key: str, request: Request, db: DbSession
+) -> Response:
+    query = request.query_params
+    try:
+        user = load_signed_user(request, db)
+        if "uploads" in query:
+            upload = s3_multipart.create_multipart_upload(
+                db,
+                bucket_name=bucket,
+                key=key,
+                ingest_meta=extract_user_metadata(request),
+                current_user=user,
+                event_context=context_from_headers(
+                    request.headers,
+                    actor_user_id=user.id,
+                ),
+            )
+            return Response(
+                content=render_create_multipart_upload(bucket, key, upload.id),
+                status_code=200,
+                media_type="application/xml",
+            )
+        upload_id = parse_upload_id(query.get("uploadId"))
+        parts = parse_complete_multipart_body(await request.body())
+        result = s3_multipart.complete_multipart_upload(
+            db,
+            upload_id=upload_id,
+            bucket_name=bucket,
+            key=key,
+            requested_parts=parts,
+            current_user=user,
+            event_context=context_from_headers(
+                request.headers,
+                actor_user_id=user.id,
+            ),
+        )
+    except s3_signing.S3SigningError as exc:
+        return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
+    except ResourceNotFound as exc:
+        return multipart_not_found_response(exc)
+    except DomainError as exc:
+        return domain_error_response(exc)
+
+    return Response(
+        content=render_complete_multipart_upload(result),
+        status_code=200,
+        media_type="application/xml",
+        headers={"ETag": f'"{result.etag}"'},
+    )
+
+
+def render_create_multipart_upload(
+    bucket: str, key: str, upload_id: uuid.UUID
+) -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<InitiateMultipartUploadResult>"
+        f"<Bucket>{escape(bucket)}</Bucket>"
+        f"<Key>{escape(key)}</Key>"
+        f"<UploadId>{escape(str(upload_id))}</UploadId>"
+        "</InitiateMultipartUploadResult>"
+    )
+
+
+def render_complete_multipart_upload(
+    result: s3_multipart.CompleteMultipartResult,
+) -> str:
+    location = f"/s3/{escape(result.bucket)}/{escape(result.key)}"
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<CompleteMultipartUploadResult>"
+        f"<Location>{location}</Location>"
+        f"<Bucket>{escape(result.bucket)}</Bucket>"
+        f"<Key>{escape(result.key)}</Key>"
+        f"<ETag>&quot;{result.etag}&quot;</ETag>"
+        "</CompleteMultipartUploadResult>"
+    )
+
+
+def parse_complete_multipart_body(body: bytes) -> list[s3_multipart.CompleteMultipartPart]:
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError as exc:
+        raise BadRequestError("CompleteMultipartUpload body must be valid XML") from exc
+
+    parts: list[s3_multipart.CompleteMultipartPart] = []
+    for part in root.iter():
+        if local_name(part.tag) != "Part":
+            continue
+        part_number_text = child_text(part, "PartNumber")
+        if part_number_text is None:
+            raise BadRequestError("Each multipart completion part needs PartNumber")
+        try:
+            part_number = int(part_number_text)
+        except ValueError as exc:
+            raise BadRequestError("PartNumber must be an integer") from exc
+        parts.append(
+            s3_multipart.CompleteMultipartPart(
+                part_number=part_number,
+                etag=child_text(part, "ETag"),
+            )
+        )
+    return parts
+
+
+def child_text(element: ET.Element, wanted_name: str) -> str | None:
+    for child in element:
+        if local_name(child.tag) == wanted_name:
+            return child.text
+    return None
+
+
+def local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def parse_upload_id(value: str | None) -> uuid.UUID:
+    if not value:
+        raise BadRequestError("uploadId is required")
+    try:
+        return uuid.UUID(value)
+    except ValueError as exc:
+        raise BadRequestError("uploadId must be a UUID") from exc
+
+
+def parse_part_number(value: str | None) -> int:
+    if not value:
+        raise BadRequestError("partNumber is required")
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise BadRequestError("partNumber must be an integer") from exc
+
+
+def multipart_not_found_response(exc: ResourceNotFound) -> Response:
+    message = str(exc.detail)
+    if "Multipart upload" in message:
+        return s3_error_response("NoSuchUpload", message, status_code=404)
+    return s3_error_response("NoSuchBucket", message, status_code=404)
+
+
 @router.put("/{bucket}/{key:path}")
 async def put_object(
     bucket: str, key: str, request: Request, db: DbSession
@@ -253,14 +399,24 @@ async def put_object(
     every request goes through verify -> permission check -> service call.
     """
     try:
-        verified = s3_signing.verify_signed_request(request)
-        user = db.get(User, verified.user_id)
-        if user is None:
-            return s3_error_response(
-                "InvalidAccessKeyId",
-                "The signed user no longer exists",
-                status_code=403,
+        user = load_signed_user(request, db)
+
+        upload_id_value = request.query_params.get("uploadId")
+        if upload_id_value is not None:
+            upload_id = parse_upload_id(upload_id_value)
+            spooled = await spool_request_body(request)
+            part = s3_multipart.upload_part(
+                db,
+                upload_id=upload_id,
+                bucket_name=bucket,
+                key=key,
+                part_number=parse_part_number(request.query_params.get("partNumber")),
+                body=spooled.body,
+                content_hash=spooled.content_hash,
+                size_bytes=spooled.size_bytes,
+                current_user=user,
             )
+            return Response(status_code=200, headers={"ETag": f'"{part.etag}"'})
 
         copy_source = request.headers.get("x-amz-copy-source")
         if copy_source is not None:
@@ -527,14 +683,18 @@ async def delete_object(
     missing key still returns 204.
     """
     try:
-        verified = s3_signing.verify_signed_request(request)
-        user = db.get(User, verified.user_id)
-        if user is None:
-            return s3_error_response(
-                "InvalidAccessKeyId",
-                "The signed user no longer exists",
-                status_code=403,
+        user = load_signed_user(request, db)
+        upload_id_value = request.query_params.get("uploadId")
+        if upload_id_value is not None:
+            s3_multipart.abort_multipart_upload(
+                db,
+                upload_id=parse_upload_id(upload_id_value),
+                bucket_name=bucket,
+                key=key,
+                current_user=user,
             )
+            return Response(status_code=204)
+
         object_service.delete_object(
             db,
             bucket_name=bucket,
@@ -547,28 +707,11 @@ async def delete_object(
         )
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
+    except ResourceNotFound as exc:
+        return multipart_not_found_response(exc)
     except DomainError as exc:
         return domain_error_response(exc)
 
     return Response(status_code=204)
 
 
-# -----------------------------------------------------------------------------
-# Multipart upload (deferred - uncomment when first large file shows up)
-# -----------------------------------------------------------------------------
-#
-# Clients (boto3, aws-cli) auto-switch to multipart for files over a threshold
-# (default 8MB for boto3). Until then they use plain PutObject. We can ship
-# without these for a while if we cap accepted size or document the limitation.
-#
-# @router.post("/{bucket}/{key:path}")  # ?uploads
-# async def create_multipart_upload(...): ...
-#
-# @router.put("/{bucket}/{key:path}")  # ?partNumber=N&uploadId=...
-# async def upload_part(...): ...
-#
-# @router.post("/{bucket}/{key:path}")  # ?uploadId=...
-# async def complete_multipart_upload(...): ...
-#
-# @router.delete("/{bucket}/{key:path}")  # ?uploadId=...
-# async def abort_multipart_upload(...): ...

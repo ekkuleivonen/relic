@@ -231,10 +231,13 @@ admin-managed substrates (future external sinks) are created from the API.
 - Implemented object operations: `PutObject`, `CopyObject`, `HeadObject`,
   `GetObject`, and `DeleteObject`.
 - Range GET support for downloads.
+- Service and bucket operations: `ListBuckets`, `HeadBucket`, and
+  `ListObjectsV2`.
+- Multipart upload lifecycle: create upload, upload part, complete, and abort.
 
-The S3 gateway is currently focused on object operations. Service and bucket
-listing endpoints such as `ListBuckets`, `HeadBucket`, and `ListObjectsV2` are
-stubbed and not ready for general S3 browser compatibility.
+The S3 gateway still uses Relic presigned SigV4 query URLs. Native AWS CLI,
+boto3 client, rclone, and DuckLake checks should be added after the gateway
+accepts normal access-key `Authorization` header requests.
 
 ## Architecture
 
@@ -361,6 +364,25 @@ cd server
 uv run python -m processors.dispatcher
 ```
 
+Run the live S3 gateway compatibility smoke harness:
+
+```bash
+cd server
+uv run python compat/s3_gateway_compat.py
+```
+
+This expects the local stack to be running at `http://localhost:8000`, the
+seeded admin login to work, and at least one physical bucket backend to be
+registered. The harness creates a temporary top-level folder, uploads a few
+objects through Relic presigned PUT URLs, and verifies `ListBuckets`,
+`HeadBucket`, `ListObjectsV2`, multipart upload, `HeadObject`, and `GetObject`
+against the live gateway. Use `--api-url`, `--email`, `--password`,
+`--bucket-name`, or `--keep-data` to override defaults.
+
+Current limitation: the harness uses Relic's presigned SigV4 query URL contract.
+Native AWS CLI, boto3 client, rclone, and DuckLake checks should be added after
+the gateway accepts normal access-key `Authorization` header requests.
+
 ## Configuration
 
 Important environment variables include:
@@ -399,7 +421,6 @@ placement, `audit_events`, `file_events`, the `processors` registry, the
 `maintenance_events` cold-path log, the `LISTEN/NOTIFY` warm-path
 dispatcher, the seeded `meta_extract` substrate, and production health /
 readiness endpoints are all live and developed against. Still tracked in
-`ROADMAP.md`: broader S3 gateway coverage (`ListObjectsV2`, multipart
-upload, etc.), external activity sinks (webhook, SQS, Kafka, object-store),
-Prometheus metrics endpoint, import-from-bucket flows, quotas, retention, and
-versioning.
+`ROADMAP.md`: external activity sinks (webhook, SQS, Kafka, object-store),
+native-client S3 compatibility work, Prometheus metrics endpoint,
+import-from-bucket flows, quotas, retention, and versioning.
