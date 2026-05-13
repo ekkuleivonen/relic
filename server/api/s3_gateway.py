@@ -19,6 +19,7 @@ from managers.exceptions import (
 from models import User
 from services.event_context import context_from_headers
 from services import objects as object_service
+from services import s3_listing
 from services import s3_signing
 
 router = APIRouter()
@@ -51,14 +52,40 @@ Folders + final File.name. Authentication is SigV4 against AccessKey rows.
 
 
 @router.get("/")
-async def list_buckets(request: Request) -> Response:
+async def list_buckets(request: Request, db: DbSession) -> Response:
     """
     GET / -> ListBuckets
 
     Returns top-level folders the authenticated principal can see.
     XML response: <ListAllMyBucketsResult>...</ListAllMyBucketsResult>
     """
-    raise NotImplementedError
+    try:
+        user = load_signed_user(request, db)
+        buckets = s3_listing.list_visible_buckets(db, user)
+    except s3_signing.S3SigningError as exc:
+        return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
+    except DomainError as exc:
+        return domain_error_response(exc)
+
+    owner_id = escape(str(user.id))
+    bucket_xml = "".join(
+        "<Bucket>"
+        f"<Name>{escape(bucket.name)}</Name>"
+        f"<CreationDate>{format_s3_timestamp(bucket.created_at)}</CreationDate>"
+        "</Bucket>"
+        for bucket in buckets
+    )
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<ListAllMyBucketsResult>"
+        "<Owner>"
+        f"<ID>{owner_id}</ID>"
+        f"<DisplayName>{escape(user.name)}</DisplayName>"
+        "</Owner>"
+        f"<Buckets>{bucket_xml}</Buckets>"
+        "</ListAllMyBucketsResult>"
+    )
+    return Response(content=body, status_code=200, media_type="application/xml")
 
 
 # -----------------------------------------------------------------------------
@@ -67,18 +94,28 @@ async def list_buckets(request: Request) -> Response:
 
 
 @router.head("/{bucket}")
-async def head_bucket(bucket: str, request: Request) -> Response:
+async def head_bucket(bucket: str, request: Request, db: DbSession) -> Response:
     """
     HEAD /{bucket} -> HeadBucket
 
     Existence + access check for a top-level folder. 200 if visible to caller,
     404 otherwise. Many SDK clients call this before any other operation.
     """
-    raise NotImplementedError
+    try:
+        user = load_signed_user(request, db)
+        s3_listing.require_visible_bucket(db, user, bucket)
+    except s3_signing.S3SigningError as exc:
+        return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
+    except ResourceNotFound:
+        return s3_error_response("NoSuchBucket", "Bucket not found", status_code=404)
+    except DomainError as exc:
+        return domain_error_response(exc)
+
+    return Response(status_code=200)
 
 
 @router.get("/{bucket}")
-async def list_objects_v2(bucket: str, request: Request) -> Response:
+async def list_objects_v2(bucket: str, request: Request, db: DbSession) -> Response:
     """
     GET /{bucket}?list-type=2 -> ListObjectsV2
 
@@ -89,12 +126,119 @@ async def list_objects_v2(bucket: str, request: Request) -> Response:
     Query params we care about: list-type, prefix, delimiter, max-keys,
     continuation-token, start-after.
     """
-    raise NotImplementedError
+    query = request.query_params
+    if query.get("list-type") != "2":
+        return s3_error_response(
+            "InvalidRequest",
+            "Only ListObjectsV2 is supported for bucket listings",
+            status_code=400,
+        )
+
+    try:
+        user = load_signed_user(request, db)
+        page = s3_listing.list_objects_v2(
+            db,
+            user,
+            bucket_name=bucket,
+            prefix=query.get("prefix") or "",
+            delimiter=query.get("delimiter") or None,
+            max_keys=parse_max_keys(query.get("max-keys")),
+            continuation_token=query.get("continuation-token") or None,
+            start_after=query.get("start-after") or None,
+        )
+    except s3_signing.S3SigningError as exc:
+        return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
+    except ResourceNotFound:
+        return s3_error_response("NoSuchBucket", "Bucket not found", status_code=404)
+    except DomainError as exc:
+        return domain_error_response(exc)
+
+    return Response(
+        content=render_list_objects_v2(page),
+        status_code=200,
+        media_type="application/xml",
+    )
 
 
 # -----------------------------------------------------------------------------
 # Object-level operations
 # -----------------------------------------------------------------------------
+
+
+def load_signed_user(request: Request, db: DbSession) -> User:
+    verified = s3_signing.verify_signed_request(request)
+    user = db.get(User, verified.user_id)
+    if user is None:
+        raise s3_signing.S3SigningError(
+            "InvalidAccessKeyId",
+            "The signed user no longer exists",
+        )
+    return user
+
+
+def parse_max_keys(value: str | None) -> int:
+    if value in (None, ""):
+        return s3_listing.DEFAULT_MAX_KEYS
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise BadRequestError("max-keys must be an integer") from exc
+
+
+def format_s3_timestamp(value) -> str:
+    return value.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def render_list_objects_v2(page: s3_listing.ListObjectsV2Page) -> str:
+    contents = "".join(
+        "<Contents>"
+        f"<Key>{escape(item.key)}</Key>"
+        f"<LastModified>{format_s3_timestamp(item.file.updated_at)}</LastModified>"
+        f"<ETag>&quot;{item.file.blob.content_hash.hex()}&quot;</ETag>"
+        f"<Size>{item.file.blob.size_bytes}</Size>"
+        "<StorageClass>STANDARD</StorageClass>"
+        "</Contents>"
+        for item in page.contents
+    )
+    common_prefixes = "".join(
+        f"<CommonPrefixes><Prefix>{escape(prefix)}</Prefix></CommonPrefixes>"
+        for prefix in page.common_prefixes
+    )
+    delimiter = (
+        f"<Delimiter>{escape(page.delimiter)}</Delimiter>" if page.delimiter else ""
+    )
+    continuation_token = (
+        f"<ContinuationToken>{escape(page.continuation_token)}</ContinuationToken>"
+        if page.continuation_token
+        else ""
+    )
+    next_token = (
+        f"<NextContinuationToken>{escape(page.next_continuation_token)}</NextContinuationToken>"
+        if page.next_continuation_token
+        else ""
+    )
+    start_after = (
+        f"<StartAfter>{escape(page.start_after)}</StartAfter>"
+        if page.start_after
+        else ""
+    )
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<ListBucketResult>"
+        f"<Name>{escape(page.bucket)}</Name>"
+        f"<Prefix>{escape(page.prefix)}</Prefix>"
+        f"{delimiter}"
+        f"<KeyCount>{page.key_count}</KeyCount>"
+        f"<MaxKeys>{page.max_keys}</MaxKeys>"
+        f"<IsTruncated>{str(page.is_truncated).lower()}</IsTruncated>"
+        f"{continuation_token}"
+        f"{next_token}"
+        f"{start_after}"
+        f"{contents}"
+        f"{common_prefixes}"
+        "</ListBucketResult>"
+    )
+    return body
 
 
 @router.put("/{bucket}/{key:path}")

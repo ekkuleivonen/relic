@@ -47,6 +47,7 @@ def sign_request_url(
     user_id: uuid.UUID,
     host: str,
     ttl_seconds: int | None = None,
+    query_params: dict[str, str] | None = None,
 ) -> SignedUrl:
     ttl = ttl_seconds if ttl_seconds is not None else S.RELIC_SIGNING_TTL_SECONDS
     request_time = now_utc()
@@ -65,7 +66,8 @@ def sign_request_url(
     signed_header_names = ";".join(sorted(signed_headers))
     credential = f"{key_id}/{date_stamp}/{S.RELIC_SIGNING_REGION}/{SERVICE}/{TERMINATOR}"
     canonical_uri = canonical_object_uri(bucket, key)
-    query_params = {
+    signed_query_params = {
+        **(query_params or {}),
         "X-Amz-Algorithm": ALGORITHM,
         "X-Amz-Credential": credential,
         "X-Amz-Date": amz_date,
@@ -75,7 +77,7 @@ def sign_request_url(
     canonical_request = build_canonical_request(
         method=method,
         canonical_uri=canonical_uri,
-        query_params=query_params,
+        query_params=signed_query_params,
         headers=signed_headers,
         signed_header_names=signed_header_names,
     )
@@ -88,8 +90,107 @@ def sign_request_url(
             canonical_request=canonical_request,
         ),
     )
-    query_params["X-Amz-Signature"] = signature
-    url = f"{canonical_uri}?{canonical_query_string(query_params)}"
+    signed_query_params["X-Amz-Signature"] = signature
+    url = f"{canonical_uri}?{canonical_query_string(signed_query_params)}"
+    response_headers = {
+        name: value for name, value in signed_headers.items() if name != "host"
+    }
+    return SignedUrl(url=url, headers=response_headers, expires_at=expires_at)
+
+
+def sign_service_url(
+    *,
+    method: str,
+    headers: dict[str, str],
+    user_id: uuid.UUID,
+    host: str,
+    ttl_seconds: int | None = None,
+    query_params: dict[str, str] | None = None,
+) -> SignedUrl:
+    return sign_request_path_url(
+        method=method,
+        canonical_uri="/s3/",
+        headers=headers,
+        user_id=user_id,
+        host=host,
+        ttl_seconds=ttl_seconds,
+        query_params=query_params,
+    )
+
+
+def sign_bucket_url(
+    *,
+    method: str,
+    bucket: str,
+    headers: dict[str, str],
+    user_id: uuid.UUID,
+    host: str,
+    ttl_seconds: int | None = None,
+    query_params: dict[str, str] | None = None,
+) -> SignedUrl:
+    return sign_request_path_url(
+        method=method,
+        canonical_uri=canonical_bucket_uri(bucket),
+        headers=headers,
+        user_id=user_id,
+        host=host,
+        ttl_seconds=ttl_seconds,
+        query_params=query_params,
+    )
+
+
+def sign_request_path_url(
+    *,
+    method: str,
+    canonical_uri: str,
+    headers: dict[str, str],
+    user_id: uuid.UUID,
+    host: str,
+    ttl_seconds: int | None = None,
+    query_params: dict[str, str] | None = None,
+) -> SignedUrl:
+    ttl = ttl_seconds if ttl_seconds is not None else S.RELIC_SIGNING_TTL_SECONDS
+    request_time = now_utc()
+    date_stamp = request_time.strftime("%Y%m%d")
+    amz_date = request_time.strftime("%Y%m%dT%H%M%SZ")
+    expires_at = request_time + dt.timedelta(seconds=ttl)
+    key_id = S.RELIC_SIGNING_CURRENT_KEY_ID
+    signed_headers = normalize_headers(
+        {
+            **headers,
+            "host": host,
+            "x-amz-content-sha256": UNSIGNED_PAYLOAD,
+            USER_BINDING_HEADER: str(user_id),
+        }
+    )
+    signed_header_names = ";".join(sorted(signed_headers))
+    credential = f"{key_id}/{date_stamp}/{S.RELIC_SIGNING_REGION}/{SERVICE}/{TERMINATOR}"
+    signed_query_params = {
+        **(query_params or {}),
+        "X-Amz-Algorithm": ALGORITHM,
+        "X-Amz-Credential": credential,
+        "X-Amz-Date": amz_date,
+        "X-Amz-Expires": str(ttl),
+        "X-Amz-SignedHeaders": signed_header_names,
+    }
+    canonical_request = build_canonical_request(
+        method=method,
+        canonical_uri=canonical_uri,
+        query_params=signed_query_params,
+        headers=signed_headers,
+        signed_header_names=signed_header_names,
+    )
+    signature = sign_string(
+        secret=S.RELIC_SIGNING_KEYS[key_id],
+        date_stamp=date_stamp,
+        string_to_sign=build_string_to_sign(
+            amz_date=amz_date,
+            credential_scope=credential_scope(date_stamp),
+            canonical_request=canonical_request,
+        ),
+    )
+    signed_query_params["X-Amz-Signature"] = signature
+    url = f"{canonical_uri}?{canonical_query_string(signed_query_params)}"
     response_headers = {
         name: value for name, value in signed_headers.items() if name != "host"
     }
@@ -293,6 +394,10 @@ def normalize_header_value(value: str) -> str:
 
 def canonical_object_uri(bucket: str, key: str) -> str:
     return f"/s3/{quote(bucket, safe='~')}/{quote(key, safe='/~')}"
+
+
+def canonical_bucket_uri(bucket: str) -> str:
+    return f"/s3/{quote(bucket, safe='~')}"
 
 
 def build_canonical_request(
