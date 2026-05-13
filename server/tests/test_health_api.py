@@ -5,6 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from api.app import app
+from constants import HEALTH_STATUS_FAILED, HEALTH_STATUS_OK
 from database import get_db
 from models import Base
 from services import health as health_service
@@ -41,7 +42,7 @@ def client(db_session):
 def stub_redis(monkeypatch):
     async def check_redis_queues():
         return {
-            "status": health_service.STATUS_OK,
+            "status": HEALTH_STATUS_OK,
             "queues": {
                 "relic:processing": {"depth": 0, "oldest_pending_age_seconds": None},
                 "relic:maintenance": {"depth": 0, "oldest_pending_age_seconds": None},
@@ -112,7 +113,7 @@ def test_readyz_returns_unavailable_for_unhealthy_object_store(client, db_sessio
 def test_readyz_returns_unavailable_for_redis_failure(client, monkeypatch):
     async def check_redis_queues():
         return {
-            "status": health_service.STATUS_FAILED,
+            "status": HEALTH_STATUS_FAILED,
             "error_class": "ConnectionError",
             "error_message": "redis down",
         }

@@ -8,7 +8,7 @@ from services import audit_events as audit_event_service
 from services import file_events as file_event_service
 from services import maintenance_events as maintenance_event_service
 from services import storage_maintenance
-from services.processor_queue import redis_settings
+from infra.arq import arq_redis_settings
 from utils.logging import get_logger
 
 import settings as S
@@ -187,5 +187,5 @@ class WorkerSettings:
             second=0,
         ),
     ]
-    redis_settings = redis_settings()
+    redis_settings = arq_redis_settings()
     queue_name = S.MAINTENANCE_QUEUE_NAME

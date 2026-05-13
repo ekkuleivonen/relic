@@ -6,7 +6,7 @@ import wave
 from mutagen.id3 import TALB, TCON, TDRC, TIT2, TPE1, TRCK
 from mutagen.wave import WAVE
 
-from file_meta import FileMeta, build_file_meta
+from domain.files.meta import FileMeta, build_file_meta
 from processors.meta_extract.toolchains.audio import empty_audio_meta, parse, parse_audio
 
 

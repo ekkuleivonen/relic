@@ -2,17 +2,16 @@ import hashlib
 import xml.etree.ElementTree as ET
 
 import pytest
+from api.app import app
+from database import get_db
+from enums import BucketTier, Permission
 from fastapi.testclient import TestClient
+from domain.files.meta import build_file_meta
+from models import Base, Blob, File, Folder, FolderAccess
+from services import s3_signing
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-
-from api.app import app
-from database import get_db
-from file_meta import build_file_meta
-from models import Base, Blob, File, Folder, FolderAccess
-from schema_plan import BucketTier, Permission
-from services import s3_signing
 from tests.factories.models import BucketFactory, UserFactory
 
 

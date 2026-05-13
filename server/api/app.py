@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 import settings as S
+from constants import API_PREFIX, HEALTH_STATUS_OK
 from database import DbSession
 from processors.registry import init_builtin_substrates
 from services import health as health_service
@@ -40,9 +41,6 @@ if S.S3_CORS_ALLOWED_ORIGINS:
         expose_headers=["ETag"],
     )
 
-
-# Control plane (JSON, normal auth)
-API_PREFIX = "/api"
 
 app.include_router(auth_router, prefix=f"{API_PREFIX}/auth", tags=["auth"])
 app.include_router(
@@ -124,7 +122,7 @@ def healthz():
 @app.get("/readyz")
 async def readyz(db: DbSession):
     payload = await health_service.readiness_response(db)
-    if payload["status"] != health_service.STATUS_OK:
+    if payload["status"] != HEALTH_STATUS_OK:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content=payload,

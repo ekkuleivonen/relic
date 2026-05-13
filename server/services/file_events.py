@@ -5,14 +5,14 @@ from dataclasses import dataclass
 from sqlalchemy import Select, delete, func, select, text
 from sqlalchemy.orm import Session, selectinload
 
-from managers.exceptions import BadRequestError
+from constants import (
+    FILE_EVENT_CHANNEL,
+    FILE_EVENT_DEFAULT_LIMIT,
+    FILE_EVENT_MAX_LIMIT,
+    FILE_EVENT_SUPPORTED_STATUSES,
+)
+from domain.exceptions import BadRequestError
 from models import FileEvent, Processor
-
-DEFAULT_LIMIT = 50
-MAX_LIMIT = 200
-SUPPORTED_STATUSES = frozenset({"succeeded", "failed"})
-FILE_EVENT_CHANNEL = "file_event_emitted"
-
 
 @dataclass(frozen=True)
 class FileEventPage:
@@ -93,13 +93,13 @@ def list_file_events(
     folder_id: uuid.UUID | None = None,
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
-    limit: int = DEFAULT_LIMIT,
+    limit: int = FILE_EVENT_DEFAULT_LIMIT,
     offset: int = 0,
 ) -> FileEventPage:
     if limit < 1:
         raise BadRequestError("limit must be >= 1")
-    if limit > MAX_LIMIT:
-        raise BadRequestError(f"limit must be <= {MAX_LIMIT}")
+    if limit > FILE_EVENT_MAX_LIMIT:
+        raise BadRequestError(f"limit must be <= {FILE_EVENT_MAX_LIMIT}")
     if offset < 0:
         raise BadRequestError("offset must be >= 0")
 
@@ -199,6 +199,8 @@ def _clean_optional(value: str | None) -> str | None:
 
 def _clean_status(value: str) -> str:
     cleaned = _clean_required(value, "status")
-    if cleaned not in SUPPORTED_STATUSES:
-        raise BadRequestError(f"status must be one of {sorted(SUPPORTED_STATUSES)}")
+    if cleaned not in FILE_EVENT_SUPPORTED_STATUSES:
+        raise BadRequestError(
+            f"status must be one of {sorted(FILE_EVENT_SUPPORTED_STATUSES)}"
+        )
     return cleaned

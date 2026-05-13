@@ -2,10 +2,9 @@
 
 import uuid
 
-from sqlalchemy.orm import Session
-
+from enums import BucketTier
 from models import Folder
-from schema_plan import BucketTier
+from sqlalchemy.orm import Session
 
 
 def effective_min_tier(db: Session, folder: Folder) -> int:

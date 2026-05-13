@@ -1,6 +1,6 @@
 """Tests for processors.meta_extract.toolchains.text."""
 
-from file_meta import FileMeta, build_file_meta
+from domain.files.meta import FileMeta, build_file_meta
 from processors.meta_extract.toolchains.text import empty_text_meta, parse, parse_text
 
 

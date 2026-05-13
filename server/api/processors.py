@@ -13,6 +13,7 @@ from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.dependencies import AdminUser
+from constants import PROCESSOR_DEFAULT_LIST_LIMIT, PROCESSOR_MAX_LIST_LIMIT
 from database import DbSession
 from models import Processor
 from services import processors as processor_service
@@ -137,9 +138,9 @@ class ProcessorSkipRequest(BaseModel):
 async def list_processors_route(
     db: DbSession,
     limit: int = Query(
-        default=processor_service.DEFAULT_LIST_LIMIT,
+        default=PROCESSOR_DEFAULT_LIST_LIMIT,
         ge=1,
-        le=processor_service.MAX_LIST_LIMIT,
+        le=PROCESSOR_MAX_LIST_LIMIT,
     ),
     offset: int = Query(default=0, ge=0),
 ) -> ProcessorListResponse:

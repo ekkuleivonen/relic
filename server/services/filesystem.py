@@ -2,18 +2,19 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 
+from constants import (
+    FILESYSTEM_DEFAULT_LIST_LIMIT,
+    FILESYSTEM_LIST_SORT_FIELDS,
+    FILESYSTEM_LIST_SORT_ORDERS,
+    FILESYSTEM_MAX_LIST_LIMIT,
+)
+from enums import Permission
+from domain.exceptions import BadRequestError, ResourceNotFound
+from models import File, Folder, User
 from sqlalchemy import BigInteger, asc, cast, desc, func, nullslast, select
 from sqlalchemy.orm import Session
 
-from managers.exceptions import BadRequestError, ResourceNotFound
-from models import File, Folder, User
-from schema_plan import Permission
 from services import folder_access as folder_access_service
-
-DEFAULT_LIST_LIMIT = 50
-MAX_LIST_LIMIT = 200
-LIST_SORT_FIELDS = frozenset({"name", "updated_at", "size", "mimetype"})
-LIST_SORT_ORDERS = frozenset({"asc", "desc"})
 
 
 @dataclass(frozen=True)
@@ -34,14 +35,20 @@ def get_folder_tree(
     )
 
 
-def _validate_list_files_params(*, limit: int, offset: int, sort: str, order: str) -> None:
-    if limit < 1 or limit > MAX_LIST_LIMIT:
-        raise BadRequestError(f"limit must be between 1 and {MAX_LIST_LIMIT}")
+def _validate_list_files_params(
+    *, limit: int, offset: int, sort: str, order: str
+) -> None:
+    if limit < 1 or limit > FILESYSTEM_MAX_LIST_LIMIT:
+        raise BadRequestError(
+            f"limit must be between 1 and {FILESYSTEM_MAX_LIST_LIMIT}"
+        )
     if offset < 0:
         raise BadRequestError("offset must be >= 0")
-    if sort not in LIST_SORT_FIELDS:
-        raise BadRequestError(f"sort must be one of {sorted(LIST_SORT_FIELDS)}")
-    if order not in LIST_SORT_ORDERS:
+    if sort not in FILESYSTEM_LIST_SORT_FIELDS:
+        raise BadRequestError(
+            f"sort must be one of {sorted(FILESYSTEM_LIST_SORT_FIELDS)}"
+        )
+    if order not in FILESYSTEM_LIST_SORT_ORDERS:
         raise BadRequestError("order must be 'asc' or 'desc'")
 
 
@@ -69,7 +76,7 @@ def list_files(
     *,
     folder_id: uuid.UUID | None = None,
     recursive: bool = False,
-    limit: int = DEFAULT_LIST_LIMIT,
+    limit: int = FILESYSTEM_DEFAULT_LIST_LIMIT,
     offset: int = 0,
     sort: str = "name",
     order: str = "asc",

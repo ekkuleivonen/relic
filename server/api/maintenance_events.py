@@ -4,6 +4,7 @@ import uuid
 from fastapi import APIRouter, Query, Response, status
 from pydantic import BaseModel, ConfigDict
 
+from constants import MAINTENANCE_EVENT_DEFAULT_LIMIT, MAINTENANCE_EVENT_MAX_LIMIT
 from database import DbSession
 from models import MaintenanceEvent
 from services import maintenance_events as maintenance_event_service
@@ -62,9 +63,9 @@ async def list_maintenance_events(
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
     limit: int = Query(
-        default=maintenance_event_service.DEFAULT_LIMIT,
+        default=MAINTENANCE_EVENT_DEFAULT_LIMIT,
         ge=1,
-        le=maintenance_event_service.MAX_LIMIT,
+        le=MAINTENANCE_EVENT_MAX_LIMIT,
     ),
     offset: int = Query(default=0, ge=0),
 ) -> MaintenanceEventListResponse:

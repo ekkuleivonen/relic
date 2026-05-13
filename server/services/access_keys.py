@@ -1,5 +1,4 @@
 import datetime as dt
-import hashlib
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -7,7 +6,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from managers.exceptions import ResourceNotFound
+from domain.exceptions import ResourceNotFound
 from models import AccessKey, User
 from services.audit_events import create_audit_event
 from services.event_context import EventContext
@@ -52,7 +51,7 @@ def create_access_key(
         user_id=user.id,
         name=name,
         key_id=key_id,
-        secret_hash=hash_secret(secret_access_key),
+        secret_access_key=secret_access_key,
     )
     db.add(access_key)
     db.flush()
@@ -93,6 +92,18 @@ def get_access_key_by_key_id(db: Session, key_id: str) -> AccessKeyRow:
         raise ResourceNotFound("Access key not found")
 
     return AccessKeyRow(access_key=row.AccessKey, user=row.User)
+
+
+def get_active_access_key_by_key_id(db: Session, key_id: str) -> AccessKeyRow:
+    row = get_access_key_by_key_id(db, key_id)
+    if row.access_key.revoked_at is not None:
+        raise ResourceNotFound("Access key not found")
+    return row
+
+
+def mark_access_key_used(db: Session, access_key: AccessKey) -> None:
+    access_key.last_used_at = dt.datetime.now(dt.UTC)
+    db.commit()
 
 
 def revoke_access_key(
@@ -159,7 +170,3 @@ def generate_key_id() -> str:
 
 def generate_secret_access_key() -> str:
     return secrets.token_urlsafe(32)
-
-
-def hash_secret(secret_access_key: str) -> bytes:
-    return hashlib.sha256(secret_access_key.encode()).digest()

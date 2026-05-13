@@ -8,8 +8,7 @@ from typing import Any, Optional, Sequence, overload
 
 from dotenv import load_dotenv
 
-TRUTHY = {"true", "1", "yes", "y", "on"}
-FALSY = {"false", "0", "no", "n", "off"}
+from constants import ENV_FALSY_VALUES, ENV_TRUTHY_VALUES
 
 
 class Env:
@@ -91,9 +90,9 @@ class Env:
                 raise ValueError(f"Required env var {key} is not set")
             return default
         s = raw.strip().lower()
-        if s in TRUTHY:
+        if s in ENV_TRUTHY_VALUES:
             return True
-        if s in FALSY:
+        if s in ENV_FALSY_VALUES:
             return False
         raise ValueError(f"Env var {key}={raw!r} is not a valid boolean")
 

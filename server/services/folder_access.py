@@ -1,26 +1,18 @@
 import uuid
 from dataclasses import dataclass
 
+from constants import FOLDER_ACCESS_ALL_PERMISSIONS, FOLDER_ACCESS_PERMISSION_MASK
+from enums import Permission, UserRole
+from domain.exceptions import BadRequestError, PermissionDenied, ResourceNotFound
+from models import Folder, FolderAccess, User
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from managers.exceptions import BadRequestError, PermissionDenied, ResourceNotFound
-from models import Folder, FolderAccess, User
-from schema_plan import Permission, UserRole
-from services.audit_events import create_audit_event
-from services.event_context import EventContext
 from utils.logging import get_logger
 
+from services.audit_events import create_audit_event
+from services.event_context import EventContext
+
 log = get_logger(__name__)
-
-
-PERMISSION_MASK = (
-    Permission.READ
-    | Permission.WRITE
-    | Permission.DELETE
-    | Permission.ENRICH
-)
-ALL_PERMISSIONS = int(PERMISSION_MASK)
 
 
 @dataclass(frozen=True)
@@ -151,7 +143,7 @@ def revoke_folder_access(
 def get_effective_permissions(db: Session, user: User, folder_id: uuid.UUID) -> int:
     folder = require_folder(db, folder_id)
     if user.role == UserRole.ADMIN:
-        return ALL_PERMISSIONS
+        return FOLDER_ACCESS_ALL_PERMISSIONS
 
     ancestor_ids = collect_ancestor_folder_ids(db, folder.id)
     grants = db.scalars(
@@ -237,11 +229,21 @@ def filter_visible_tree(
 ) -> Folder:
     root = get_tree_root(db, root_id)
     visible_ids = visible_folder_ids(db, user)
-    if root_id is not None and user.role != UserRole.ADMIN and root.id not in visible_ids:
+    if (
+        root_id is not None
+        and user.role != UserRole.ADMIN
+        and root.id not in visible_ids
+    ):
         raise ResourceNotFound("Root folder not found")
 
     permissions_by_folder = effective_permissions_by_folder(db, user)
-    paths = compute_folder_paths(db, {folder_id for folder_id, _ in db.execute(select(Folder.id, Folder.parent_id)).all()})
+    paths = compute_folder_paths(
+        db,
+        {
+            folder_id
+            for folder_id, _ in db.execute(select(Folder.id, Folder.parent_id)).all()
+        },
+    )
     folders = list(db.scalars(select(Folder).order_by(Folder.name)).all())
     children_by_parent: dict[uuid.UUID | None, list[Folder]] = {}
     for folder in folders:
@@ -250,7 +252,9 @@ def filter_visible_tree(
 
     root.path = paths[root.id]
     root.effective_permissions = permissions_by_folder.get(root.id, 0)
-    root.children = build_visible_children(root, children_by_parent, visible_ids, permissions_by_folder)
+    root.children = build_visible_children(
+        root, children_by_parent, visible_ids, permissions_by_folder
+    )
     return root
 
 
@@ -260,14 +264,16 @@ def effective_permissions_by_folder(
 ) -> dict[uuid.UUID, int]:
     folders = db.execute(select(Folder.id, Folder.parent_id)).all()
     if user.role == UserRole.ADMIN:
-        return {folder_id: ALL_PERMISSIONS for folder_id, _ in folders}
+        return {folder_id: FOLDER_ACCESS_ALL_PERMISSIONS for folder_id, _ in folders}
 
     children_by_parent: dict[uuid.UUID | None, list[uuid.UUID]] = {}
     for folder_id, parent_id in folders:
         children_by_parent.setdefault(parent_id, []).append(folder_id)
 
     grants_by_folder: dict[uuid.UUID, int] = {}
-    grants = db.scalars(select(FolderAccess).where(FolderAccess.user_id == user.id)).all()
+    grants = db.scalars(
+        select(FolderAccess).where(FolderAccess.user_id == user.id)
+    ).all()
     for grant in grants:
         grants_by_folder[grant.folder_id] = (
             grants_by_folder.get(grant.folder_id, 0) | grant.permissions
@@ -318,7 +324,9 @@ def build_visible_children(
 ) -> list[Folder]:
     visible_children: list[Folder] = []
 
-    for child in sorted(children_by_parent.get(folder.id, []), key=lambda item: item.name):
+    for child in sorted(
+        children_by_parent.get(folder.id, []), key=lambda item: item.name
+    ):
         child.effective_permissions = permissions_by_folder.get(child.id, 0)
         child.children = build_visible_children(
             child,
@@ -338,7 +346,7 @@ def validate_permissions(permissions: int) -> None:
     if permissions <= 0:
         raise BadRequestError("Permissions must include at least one capability")
 
-    if permissions & ~int(PERMISSION_MASK):
+    if permissions & ~int(FOLDER_ACCESS_PERMISSION_MASK):
         raise BadRequestError("Permissions contain unknown bits")
 
     has_read = bool(permissions & int(Permission.READ))
@@ -346,9 +354,7 @@ def validate_permissions(permissions: int) -> None:
         permissions & int(Permission.WRITE | Permission.DELETE | Permission.ENRICH)
     )
     if needs_read and not has_read:
-        raise BadRequestError(
-            "Write, delete, and enrich grants require read access"
-        )
+        raise BadRequestError("Write, delete, and enrich grants require read access")
 
 
 def require_user(db: Session, user_id: uuid.UUID) -> User:
@@ -412,4 +418,3 @@ def format_path_segment(prefix: str, name: str) -> str:
     if prefix in ("", "/"):
         return f"/{name}"
     return f"{prefix}/{name}"
-

@@ -1,6 +1,6 @@
 """Tests for canonical File.meta helpers."""
 
-from file_meta import build_file_meta, merge_parser_meta, validate_file_meta_dict
+from domain.files.meta import build_file_meta, merge_parser_meta, validate_file_meta_dict
 
 
 def test_merge_parser_meta_upgrades_unknown_mimetype() -> None:

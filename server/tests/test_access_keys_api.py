@@ -1,14 +1,13 @@
 import pytest
+from api.app import app
+from database import get_db
+from enums import UserRole
 from fastapi.testclient import TestClient
+from models import AccessKey, Base
+from services.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-
-from api.app import app
-from database import get_db
-from models import AccessKey, Base
-from schema_plan import UserRole
-from services.auth import create_session_token
 from tests.factories.models import AccessKeyFactory, UserFactory
 
 
@@ -71,7 +70,8 @@ def test_create_access_key_returns_secret_once(client, db_session):
         select(AccessKey).where(AccessKey.key_id == body["key_id"])
     )
     assert access_key is not None
-    assert access_key.secret_hash != body["secret_access_key"].encode()
+    assert access_key._secret_access_key != body["secret_access_key"]
+    assert access_key.secret_access_key == body["secret_access_key"]
 
     list_response = client.get("/api/access-keys/")
     assert list_response.status_code == 200

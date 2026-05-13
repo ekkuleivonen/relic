@@ -11,7 +11,7 @@ from pypdf import PdfReader
 from pypdf.errors import FileNotDecryptedError, PdfReadError
 from pypdf.generic import DictionaryObject, IndirectObject
 
-from file_meta import build_file_meta, build_parser_meta
+from domain.files.meta import build_file_meta, build_parser_meta
 from utils.logging import get_logger
 
 log = get_logger(__name__)

@@ -5,23 +5,23 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 import settings
-from file_meta import build_file_meta, merge_parser_meta, validate_file_meta_dict
-from managers.exceptions import ResourceNotFound
+from constants import (
+    META_EXTRACT_PREFIX_BYTES,
+    META_EXTRACT_STATUS_COMPLETED,
+    META_EXTRACT_STATUS_FAILED,
+    META_EXTRACT_STATUS_IN_PROGRESS,
+)
+from domain.files.meta import build_file_meta, merge_parser_meta, validate_file_meta_dict
+from domain.exceptions import ResourceNotFound
 from models import (
     Blob,
     Bucket,
     File,
-    META_EXTRACT_STATUS_COMPLETED,
-    META_EXTRACT_STATUS_FAILED,
-    META_EXTRACT_STATUS_IN_PROGRESS,
 )
 from services import objects as object_service
 from utils.logging import get_logger
 
 log = get_logger(__name__)
-
-PREFIX_BYTES = 4096
-
 
 def parse_file(db: Session, file_id: uuid.UUID) -> File:
     parser_meta: dict | None = None
@@ -493,14 +493,14 @@ def is_text_file(*, mime_type: str, parser_meta: dict) -> bool:
 
 
 def read_blob_prefix(*, bucket: Bucket, bucket_key: str) -> bytes:
-    if PREFIX_BYTES <= 0:
+    if META_EXTRACT_PREFIX_BYTES <= 0:
         return b""
     response = object_service.fetch_blob_bytes(
         bucket=bucket,
         bucket_key=bucket_key,
-        range_header=f"bytes=0-{PREFIX_BYTES - 1}",
+        range_header=f"bytes=0-{META_EXTRACT_PREFIX_BYTES - 1}",
     )
-    return response["Body"].read(PREFIX_BYTES)
+    return response["Body"].read(META_EXTRACT_PREFIX_BYTES)
 
 
 def read_blob_bytes_capped(

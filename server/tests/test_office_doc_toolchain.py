@@ -3,7 +3,7 @@
 import io
 import zipfile
 
-from file_meta import FileMeta, build_file_meta
+from domain.files.meta import FileMeta, build_file_meta
 from processors.meta_extract.toolchains.office_doc import empty_office_doc_meta, parse, parse_office_doc
 
 

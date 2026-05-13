@@ -2,17 +2,17 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 
+from enums import Permission, UserRole
+from domain.exceptions import BadRequestError, ConflictError, PermissionDenied
+from models import Blob, File, Folder, User
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-
-from managers.exceptions import BadRequestError, ConflictError, PermissionDenied
-from models import Blob, File, Folder, User
-from schema_plan import Permission, UserRole
-from services.event_context import EventContext
-from services import folder_access as folder_access_service
-from services.file_events import create_file_event
 from utils.logging import get_logger
+
+from services import folder_access as folder_access_service
+from services.event_context import EventContext
+from services.file_events import create_file_event
 
 log = get_logger(__name__)
 
@@ -216,9 +216,7 @@ def delete_folder(
     descendant_ids = _collect_descendant_ids(db, folder.id)
     all_ids = [folder.id, *descendant_ids]
 
-    file_rows = list(
-        db.scalars(select(File).where(File.folder_id.in_(all_ids))).all()
-    )
+    file_rows = list(db.scalars(select(File).where(File.folder_id.in_(all_ids))).all())
     has_children = bool(descendant_ids) or bool(file_rows)
     if has_children and not recursive:
         raise ConflictError(
@@ -332,9 +330,7 @@ def duplicate_folder(
     cloned_folders: list[Folder] = [cloned_root]
 
     def clone_files(source_id: uuid.UUID, target_id: uuid.UUID) -> None:
-        files = list(
-            db.scalars(select(File).where(File.folder_id == source_id)).all()
-        )
+        files = list(db.scalars(select(File).where(File.folder_id == source_id)).all())
         for file in files:
             new_file = File(
                 folder_id=target_id,
@@ -445,9 +441,7 @@ def _validate_name(name: str) -> str:
     return cleaned
 
 
-def _collect_descendant_ids(
-    db: Session, folder_id: uuid.UUID
-) -> list[uuid.UUID]:
+def _collect_descendant_ids(db: Session, folder_id: uuid.UUID) -> list[uuid.UUID]:
     """Return all descendants of `folder_id`, NOT including `folder_id` itself."""
     rows = db.execute(select(Folder.id, Folder.parent_id)).all()
     children_by_parent: dict[uuid.UUID | None, list[uuid.UUID]] = defaultdict(list)

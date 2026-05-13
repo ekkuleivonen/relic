@@ -11,11 +11,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from botocore.exceptions import BotoCoreError, ClientError
+from enums import BucketTier
+from models import Blob, Bucket, File
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+from utils.logging import get_logger
 
-from models import Blob, Bucket, File
-from schema_plan import BucketTier
 from services import buckets as bucket_service
 from services.audit_events import (
     elapsed_ms,
@@ -29,7 +30,6 @@ from services.placement import (
     choose_bucket,
     get_bucket_usages,
 )
-from utils.logging import get_logger
 
 log = get_logger(__name__)
 
@@ -275,9 +275,7 @@ def _target_tier_for_policy(
     if cooldown is not None and (effective_now - accessed) >= dt.timedelta(
         days=cooldown
     ):
-        target_after_idle = max(
-            floor, min(int(BucketTier.FROZEN), bucket.tier + 1)
-        )
+        target_after_idle = max(floor, min(int(BucketTier.FROZEN), bucket.tier + 1))
 
     desired = max(floor, target_after_idle)
     if desired <= bucket.tier:
@@ -308,7 +306,10 @@ def _migrate_blob_to_bucket_inner(
         )
 
     destination_usage = get_bucket_usages(db, [destination.id])[destination.id]
-    if destination_usage.current_size_bytes + blob.size_bytes > destination.max_size_bytes:
+    if (
+        destination_usage.current_size_bytes + blob.size_bytes
+        > destination.max_size_bytes
+    ):
         log.warning(
             "blob_migrate_destination_full",
             blob_id=str(blob.id),

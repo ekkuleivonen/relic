@@ -5,7 +5,7 @@ import io
 import pytest
 from PIL import Image
 
-from file_meta import FileMeta, build_file_meta
+from domain.files.meta import FileMeta, build_file_meta
 from processors.meta_extract.toolchains.image import (
     _parse_exif_datetime,
     _parse_gps_coord,

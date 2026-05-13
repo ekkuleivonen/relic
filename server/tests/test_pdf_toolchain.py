@@ -4,7 +4,7 @@ import io
 
 from pypdf import PdfWriter
 
-from file_meta import FileMeta, build_file_meta
+from domain.files.meta import FileMeta, build_file_meta
 from processors.meta_extract.toolchains.pdf import empty_pdf_meta, parse, parse_pdf
 
 

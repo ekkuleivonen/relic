@@ -63,21 +63,13 @@ services:
           memory: 512m
           cpus: "1"
 
-  migrate:
-    <<: *server-service
-    container_name: relic_migrate
-    command: alembic upgrade head
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   seed:
     <<: *server-service
     container_name: relic_seed
     command: python seed.py
     depends_on:
-      migrate:
-        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
 
   api:
     <<: *server-service
@@ -92,10 +84,10 @@ services:
       redis:
         condition: service_healthy
 
-  worker-processing:
+  dispatcher:
     <<: *server-service
-    container_name: relic_worker_processing
-    command: arq processors.worker_processing.WorkerSettings
+    container_name: relic_dispatcher
+    command: python -m processors.dispatcher
     restart: unless-stopped
     depends_on:
       seed:
@@ -103,10 +95,10 @@ services:
       redis:
         condition: service_healthy
 
-  dispatcher:
+  worker-processing:
     <<: *server-service
-    container_name: relic_dispatcher
-    command: python -m processors.dispatcher
+    container_name: relic_worker_processing
+    command: arq processors.worker_processing.WorkerSettings
     restart: unless-stopped
     depends_on:
       seed:

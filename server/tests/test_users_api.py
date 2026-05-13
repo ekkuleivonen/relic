@@ -1,16 +1,15 @@
 import pytest
+from api.app import app
+from database import get_db
+from enums import BucketTier, UserRole
 from fastapi.testclient import TestClient
+from domain.files.meta import build_file_meta
+from models import Base, File, Folder, User
+from services.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-
-from api.app import app
-from database import get_db
-from file_meta import build_file_meta
-from models import Base, File, Folder, User
-from schema_plan import BucketTier, UserRole
 from tests.factories.models import BlobFactory, BucketFactory
-from services.auth import create_session_token
 from utils.passwords import hash_password
 
 

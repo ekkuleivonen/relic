@@ -7,23 +7,16 @@ and the reference implementation for the substrate contract.
 
 from sqlalchemy.orm import Session
 
-from managers.exceptions import ResourceNotFound
+from constants import (
+    META_EXTRACT_DEFAULT_SUBSCRIBED_EVENT_TYPES,
+    META_EXTRACT_PROCESSOR_KIND,
+)
+from domain.exceptions import ResourceNotFound
 from processors.meta_extract import base
 from processors.registry import ProcessorContext, register
 from utils.logging import get_logger
 
 log = get_logger(__name__)
-
-KIND = "meta_extract"
-
-DEFAULT_SUBSCRIBED_EVENT_TYPES = (
-    "file.created",
-    "file.updated",
-    "file.copied",
-    "file.renamed",
-)
-
-VALID_EVENT_TYPES = DEFAULT_SUBSCRIBED_EVENT_TYPES
 
 
 def handle(db: Session, ctx: ProcessorContext) -> None:
@@ -56,8 +49,8 @@ def handle(db: Session, ctx: ProcessorContext) -> None:
 
 def register_substrate() -> None:
     register(
-        kind=KIND,
+        kind=META_EXTRACT_PROCESSOR_KIND,
         handler=handle,
-        default_subscribed_event_types=DEFAULT_SUBSCRIBED_EVENT_TYPES,
-        valid_event_types=VALID_EVENT_TYPES,
+        default_subscribed_event_types=META_EXTRACT_DEFAULT_SUBSCRIBED_EVENT_TYPES,
+        valid_event_types=META_EXTRACT_DEFAULT_SUBSCRIBED_EVENT_TYPES,
     )

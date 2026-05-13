@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from managers.exceptions import ConflictError, ResourceNotFound
+from domain.exceptions import ConflictError, ResourceNotFound
 from models import File, User
 from services.audit_events import create_audit_event
 from services.event_context import EventContext

@@ -8,7 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-META_SCHEMA_VERSION = "1.0.0"
+from constants import META_SCHEMA_VERSION
+
 KvsValue = str | int | float | bool | None
 
 

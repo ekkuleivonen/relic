@@ -10,7 +10,7 @@ from typing import IO, Any
 
 import pyarrow.parquet as pq
 
-from file_meta import build_file_meta, build_parser_meta
+from domain.files.meta import build_file_meta, build_parser_meta
 from utils.logging import get_logger
 
 log = get_logger(__name__)

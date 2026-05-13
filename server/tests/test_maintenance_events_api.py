@@ -2,20 +2,19 @@ import datetime as dt
 import uuid
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from api.app import app
 from database import get_db
+from enums import UserRole
+from fastapi.testclient import TestClient
 from models import Base, MaintenanceEvent
-from schema_plan import UserRole
 from services.auth import create_session_token
 from services.maintenance_events import (
     create_maintenance_event,
     trim_maintenance_events_older_than,
 )
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from tests.factories.models import MaintenanceEventFactory, UserFactory
 
 
@@ -196,12 +195,11 @@ def test_trim_maintenance_events_older_than_deletes_only_events_before_cutoff(
     db_session.add_all([old_event, cutoff_event, recent_event])
     db_session.commit()
 
-    deleted = trim_maintenance_events_older_than(
-        db_session, retention_days=30, now=now
-    )
+    deleted = trim_maintenance_events_older_than(db_session, retention_days=30, now=now)
 
     remaining_names = {
-        event.meta["name"] for event in db_session.scalars(select(MaintenanceEvent)).all()
+        event.meta["name"]
+        for event in db_session.scalars(select(MaintenanceEvent)).all()
     }
     assert deleted == 1
     assert remaining_names == {"cutoff", "recent"}

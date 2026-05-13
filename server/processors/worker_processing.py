@@ -11,7 +11,7 @@ import uuid
 from database import get_sessionmaker
 from processors.registry import init_builtin_substrates
 from services import processors as processor_service
-from services.processor_queue import redis_settings
+from infra.arq import arq_redis_settings
 
 import settings as S
 
@@ -57,6 +57,6 @@ class WorkerSettings:
     """
 
     functions = [run_processor_event]
-    redis_settings = redis_settings()
+    redis_settings = arq_redis_settings()
     queue_name = S.PROCESSING_QUEUE_NAME
     max_jobs = 1

@@ -1,16 +1,15 @@
 import uuid
 
 import pytest
+from api.app import app
+from database import get_db
+from enums import BucketTier, UserRole
 from fastapi.testclient import TestClient
+from models import AuditEvent, Base, Bucket, User
+from services.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-
-from api.app import app
-from database import get_db
-from models import AuditEvent, Base, Bucket, User
-from schema_plan import BucketTier, UserRole
-from services.auth import create_session_token
 from tests.factories.models import BlobFactory, BucketFactory
 from utils.passwords import hash_password
 
@@ -121,7 +120,9 @@ def test_get_and_update_bucket(client):
 
 
 def test_bucket_usage_is_derived_from_blobs(client, db_session):
-    bucket_id = uuid.UUID(client.post("/api/buckets/", json=bucket_payload()).json()["id"])
+    bucket_id = uuid.UUID(
+        client.post("/api/buckets/", json=bucket_payload()).json()["id"]
+    )
     db_session.add(BlobFactory(bucket_id=bucket_id, size_bytes=12))
     db_session.add(BlobFactory(bucket_id=bucket_id, size_bytes=30))
     db_session.commit()
@@ -135,7 +136,9 @@ def test_bucket_usage_is_derived_from_blobs(client, db_session):
 
 
 def test_bucket_credentials_are_encrypted_at_rest(client, db_session):
-    bucket_id = uuid.UUID(client.post("/api/buckets/", json=bucket_payload()).json()["id"])
+    bucket_id = uuid.UUID(
+        client.post("/api/buckets/", json=bucket_payload()).json()["id"]
+    )
     bucket_row = db_session.get(Bucket, bucket_id)
 
     assert bucket_row.key_id.startswith("GK")
@@ -154,7 +157,9 @@ def test_delete_bucket(client):
 
 
 def test_delete_bucket_with_blobs_returns_conflict(client, db_session):
-    bucket_id = uuid.UUID(client.post("/api/buckets/", json=bucket_payload()).json()["id"])
+    bucket_id = uuid.UUID(
+        client.post("/api/buckets/", json=bucket_payload()).json()["id"]
+    )
     db_session.add(BlobFactory(bucket_id=bucket_id))
     db_session.commit()
 

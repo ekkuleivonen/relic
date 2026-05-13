@@ -2,17 +2,16 @@ import datetime as dt
 import uuid
 
 import pytest
+from api.app import app
+from database import get_db
+from enums import UserRole
 from fastapi.testclient import TestClient
+from models import Base, FileEvent, Processor
+from services.auth import create_session_token
+from services.file_events import create_file_event, trim_file_events_older_than
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-
-from api.app import app
-from database import get_db
-from models import Base, FileEvent, Processor
-from schema_plan import UserRole
-from services.auth import create_session_token
-from services.file_events import create_file_event, trim_file_events_older_than
 from tests.factories.models import FileEventFactory, UserFactory
 
 

@@ -6,13 +6,13 @@ from dataclasses import dataclass
 from sqlalchemy import Select, delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from managers.exceptions import BadRequestError
+from constants import (
+    AUDIT_EVENT_DEFAULT_LIMIT,
+    AUDIT_EVENT_MAX_LIMIT,
+    AUDIT_EVENT_SUPPORTED_STATUSES,
+)
+from domain.exceptions import BadRequestError
 from models import AuditEvent
-
-DEFAULT_LIMIT = 50
-MAX_LIMIT = 200
-SUPPORTED_STATUSES = frozenset({"succeeded", "failed"})
-
 
 @dataclass(frozen=True)
 class AuditEventPage:
@@ -122,13 +122,13 @@ def list_audit_events(
     request_id: str | None = None,
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
-    limit: int = DEFAULT_LIMIT,
+    limit: int = AUDIT_EVENT_DEFAULT_LIMIT,
     offset: int = 0,
 ) -> AuditEventPage:
     if limit < 1:
         raise BadRequestError("limit must be >= 1")
-    if limit > MAX_LIMIT:
-        raise BadRequestError(f"limit must be <= {MAX_LIMIT}")
+    if limit > AUDIT_EVENT_MAX_LIMIT:
+        raise BadRequestError(f"limit must be <= {AUDIT_EVENT_MAX_LIMIT}")
     if offset < 0:
         raise BadRequestError("offset must be >= 0")
 
@@ -193,6 +193,8 @@ def _clean_optional(value: str | None) -> str | None:
 
 def _clean_status(value: str) -> str:
     cleaned = _clean_required(value, "status")
-    if cleaned not in SUPPORTED_STATUSES:
-        raise BadRequestError(f"status must be one of {sorted(SUPPORTED_STATUSES)}")
+    if cleaned not in AUDIT_EVENT_SUPPORTED_STATUSES:
+        raise BadRequestError(
+            f"status must be one of {sorted(AUDIT_EVENT_SUPPORTED_STATUSES)}"
+        )
     return cleaned

@@ -1,22 +1,21 @@
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from api.app import app
+from constants import META_EXTRACT_STATUS_COMPLETED
 from database import get_db
-from file_meta import build_file_meta
+from enums import BucketTier, Permission
+from fastapi.testclient import TestClient
+from domain.files.meta import build_file_meta
 from models import (
     Base,
     Blob,
     File,
     Folder,
     FolderAccess,
-    META_EXTRACT_STATUS_COMPLETED,
 )
-from schema_plan import BucketTier, Permission
 from services.auth import create_session_token
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from tests.factories.models import BucketFactory, UserFactory
 
 
@@ -107,9 +106,7 @@ def physical_bucket(db_session):
 
 
 def grant(db_session, user, folder, permissions: int) -> FolderAccess:
-    access = FolderAccess(
-        user_id=user.id, folder_id=folder.id, permissions=permissions
-    )
+    access = FolderAccess(user_id=user.id, folder_id=folder.id, permissions=permissions)
     db_session.add(access)
     db_session.commit()
     return access
@@ -163,8 +160,12 @@ def test_move_file_changes_folder_id(
         int(Permission.READ | Permission.WRITE | Permission.DELETE),
     )
     grant(db_session, user, archives_folder, int(Permission.READ | Permission.WRITE))
-    blob = make_blob(db_session, bucket=physical_bucket, content_hash=(1).to_bytes(32, "big"))
-    file = make_file(db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg")
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(1).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg"
+    )
 
     response = client.post(
         f"/api/files/{file.id}/move",
@@ -190,8 +191,12 @@ def test_move_file_to_other_folder(
         int(Permission.READ | Permission.WRITE | Permission.DELETE),
     )
     grant(db_session, user, archives_folder, int(Permission.READ | Permission.WRITE))
-    blob = make_blob(db_session, bucket=physical_bucket, content_hash=(2).to_bytes(32, "big"))
-    file = make_file(db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg")
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(2).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg"
+    )
 
     response = client.post(
         f"/api/files/{file.id}/move",
@@ -205,8 +210,12 @@ def test_move_requires_delete_on_source(
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     grant(db_session, user, archives_folder, int(Permission.READ | Permission.WRITE))
-    blob = make_blob(db_session, bucket=physical_bucket, content_hash=(3).to_bytes(32, "big"))
-    file = make_file(db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg")
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(3).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg"
+    )
 
     response = client.post(
         f"/api/files/{file.id}/move",
@@ -225,8 +234,12 @@ def test_move_requires_write_on_destination(
         int(Permission.READ | Permission.WRITE | Permission.DELETE),
     )
     grant(db_session, user, archives_folder, int(Permission.READ))
-    blob = make_blob(db_session, bucket=physical_bucket, content_hash=(4).to_bytes(32, "big"))
-    file = make_file(db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg")
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(4).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg"
+    )
 
     response = client.post(
         f"/api/files/{file.id}/move",
@@ -245,10 +258,18 @@ def test_move_conflicts_when_name_taken_in_destination(
         int(Permission.READ | Permission.WRITE | Permission.DELETE),
     )
     grant(db_session, user, archives_folder, int(Permission.READ | Permission.WRITE))
-    blob_a = make_blob(db_session, bucket=physical_bucket, content_hash=(5).to_bytes(32, "big"))
-    blob_b = make_blob(db_session, bucket=physical_bucket, content_hash=(6).to_bytes(32, "big"))
-    file = make_file(db_session, user=user, folder=photos_folder, blob=blob_a, name="cat.jpg")
-    make_file(db_session, user=user, folder=archives_folder, blob=blob_b, name="cat.jpg")
+    blob_a = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(5).to_bytes(32, "big")
+    )
+    blob_b = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(6).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob_a, name="cat.jpg"
+    )
+    make_file(
+        db_session, user=user, folder=archives_folder, blob=blob_b, name="cat.jpg"
+    )
 
     response = client.post(
         f"/api/files/{file.id}/move",
@@ -262,12 +283,14 @@ def test_move_conflicts_when_name_taken_in_destination(
 # ---------------------------------------------------------------------------
 
 
-def test_rename_file_in_place(
-    client, db_session, user, photos_folder, physical_bucket
-):
+def test_rename_file_in_place(client, db_session, user, photos_folder, physical_bucket):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
-    blob = make_blob(db_session, bucket=physical_bucket, content_hash=(7).to_bytes(32, "big"))
-    file = make_file(db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg")
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(7).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg"
+    )
 
     response = client.patch(
         f"/api/files/{file.id}",
@@ -284,8 +307,12 @@ def test_rename_restores_extension_when_omitted(
     client, db_session, user, photos_folder, physical_bucket
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
-    blob = make_blob(db_session, bucket=physical_bucket, content_hash=(17).to_bytes(32, "big"))
-    file = make_file(db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg")
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(17).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg"
+    )
 
     response = client.patch(
         f"/api/files/{file.id}",
@@ -306,8 +333,12 @@ def test_move_with_new_name_restores_extension_when_omitted(
         int(Permission.READ | Permission.WRITE | Permission.DELETE),
     )
     grant(db_session, user, archives_folder, int(Permission.READ | Permission.WRITE))
-    blob = make_blob(db_session, bucket=physical_bucket, content_hash=(18).to_bytes(32, "big"))
-    file = make_file(db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg")
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(18).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg"
+    )
 
     response = client.post(
         f"/api/files/{file.id}/move",
@@ -326,9 +357,15 @@ def test_rename_conflicts_with_existing_name(
     client, db_session, user, photos_folder, physical_bucket
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
-    blob_a = make_blob(db_session, bucket=physical_bucket, content_hash=(8).to_bytes(32, "big"))
-    blob_b = make_blob(db_session, bucket=physical_bucket, content_hash=(9).to_bytes(32, "big"))
-    file = make_file(db_session, user=user, folder=photos_folder, blob=blob_a, name="cat.jpg")
+    blob_a = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(8).to_bytes(32, "big")
+    )
+    blob_b = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(9).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob_a, name="cat.jpg"
+    )
     make_file(db_session, user=user, folder=photos_folder, blob=blob_b, name="dog.jpg")
 
     response = client.patch(
@@ -345,7 +382,9 @@ def test_rename_requires_write(
     blob = make_blob(
         db_session, bucket=physical_bucket, content_hash=(10).to_bytes(32, "big")
     )
-    file = make_file(db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg")
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg"
+    )
 
     response = client.patch(
         f"/api/files/{file.id}",

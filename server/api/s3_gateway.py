@@ -8,10 +8,15 @@ from urllib.parse import unquote
 from xml.sax.saxutils import escape
 
 import settings as S
+from constants import (
+    S3_LISTING_DEFAULT_MAX_KEYS,
+    S3_METADATA_DIRECTIVE_COPY,
+    S3_USER_BINDING_HEADER,
+)
 from database import DbSession
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import StreamingResponse
-from managers.exceptions import (
+from domain.exceptions import (
     BadRequestError,
     ConflictError,
     DomainError,
@@ -169,7 +174,7 @@ async def list_objects_v2(bucket: str, request: Request, db: DbSession) -> Respo
 
 
 def load_signed_user(request: Request, db: DbSession) -> User:
-    verified = s3_signing.verify_signed_request(request)
+    verified = s3_signing.verify_request(request, db)
     user = db.get(User, verified.user_id)
     if user is None:
         raise s3_signing.S3SigningError(
@@ -181,7 +186,7 @@ def load_signed_user(request: Request, db: DbSession) -> User:
 
 def parse_max_keys(value: str | None) -> int:
     if value in (None, ""):
-        return s3_listing.DEFAULT_MAX_KEYS
+        return S3_LISTING_DEFAULT_MAX_KEYS
     try:
         return int(value)
     except ValueError as exc:
@@ -252,6 +257,7 @@ async def multipart_post(
     try:
         user = load_signed_user(request, db)
         if "uploads" in query:
+            s3_signing.verify_empty_payload_hash(request)
             upload = s3_multipart.create_multipart_upload(
                 db,
                 bucket_name=bucket,
@@ -269,7 +275,9 @@ async def multipart_post(
                 media_type="application/xml",
             )
         upload_id = parse_upload_id(query.get("uploadId"))
-        parts = parse_complete_multipart_body(await request.body())
+        body = await request.body()
+        s3_signing.verify_payload_hash(request, hashlib.sha256(body).digest())
+        parts = parse_complete_multipart_body(body)
         result = s3_multipart.complete_multipart_upload(
             db,
             upload_id=upload_id,
@@ -405,6 +413,7 @@ async def put_object(
         if upload_id_value is not None:
             upload_id = parse_upload_id(upload_id_value)
             spooled = await spool_request_body(request)
+            s3_signing.verify_payload_hash(request, spooled.content_hash)
             part = s3_multipart.upload_part(
                 db,
                 upload_id=upload_id,
@@ -420,6 +429,7 @@ async def put_object(
 
         copy_source = request.headers.get("x-amz-copy-source")
         if copy_source is not None:
+            s3_signing.verify_empty_payload_hash(request)
             response, _result = handle_copy_object(
                 db=db,
                 request=request,
@@ -431,6 +441,7 @@ async def put_object(
             return response
 
         spooled = await spool_request_body(request)
+        s3_signing.verify_payload_hash(request, spooled.content_hash)
         result = object_service.put_object(
             db,
             bucket_name=bucket,
@@ -466,7 +477,7 @@ def handle_copy_object(
     source_bucket, source_key = parse_copy_source(copy_source)
     metadata_directive = (
         request.headers.get("x-amz-metadata-directive")
-        or object_service.METADATA_DIRECTIVE_COPY
+        or S3_METADATA_DIRECTIVE_COPY
     ).upper()
     result = object_service.copy_object(
         db,
@@ -541,7 +552,7 @@ def extract_user_metadata(request: Request) -> dict[str, str]:
         header_name.removeprefix(prefix): header_value
         for header_name, header_value in request.headers.items()
         if header_name.startswith(prefix)
-        and header_name != s3_signing.USER_BINDING_HEADER
+        and header_name != S3_USER_BINDING_HEADER
     }
 
 
@@ -580,14 +591,7 @@ async def head_object(
     HEAD /{bucket}/{key} -> HeadObject. Same shape as GET, no body.
     """
     try:
-        verified = s3_signing.verify_signed_request(request)
-        user = db.get(User, verified.user_id)
-        if user is None:
-            return s3_error_response(
-                "InvalidAccessKeyId",
-                "The signed user no longer exists",
-                status_code=403,
-            )
+        user = load_signed_user(request, db)
         result = object_service.head_object(
             db,
             bucket_name=bucket,
@@ -610,14 +614,7 @@ async def get_object(
     GET /{bucket}/{key} -> GetObject. Streams bytes from the underlying bucket.
     """
     try:
-        verified = s3_signing.verify_signed_request(request)
-        user = db.get(User, verified.user_id)
-        if user is None:
-            return s3_error_response(
-                "InvalidAccessKeyId",
-                "The signed user no longer exists",
-                status_code=403,
-            )
+        user = load_signed_user(request, db)
         object_bytes = object_service.get_object_bytes(
             db,
             bucket_name=bucket,
@@ -686,6 +683,7 @@ async def delete_object(
         user = load_signed_user(request, db)
         upload_id_value = request.query_params.get("uploadId")
         if upload_id_value is not None:
+            s3_signing.verify_empty_payload_hash(request)
             s3_multipart.abort_multipart_upload(
                 db,
                 upload_id=parse_upload_id(upload_id_value),
@@ -695,6 +693,7 @@ async def delete_object(
             )
             return Response(status_code=204)
 
+        s3_signing.verify_empty_payload_hash(request)
         object_service.delete_object(
             db,
             bucket_name=bucket,

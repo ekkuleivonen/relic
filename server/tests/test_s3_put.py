@@ -2,15 +2,13 @@ import hashlib
 import re
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from api.app import app
+from constants import META_EXTRACT_STATUS_PENDING
 from database import get_db
-from file_meta import build_file_meta
-from managers.exceptions import ConflictError, ResourceNotFound
+from enums import BucketTier, Permission, UserRole
+from fastapi.testclient import TestClient
+from domain.files.meta import build_file_meta
+from domain.exceptions import ConflictError, ResourceNotFound
 from models import (
     Base,
     Blob,
@@ -19,12 +17,13 @@ from models import (
     FileEvent,
     Folder,
     FolderAccess,
-    META_EXTRACT_STATUS_PENDING,
 )
-from schema_plan import BucketTier, Permission, UserRole
 from services import objects as object_service
 from services.event_context import EventContext
 from services.placement import choose_bucket, clear_bucket_usage_cache, get_bucket_usage
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from tests.factories.models import BlobFactory, BucketFactory, UserFactory
 
 
@@ -150,7 +149,9 @@ def test_put_object_uploads_new_blob_and_creates_file(
             Body = read_body(Body)
             uploaded.append({"Bucket": Bucket, "Key": Key, "Body": Body})
 
-    monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
+    monkeypatch.setattr(
+        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+    )
 
     user = UserFactory.build(email="user@relic.local", role=UserRole.ADMIN)
     db_session.add(user)
@@ -193,7 +194,9 @@ def test_put_object_uploads_new_blob_and_creates_file(
     assert usage.current_size_bytes == len(body)
 
     child_folder = db_session.scalar(
-        select(Folder).where(Folder.parent_id == bucket_folder.id, Folder.name == "2026")
+        select(Folder).where(
+            Folder.parent_id == bucket_folder.id, Folder.name == "2026"
+        )
     )
     assert child_folder is not None
     file = db_session.scalar(select(File).where(File.folder_id == child_folder.id))
@@ -262,7 +265,9 @@ def test_put_object_dedupes_existing_blob(db_session, bucket_folder, monkeypatch
         def put_object(self, Bucket, Key, Body):
             raise AssertionError("duplicate content should not be uploaded")
 
-    monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
+    monkeypatch.setattr(
+        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+    )
 
     user = UserFactory.build(email="user@relic.local", role=UserRole.ADMIN)
     db_session.add(user)
@@ -312,7 +317,9 @@ def test_put_object_overwrites_existing_file_name(
         def put_object(self, Bucket, Key, Body):
             uploaded.append({"Bucket": Bucket, "Key": Key, "Body": read_body(Body)})
 
-    monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
+    monkeypatch.setattr(
+        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+    )
 
     result = object_service.put_object(
         db_session,
@@ -367,7 +374,9 @@ def test_put_object_with_admin_user_bypasses_folder_access(
         def put_object(self, Bucket, Key, Body):
             return None
 
-    monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
+    monkeypatch.setattr(
+        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+    )
 
     result = object_service.put_object(
         db_session,
@@ -402,7 +411,9 @@ def test_put_object_with_user_allows_inherited_write(
         def put_object(self, Bucket, Key, Body):
             return None
 
-    monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
+    monkeypatch.setattr(
+        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+    )
 
     result = object_service.put_object(
         db_session,

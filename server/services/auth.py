@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 import settings as S
-from managers.exceptions import BadRequestError
+from domain.exceptions import BadRequestError
 from models import User
 from utils.passwords import verify_password
 

@@ -5,7 +5,7 @@ import io
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from file_meta import FileMeta, build_file_meta
+from domain.files.meta import FileMeta, build_file_meta
 from processors.meta_extract.toolchains.parquet import empty_parquet_meta, parse, parse_parquet
 
 

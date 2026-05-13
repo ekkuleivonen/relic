@@ -1,6 +1,6 @@
 """Tests for processors.meta_extract.toolchains.html."""
 
-from file_meta import FileMeta, build_file_meta
+from domain.files.meta import FileMeta, build_file_meta
 from processors.meta_extract.toolchains.html import empty_html_meta, parse, parse_html
 
 

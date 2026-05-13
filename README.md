@@ -245,11 +245,29 @@ metrics.
 - Service and bucket operations: `ListBuckets`, `HeadBucket`, and
   `ListObjectsV2`.
 - Multipart upload lifecycle: create upload, upload part, complete, and abort.
+- Native SigV4 `Authorization` header authentication for path-style boto3,
+  botocore, and AWS CLI style clients using Relic access keys.
 
-The S3 gateway still uses Relic presigned SigV4 query URLs for the supported
-flows. Native AWS CLI, boto3 client, rclone, and DuckLake compatibility checks
-should be added after the gateway accepts normal access-key `Authorization`
-header requests.
+Relic still supports its presigned SigV4 query URL contract for web/API upload
+and download flows. Native clients should use path-style addressing and set
+their region to `RELIC_SIGNING_REGION` (default: `relic`), for example:
+
+```python
+import boto3
+from botocore.client import Config
+
+s3 = boto3.client(
+    "s3",
+    endpoint_url="http://localhost:8000/s3",
+    aws_access_key_id="RK...",
+    aws_secret_access_key="...",
+    region_name="relic",
+    config=Config(s3={"addressing_style": "path"}),
+)
+```
+
+Access keys created before native S3 auth stored only a one-way secret hash and
+must be reissued before they can authenticate native clients.
 
 ## Architecture
 
@@ -388,14 +406,11 @@ uv run python compat/s3_gateway_compat.py
 This expects the local stack to be running at `http://localhost:8000`, the
 seeded admin login to work, and at least one physical bucket backend to be
 registered. The harness creates a temporary top-level folder, uploads a few
-objects through Relic presigned PUT URLs, and verifies `ListBuckets`,
-`HeadBucket`, `ListObjectsV2`, multipart upload, `HeadObject`, and `GetObject`
-against the live gateway. Use `--api-url`, `--email`, `--password`,
+objects through Relic presigned PUT URLs, verifies `ListBuckets`, `HeadBucket`,
+`ListObjectsV2`, multipart upload, `HeadObject`, and `GetObject`, then creates a
+Relic access key and repeats representative object, listing, and multipart flows
+through a native boto3 client. Use `--api-url`, `--email`, `--password`,
 `--bucket-name`, or `--keep-data` to override defaults.
-
-Current limitation: the harness uses Relic's presigned SigV4 query URL contract.
-Native AWS CLI, boto3 client, rclone, and DuckLake checks should be added after
-the gateway accepts normal access-key `Authorization` header requests.
 
 ## Configuration
 
@@ -411,7 +426,8 @@ Important environment variables include:
   data.
 - `RELIC_SIGNING_TTL_SECONDS`, `RELIC_SIGNING_REGION`,
   `RELIC_SIGNING_KEY_ID`, `RELIC_SIGNING_SECRET`, `RELIC_SIGNING_KEYS`, and
-  `RELIC_SIGNING_CURRENT_KEY_ID` for presigned S3 gateway URLs.
+  `RELIC_SIGNING_CURRENT_KEY_ID` for S3 gateway signing. Native S3 clients must
+  sign with the same `RELIC_SIGNING_REGION`.
 - `meta_extract` per-toolchain byte caps such as `IMAGE_META_EXTRACT_MAX_BYTES`,
   `PDF_META_EXTRACT_MAX_BYTES`, `TEXT_META_EXTRACT_MAX_BYTES`, and related
   per-format limits. Files larger than the cap are parsed from the truncated

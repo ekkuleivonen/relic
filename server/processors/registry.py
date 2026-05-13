@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy.orm import Session
 
-from managers.exceptions import BadRequestError
+from domain.exceptions import BadRequestError
 from models import FileEvent
 from utils.logging import get_logger
 

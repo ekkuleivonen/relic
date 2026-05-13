@@ -8,7 +8,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
+from domain.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import Blob, Bucket
 from services.audit_events import (
     create_audit_event,

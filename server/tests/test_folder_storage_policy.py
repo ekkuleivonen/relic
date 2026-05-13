@@ -1,12 +1,10 @@
+import pytest
+from enums import BucketTier
+from models import Base, Folder
+from services.folder_storage_policy import effective_cooldown_days, effective_min_tier
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-
-import pytest
-
-from models import Base, Folder
-from schema_plan import BucketTier
-from services.folder_storage_policy import effective_cooldown_days, effective_min_tier
 
 
 @pytest.fixture()
@@ -23,7 +21,9 @@ def db_session():
 
 
 def test_effective_min_tier_inherits_from_ancestor(db_session):
-    root = Folder(name="", parent_id=None, min_tier=int(BucketTier.WARM), cooldown_days=None)
+    root = Folder(
+        name="", parent_id=None, min_tier=int(BucketTier.WARM), cooldown_days=None
+    )
     db_session.add(root)
     db_session.flush()
     mid = Folder(
@@ -42,7 +42,9 @@ def test_effective_min_tier_inherits_from_ancestor(db_session):
 
 
 def test_effective_min_tier_child_overrides(db_session):
-    root = Folder(name="", parent_id=None, min_tier=int(BucketTier.HOT), cooldown_days=None)
+    root = Folder(
+        name="", parent_id=None, min_tier=int(BucketTier.HOT), cooldown_days=None
+    )
     db_session.add(root)
     db_session.flush()
     leaf = Folder(

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Query, Response, status
 from pydantic import BaseModel, ConfigDict
 
 from api.users import UserRead
+from constants import FILE_EVENT_DEFAULT_LIMIT, FILE_EVENT_MAX_LIMIT
 from database import DbSession
 from models import FileEvent
 from services import file_events as file_event_service
@@ -69,9 +70,9 @@ async def list_file_events(
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
     limit: int = Query(
-        default=file_event_service.DEFAULT_LIMIT,
+        default=FILE_EVENT_DEFAULT_LIMIT,
         ge=1,
-        le=file_event_service.MAX_LIMIT,
+        le=FILE_EVENT_MAX_LIMIT,
     ),
     offset: int = Query(default=0, ge=0),
 ) -> FileEventListResponse:

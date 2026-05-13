@@ -1,6 +1,8 @@
-import factory
 import uuid
 
+import factory
+from constants import PROCESSOR_SOURCE_SEED
+from enums import BucketTier, Permission, UserRole
 from models import (
     AccessKey,
     AuditEvent,
@@ -10,11 +12,9 @@ from models import (
     Folder,
     FolderAccess,
     MaintenanceEvent,
-    PROCESSOR_SOURCE_SEED,
     Processor,
     User,
 )
-from schema_plan import BucketTier, Permission, UserRole
 from utils.passwords import hash_password
 
 
@@ -60,7 +60,7 @@ class AccessKeyFactory(factory.Factory):
     user_id = None
     name = factory.Sequence(lambda n: f"access-key-{n}")
     key_id = factory.Sequence(lambda n: f"RK{n:032X}")
-    secret_hash = factory.Sequence(lambda n: n.to_bytes(32, "big"))
+    secret_access_key = factory.Sequence(lambda n: f"secret-{n}")
     last_used_at = None
     revoked_at = None
 

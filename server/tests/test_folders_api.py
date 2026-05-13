@@ -1,25 +1,24 @@
 import uuid
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from api.app import app
+from constants import META_EXTRACT_STATUS_COMPLETED
 from database import get_db
-from file_meta import build_file_meta
+from enums import BucketTier, Permission, UserRole
+from fastapi.testclient import TestClient
+from domain.files.meta import build_file_meta
 from models import (
     Base,
     Blob,
     File,
     Folder,
     FolderAccess,
-    META_EXTRACT_STATUS_COMPLETED,
     User,
 )
-from schema_plan import BucketTier, Permission, UserRole
 from services.auth import create_session_token
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from tests.factories.models import (
     BlobFactory,
     BucketFactory,
@@ -185,9 +184,7 @@ def test_create_folder_returns_404_when_user_cannot_read_parent(
     assert response.status_code == 404
 
 
-def test_create_folder_rejects_empty_name(
-    client, db_session, user, root_folder
-):
+def test_create_folder_rejects_empty_name(client, db_session, user, root_folder):
     grant(db_session, user, root_folder, int(Permission.READ | Permission.WRITE))
 
     response = client.post(
@@ -241,9 +238,7 @@ def test_rename_folder_succeeds_with_write(client, db_session, user, root_folder
     assert body["path"] == "/pictures"
 
 
-def test_rename_folder_returns_403_without_write(
-    client, db_session, user, root_folder
-):
+def test_rename_folder_returns_403_without_write(client, db_session, user, root_folder):
     grant(db_session, user, root_folder, int(Permission.READ))
     photos = add_folder(db_session, root_folder, "photos")
 
@@ -275,9 +270,7 @@ def test_cannot_rename_root(admin_client, db_session, root_folder):
     assert response.status_code == 400
 
 
-def test_rename_conflicts_on_existing_sibling(
-    client, db_session, user, root_folder
-):
+def test_rename_conflicts_on_existing_sibling(client, db_session, user, root_folder):
     grant(db_session, user, root_folder, int(Permission.READ | Permission.WRITE))
     add_folder(db_session, root_folder, "docs")
     photos = add_folder(db_session, root_folder, "photos")
@@ -349,12 +342,13 @@ def test_move_folder_rejects_descendant_destination(
     )
 
     assert response.status_code == 400
-    assert "cycle" in response.json()["detail"].lower() or "descendant" in response.json()["detail"].lower()
+    assert (
+        "cycle" in response.json()["detail"].lower()
+        or "descendant" in response.json()["detail"].lower()
+    )
 
 
-def test_move_folder_rejects_self_destination(
-    client, db_session, user, root_folder
-):
+def test_move_folder_rejects_self_destination(client, db_session, user, root_folder):
     grant(db_session, user, root_folder, int(Permission.READ | Permission.WRITE))
     photos = add_folder(db_session, root_folder, "photos")
 
@@ -398,9 +392,7 @@ def test_move_conflicts_on_name_collision_at_destination(
 # ---------------------------------------------------------------------------
 
 
-def test_non_admin_cannot_patch_storage_policy(
-    client, db_session, user, root_folder
-):
+def test_non_admin_cannot_patch_storage_policy(client, db_session, user, root_folder):
     grant(db_session, user, root_folder, int(Permission.READ | Permission.WRITE))
     photos = add_folder(db_session, root_folder, "photos")
 
@@ -464,7 +456,9 @@ def test_admin_can_clear_cooldown_via_patch(admin_client, db_session, root_folde
     assert photos.cooldown_days is None
 
 
-def test_admin_cannot_set_root_min_tier_to_inherit(admin_client, db_session, root_folder):
+def test_admin_cannot_set_root_min_tier_to_inherit(
+    admin_client, db_session, root_folder
+):
     response = admin_client.patch(
         f"/api/folders/{root_folder.id}",
         json={"min_tier": None},
@@ -472,9 +466,7 @@ def test_admin_cannot_set_root_min_tier_to_inherit(admin_client, db_session, roo
     assert response.status_code == 400
 
 
-def test_admin_can_set_child_min_tier_to_inherit(
-    admin_client, db_session, root_folder
-):
+def test_admin_can_set_child_min_tier_to_inherit(admin_client, db_session, root_folder):
     root_folder.min_tier = int(BucketTier.WARM)
     photos = add_folder(db_session, root_folder, "photos")
     photos.min_tier = int(BucketTier.COLD)
@@ -658,9 +650,7 @@ def test_duplicate_recursive_copies_subtree_and_increments_refcounts(
     cloned_root = db_session.get(Folder, new_id)
     assert cloned_root is not None
     cloned_raw = db_session.scalar(
-        select(Folder).where(
-            Folder.parent_id == cloned_root.id, Folder.name == "raw"
-        )
+        select(Folder).where(Folder.parent_id == cloned_root.id, Folder.name == "raw")
     )
     assert cloned_raw is not None
 

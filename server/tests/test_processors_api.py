@@ -3,18 +3,17 @@
 import uuid
 
 import pytest
+from api.app import app
+from database import get_db
+from enums import UserRole
 from fastapi.testclient import TestClient
+from models import AuditEvent, Base, Processor
+from processors.registry import init_builtin_substrates
+from services.auth import create_session_token
+from services.file_events import create_file_event
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-
-from api.app import app
-from database import get_db
-from models import AuditEvent, Base, Processor
-from processors.registry import init_builtin_substrates
-from schema_plan import UserRole
-from services.auth import create_session_token
-from services.file_events import create_file_event
 from tests.factories.models import FolderFactory, ProcessorFactory, UserFactory
 
 
@@ -105,17 +104,13 @@ def test_create_processor_accepts_folder_scopes(client, db_session):
         json={
             "name": "meta_extract",
             "kind": "meta_extract",
-            "folder_scopes": [
-                {"folder_id": str(folder.id), "cascade": True}
-            ],
+            "folder_scopes": [{"folder_id": str(folder.id), "cascade": True}],
         },
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["folder_scopes"] == [
-        {"folder_id": str(folder.id), "cascade": True}
-    ]
+    assert body["folder_scopes"] == [{"folder_id": str(folder.id), "cascade": True}]
 
 
 def test_list_processors_reports_pending(client, db_session):
@@ -141,9 +136,7 @@ def test_update_processor_disables_via_patch(client, db_session):
     db_session.add(processor)
     db_session.commit()
 
-    response = client.patch(
-        f"/api/processors/{processor.id}", json={"enabled": False}
-    )
+    response = client.patch(f"/api/processors/{processor.id}", json={"enabled": False})
 
     assert response.status_code == 200
     assert response.json()["enabled"] is False
@@ -190,9 +183,7 @@ def test_skip_stuck_event_via_route(client, db_session):
 
 
 def test_delete_processor_blocked_for_seeded(client, db_session):
-    processor = ProcessorFactory.build(
-        name="meta_extract", source="seed"
-    )
+    processor = ProcessorFactory.build(name="meta_extract", source="seed")
     db_session.add(processor)
     db_session.commit()
 

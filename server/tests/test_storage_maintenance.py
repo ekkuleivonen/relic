@@ -1,15 +1,16 @@
 import io
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy import select
+from enums import BucketTier
+from models import AuditEvent, Base, Blob, MaintenanceEvent
+from services.placement import clear_bucket_usage_cache, get_bucket_usage
+from services.storage_maintenance import (
+    probe_all_buckets,
+    purge_dereferenced_blobs_batch,
+)
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-
-from models import AuditEvent, Base, Blob, MaintenanceEvent
-from schema_plan import BucketTier
-from services.placement import clear_bucket_usage_cache, get_bucket_usage
-from services.storage_maintenance import probe_all_buckets, purge_dereferenced_blobs_batch
 from tests.factories.models import BlobFactory, BucketFactory
 
 
@@ -62,9 +63,7 @@ def db_session():
     clear_bucket_usage_cache()
 
 
-def test_purge_deletes_dereferenced_blob_and_adjusts_counters(
-    db_session, fake_storage
-):
+def test_purge_deletes_dereferenced_blob_and_adjusts_counters(db_session, fake_storage):
     bucket_row = BucketFactory.build(tier=int(BucketTier.HOT))
     db_session.add(bucket_row)
     db_session.flush()

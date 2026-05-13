@@ -1,16 +1,15 @@
 import uuid
 
 import pytest
+from api.app import app
+from database import get_db
+from enums import Permission, UserRole
 from fastapi.testclient import TestClient
+from models import Base, FolderAccess
+from services.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-
-from api.app import app
-from database import get_db
-from models import Base, FolderAccess
-from schema_plan import Permission, UserRole
-from services.auth import create_session_token
 from tests.factories.models import FolderFactory, UserFactory
 
 

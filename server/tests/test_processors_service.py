@@ -11,12 +11,12 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
+from constants import PROCESSOR_SOURCE_ADMIN
+from domain.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import (
     AuditEvent,
     Base,
     FileEvent,
-    PROCESSOR_SOURCE_ADMIN,
     Processor,
 )
 from processors.registry import init_builtin_substrates

@@ -18,11 +18,11 @@ import psycopg
 from arq import create_pool
 from arq.connections import ArqRedis
 
+from constants import FILE_EVENT_CHANNEL
 from database import get_libpq_dsn, get_sessionmaker
 from processors.registry import init_builtin_substrates
 from services import processors as processor_service
-from services.file_events import FILE_EVENT_CHANNEL
-from services.processor_queue import redis_settings
+from infra.arq import arq_redis_settings
 from utils.logging import get_logger
 
 import settings as S
@@ -33,7 +33,7 @@ log = get_logger(__name__)
 async def main() -> None:
     init_builtin_substrates()
     redis = await create_pool(
-        redis_settings(), default_queue_name=S.PROCESSING_QUEUE_NAME
+        arq_redis_settings(), default_queue_name=S.PROCESSING_QUEUE_NAME
     )
     stop = asyncio.Event()
     _install_signal_handlers(stop)

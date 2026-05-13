@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from managers.exceptions import (
+from domain.exceptions import (
     BadRequestError,
     ConflictError,
     PermissionDenied,

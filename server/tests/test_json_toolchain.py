@@ -1,6 +1,6 @@
 """Tests for processors.meta_extract.toolchains.json."""
 
-from file_meta import FileMeta, build_file_meta
+from domain.files.meta import FileMeta, build_file_meta
 from processors.meta_extract.toolchains.json import empty_json_meta, parse, parse_json
 
 

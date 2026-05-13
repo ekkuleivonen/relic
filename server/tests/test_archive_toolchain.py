@@ -4,7 +4,7 @@ import io
 import tarfile
 import zipfile
 
-from file_meta import FileMeta, build_file_meta
+from domain.files.meta import FileMeta, build_file_meta
 from processors.meta_extract.toolchains.archive import empty_archive_meta, parse, parse_archive
 
 

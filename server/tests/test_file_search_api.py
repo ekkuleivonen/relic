@@ -1,25 +1,24 @@
 """Search + facets endpoints over the canonical FileMeta schema."""
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from api.app import app
+from constants import META_EXTRACT_STATUS_COMPLETED
 from database import get_db
-from file_meta import build_file_meta
+from enums import BucketTier, Permission, UserRole
+from fastapi.testclient import TestClient
+from domain.files.meta import build_file_meta
 from models import (
     Base,
     Blob,
     File,
     Folder,
     FolderAccess,
-    META_EXTRACT_STATUS_COMPLETED,
     User,
 )
-from schema_plan import BucketTier, Permission, UserRole
 from services.auth import create_session_token
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from tests.factories.models import BucketFactory, UserFactory
 
 
@@ -137,9 +136,7 @@ def archives_folder(db_session, root_folder):
 
 def grant(db_session, user, folder, permissions: int) -> None:
     db_session.add(
-        FolderAccess(
-            user_id=user.id, folder_id=folder.id, permissions=int(permissions)
-        )
+        FolderAccess(user_id=user.id, folder_id=folder.id, permissions=int(permissions))
     )
     db_session.commit()
 
@@ -210,9 +207,7 @@ def test_search_returns_only_visible_files(
     grant(db_session, user, photos_folder, int(Permission.READ))
     blob_a = make_blob(db_session, bucket=bucket, content_hash=1)
     blob_b = make_blob(db_session, bucket=bucket, content_hash=2)
-    make_file(
-        db_session, folder=photos_folder, blob=blob_a, user=user, name="cat.jpg"
-    )
+    make_file(db_session, folder=photos_folder, blob=blob_a, user=user, name="cat.jpg")
     make_file(
         db_session, folder=archives_folder, blob=blob_b, user=user, name="hidden.bin"
     )
@@ -348,9 +343,7 @@ def test_search_tag_require_all(client, db_session, user, bucket, photos_folder)
         tags=["photo"],
     )
 
-    response = client.get(
-        "/api/files/search?tag=photo&tag=large&require_all_tags=true"
-    )
+    response = client.get("/api/files/search?tag=photo&tag=large&require_all_tags=true")
 
     body = response.json()
     assert body["total"] == 1
@@ -404,13 +397,28 @@ def test_search_size_range(client, db_session, user, bucket, photos_folder):
     blob_b = make_blob(db_session, bucket=bucket, content_hash=61, size_bytes=10_000)
     blob_c = make_blob(db_session, bucket=bucket, content_hash=62, size_bytes=1_000_000)
     make_file(
-        db_session, folder=photos_folder, blob=blob_a, user=user, name="tiny.bin", size=100
+        db_session,
+        folder=photos_folder,
+        blob=blob_a,
+        user=user,
+        name="tiny.bin",
+        size=100,
     )
     make_file(
-        db_session, folder=photos_folder, blob=blob_b, user=user, name="medium.bin", size=10_000
+        db_session,
+        folder=photos_folder,
+        blob=blob_b,
+        user=user,
+        name="medium.bin",
+        size=10_000,
     )
     make_file(
-        db_session, folder=photos_folder, blob=blob_c, user=user, name="large.bin", size=1_000_000
+        db_session,
+        folder=photos_folder,
+        blob=blob_c,
+        user=user,
+        name="large.bin",
+        size=1_000_000,
     )
 
     response = client.get("/api/files/search?min_size=200&max_size=500000")
@@ -455,9 +463,7 @@ def test_search_kvs_range(client, db_session, user, bucket, photos_folder):
     assert [item["name"] for item in body["items"]] == ["b.csv"]
 
 
-def test_search_kvs_eq_handles_strings(
-    client, db_session, user, bucket, photos_folder
-):
+def test_search_kvs_eq_handles_strings(client, db_session, user, bucket, photos_folder):
     grant(db_session, user, photos_folder, int(Permission.READ))
     blob_a = make_blob(db_session, bucket=bucket, content_hash=80)
     blob_b = make_blob(db_session, bucket=bucket, content_hash=81)
@@ -498,7 +504,9 @@ def test_search_folder_scope_and_recursive(
     blob_c = make_blob(db_session, bucket=bucket, content_hash=92)
     make_file(db_session, folder=photos_folder, blob=blob_a, user=user, name="top.jpg")
     make_file(db_session, folder=raw_folder, blob=blob_b, user=user, name="nested.jpg")
-    make_file(db_session, folder=archives_folder, blob=blob_c, user=user, name="other.bin")
+    make_file(
+        db_session, folder=archives_folder, blob=blob_c, user=user, name="other.bin"
+    )
 
     response = client.get(f"/api/files/search?folder_id={photos_folder.id}")
     body = response.json()
@@ -511,9 +519,7 @@ def test_search_folder_scope_and_recursive(
     assert sorted(item["name"] for item in body["items"]) == ["nested.jpg", "top.jpg"]
 
 
-def test_search_pagination_and_sort(
-    client, db_session, user, bucket, photos_folder
-):
+def test_search_pagination_and_sort(client, db_session, user, bucket, photos_folder):
     grant(db_session, user, photos_folder, int(Permission.READ))
     for index in range(5):
         blob = make_blob(
@@ -528,16 +534,12 @@ def test_search_pagination_and_sort(
             size=index * 1000,
         )
 
-    response = client.get(
-        "/api/files/search?sort=size&order=asc&limit=2&offset=0"
-    )
+    response = client.get("/api/files/search?sort=size&order=asc&limit=2&offset=0")
     body = response.json()
     assert body["total"] == 5
     assert [item["name"] for item in body["items"]] == ["file-0.bin", "file-1.bin"]
 
-    response = client.get(
-        "/api/files/search?sort=size&order=asc&limit=2&offset=2"
-    )
+    response = client.get("/api/files/search?sort=size&order=asc&limit=2&offset=2")
     body = response.json()
     assert [item["name"] for item in body["items"]] == ["file-2.bin", "file-3.bin"]
 

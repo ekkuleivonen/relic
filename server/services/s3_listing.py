@@ -3,16 +3,14 @@ import binascii
 import datetime as dt
 from dataclasses import dataclass
 
+from constants import S3_LISTING_DEFAULT_MAX_KEYS, S3_LISTING_MAX_KEYS_LIMIT
+from enums import Permission
+from domain.exceptions import BadRequestError, ResourceNotFound
+from models import File, Folder, User
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from managers.exceptions import BadRequestError, ResourceNotFound
-from models import File, Folder, User
-from schema_plan import Permission
 from services import folder_access as folder_access_service
-
-DEFAULT_MAX_KEYS = 1000
-MAX_KEYS_LIMIT = 1000
 
 
 @dataclass(frozen=True)
@@ -63,7 +61,9 @@ def require_visible_bucket(db: Session, user: User, bucket_name: str) -> Folder:
     if bucket is None:
         raise ResourceNotFound("Bucket not found")
 
-    folder_access_service.require_folder_permission(db, user, bucket.id, Permission.READ)
+    folder_access_service.require_folder_permission(
+        db, user, bucket.id, Permission.READ
+    )
     return bucket
 
 
@@ -74,7 +74,7 @@ def list_objects_v2(
     bucket_name: str,
     prefix: str = "",
     delimiter: str | None = None,
-    max_keys: int = DEFAULT_MAX_KEYS,
+    max_keys: int = S3_LISTING_DEFAULT_MAX_KEYS,
     continuation_token: str | None = None,
     start_after: str | None = None,
 ) -> ListObjectsV2Page:
@@ -103,7 +103,9 @@ def list_objects_v2(
         if kind == "content" and isinstance(item, ObjectListingItem)
     ]
     common_prefixes = [
-        item for kind, item in page_candidates if kind == "prefix" and isinstance(item, str)
+        item
+        for kind, item in page_candidates
+        if kind == "prefix" and isinstance(item, str)
     ]
     return ListObjectsV2Page(
         bucket=bucket_name,
@@ -133,16 +135,12 @@ def build_listing_candidates(
     bucket_path = folder_access_service.resolve_folder_path(db, bucket)
     folders = list(
         db.scalars(
-            select(Folder)
-            .where(Folder.id != bucket.id)
-            .order_by(Folder.name)
+            select(Folder).where(Folder.id != bucket.id).order_by(Folder.name)
         ).all()
     )
     files = list(
         db.scalars(
-            select(File)
-            .options(selectinload(File.blob))
-            .order_by(File.name)
+            select(File).options(selectinload(File.blob)).order_by(File.name)
         ).all()
     )
     folder_ids = {
@@ -164,7 +162,11 @@ def build_listing_candidates(
                 continue
             key_prefix = path_to_key(bucket_path, folder_path, is_folder=True)
             collapsed = collapse_common_prefix(key_prefix, prefix, delimiter)
-            if start_after is not None and collapsed is not None and collapsed <= start_after:
+            if (
+                start_after is not None
+                and collapsed is not None
+                and collapsed <= start_after
+            ):
                 continue
             if collapsed is not None and collapsed not in seen_prefixes:
                 seen_prefixes.add(collapsed)
@@ -174,7 +176,9 @@ def build_listing_candidates(
         if not permissions.get(file.folder_id, 0) & int(Permission.READ):
             continue
         folder_path = paths[file.folder_id]
-        if folder_path != bucket_path and not folder_path.startswith(f"{bucket_path.rstrip('/')}/"):
+        if folder_path != bucket_path and not folder_path.startswith(
+            f"{bucket_path.rstrip('/')}/"
+        ):
             continue
         key = f"{path_to_key(bucket_path, folder_path)}{file.name}"
         if not key.startswith(prefix):
@@ -184,7 +188,11 @@ def build_listing_candidates(
 
         if delimiter:
             collapsed = collapse_common_prefix(key, prefix, delimiter)
-            if start_after is not None and collapsed is not None and collapsed <= start_after:
+            if (
+                start_after is not None
+                and collapsed is not None
+                and collapsed <= start_after
+            ):
                 continue
             if collapsed is not None:
                 if collapsed not in seen_prefixes:
@@ -207,9 +215,7 @@ def path_to_key(bucket_path: str, folder_path: str, *, is_folder: bool = False) 
     return f"{relative}/"
 
 
-def collapse_common_prefix(
-    key: str, prefix: str, delimiter: str
-) -> str | None:
+def collapse_common_prefix(key: str, prefix: str, delimiter: str) -> str | None:
     if not key.startswith(prefix):
         return None
     remainder = key[len(prefix) :]
@@ -239,7 +245,7 @@ def normalize_delimiter(delimiter: str | None) -> str | None:
 def normalize_max_keys(max_keys: int) -> int:
     if max_keys < 0:
         raise BadRequestError("max-keys must be greater than or equal to 0")
-    return min(max_keys, MAX_KEYS_LIMIT)
+    return min(max_keys, S3_LISTING_MAX_KEYS_LIMIT)
 
 
 def encode_continuation_token(offset: int) -> str:

@@ -4,24 +4,22 @@ import uuid
 from dataclasses import dataclass
 from typing import BinaryIO
 
+import settings as S
+from constants import S3_MULTIPART_MAX_PART_NUMBER, S3_MULTIPART_MIN_PART_NUMBER
+from enums import BucketTier, Permission
+from domain.exceptions import BadRequestError, ResourceNotFound
+from models import MultipartUpload, MultipartUploadPart, User
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+from utils.logging import get_logger
 
-import settings as S
-from managers.exceptions import BadRequestError, ResourceNotFound
-from models import MultipartUpload, MultipartUploadPart, User
-from schema_plan import BucketTier, Permission
 from services import folder_access as folder_access_service
 from services import objects as object_service
 from services.event_context import EventContext
 from services.folder_storage_policy import effective_min_tier
 from services.placement import choose_bucket
-from utils.logging import get_logger
 
 log = get_logger(__name__)
-
-MIN_PART_NUMBER = 1
-MAX_PART_NUMBER = 10_000
 
 
 @dataclass(frozen=True)
@@ -272,7 +270,10 @@ def require_upload(
     upload = db.scalar(stmt)
     if upload is None:
         raise ResourceNotFound("Multipart upload not found")
-    if upload.bucket_name != bucket_name or upload.object_key != object_service.normalize_key(key):
+    if (
+        upload.bucket_name != bucket_name
+        or upload.object_key != object_service.normalize_key(key)
+    ):
         raise ResourceNotFound("Multipart upload not found")
     folder_access_service.require_folder_permission_strict(
         db,
@@ -284,7 +285,10 @@ def require_upload(
 
 
 def validate_part_number(part_number: int) -> None:
-    if part_number < MIN_PART_NUMBER or part_number > MAX_PART_NUMBER:
+    if (
+        part_number < S3_MULTIPART_MIN_PART_NUMBER
+        or part_number > S3_MULTIPART_MAX_PART_NUMBER
+    ):
         raise BadRequestError("partNumber must be between 1 and 10000")
 
 

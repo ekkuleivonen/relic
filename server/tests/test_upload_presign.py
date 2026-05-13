@@ -2,23 +2,22 @@ import datetime as dt
 import hashlib
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from api.app import app
+from constants import META_EXTRACT_STATUS_PENDING
 from database import get_db
+from enums import BucketTier, Permission
+from fastapi.testclient import TestClient
 from models import (
     Base,
     Blob,
     File,
     Folder,
     FolderAccess,
-    META_EXTRACT_STATUS_PENDING,
 )
-from schema_plan import BucketTier, Permission
 from services.auth import create_session_token
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from tests.factories.models import BucketFactory, UserFactory
 
 
@@ -133,7 +132,9 @@ def test_presigned_put_creates_file_and_blob(
                 Body = Body.read()
             uploaded.append({"Bucket": Bucket, "Key": Key, "Body": Body})
 
-    monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
+    monkeypatch.setattr(
+        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+    )
 
     response = presign(client, photos_folder)
 
@@ -177,13 +178,17 @@ def test_presign_requires_write_permission(client, db_session, user, photos_fold
 def test_put_rechecks_write_permission(
     client, db_session, user, photos_folder, physical_bucket, monkeypatch
 ):
-    access = grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
+    access = grant(
+        db_session, user, photos_folder, int(Permission.READ | Permission.WRITE)
+    )
 
     class FakeS3Client:
         def put_object(self, Bucket, Key, Body):
             raise AssertionError("revoked upload should not reach storage")
 
-    monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
+    monkeypatch.setattr(
+        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+    )
     response = presign(client, photos_folder)
     assert response.status_code == 200
     signed = response.json()
@@ -262,7 +267,9 @@ def test_replayed_url_hits_file_unique_constraint(
                 Body = Body.read()
             return None
 
-    monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
+    monkeypatch.setattr(
+        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+    )
     response = presign(client, photos_folder)
     signed = response.json()
 
@@ -314,7 +321,9 @@ def test_server_signed_and_stub_user_key_use_same_gateway_path(
                 Body = Body.read()
             stored.append(Body)
 
-    monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
+    monkeypatch.setattr(
+        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+    )
     response = presign(client, photos_folder, filename="cat.jpg")
     signed = response.json()
 

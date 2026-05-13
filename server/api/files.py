@@ -5,6 +5,14 @@ from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.dependencies import CurrentUser
+from constants import (
+    FILESYSTEM_DEFAULT_LIST_LIMIT,
+    FILESYSTEM_MAX_LIST_LIMIT,
+    SEARCH_DEFAULT_FACET_TOP,
+    SEARCH_DEFAULT_LIMIT,
+    SEARCH_MAX_FACET_TOP,
+    SEARCH_MAX_LIMIT,
+)
 from database import DbSession
 from services import files as files_service
 from services import filesystem as filesystem_service
@@ -93,9 +101,9 @@ async def list_files(
     folder_id: uuid.UUID | None = None,
     recursive: bool = False,
     limit: int = Query(
-        default=filesystem_service.DEFAULT_LIST_LIMIT,
+        default=FILESYSTEM_DEFAULT_LIST_LIMIT,
         ge=1,
-        le=filesystem_service.MAX_LIST_LIMIT,
+        le=FILESYSTEM_MAX_LIST_LIMIT,
     ),
     offset: int = Query(default=0, ge=0),
     sort: str = Query(default="name"),
@@ -139,7 +147,7 @@ async def search_files(
     kv: list[str] = Query(default_factory=list),
     sort: str = "updated_at",
     order: str = "desc",
-    limit: int = Query(default=search_service.DEFAULT_LIMIT, ge=1, le=search_service.MAX_LIMIT),
+    limit: int = Query(default=SEARCH_DEFAULT_LIMIT, ge=1, le=SEARCH_MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
 ) -> FileSearchResponse:
     """Faceted, filterable search over file metadata.
@@ -196,9 +204,9 @@ async def file_facets(
     created_before: dt.datetime | None = None,
     kv: list[str] = Query(default_factory=list),
     top: int = Query(
-        default=search_service.DEFAULT_FACET_TOP,
+        default=SEARCH_DEFAULT_FACET_TOP,
         ge=1,
-        le=search_service.MAX_FACET_TOP,
+        le=SEARCH_MAX_FACET_TOP,
     ),
 ) -> FacetsRead:
     """Facet counts over the same query shape as `/search`.
@@ -223,7 +231,7 @@ async def file_facets(
         kvs=kv,
         sort="updated_at",
         order="desc",
-        limit=search_service.DEFAULT_LIMIT,
+        limit=SEARCH_DEFAULT_LIMIT,
         offset=0,
     )
     facets = search_service.compute_facets(

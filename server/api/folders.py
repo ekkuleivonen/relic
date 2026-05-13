@@ -1,17 +1,17 @@
 import uuid
 
-from fastapi import APIRouter, Request, Response, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-from api.dependencies import CurrentUser
 from database import DbSession
+from enums import UserRole
+from fastapi import APIRouter, Request, Response, status
 from models import Folder, User
-from schema_plan import UserRole
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from services import filesystem as filesystem_service
-from services.event_context import context_from_headers
 from services import folders as folders_service
+from services.event_context import context_from_headers
 from services.folder_storage_policy import effective_cooldown_days, effective_min_tier
 from services.folders import FolderResult
+
+from api.dependencies import CurrentUser
 
 router = APIRouter()
 
@@ -127,7 +127,9 @@ def _folder_to_tree_read(
         path=folder.path,
         effective_permissions=folder.effective_permissions,
         children=[
-            _folder_to_tree_read(db, child, include_storage_policy=include_storage_policy)
+            _folder_to_tree_read(
+                db, child, include_storage_policy=include_storage_policy
+            )
             for child in folder.children
         ],
         cooldown_days=folder.cooldown_days if include_storage_policy else None,

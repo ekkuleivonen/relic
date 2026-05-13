@@ -30,19 +30,19 @@ from dataclasses import dataclass, replace
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from managers.exceptions import BadRequestError
+from constants import (
+    SEARCH_DEFAULT_FACET_TOP,
+    SEARCH_DEFAULT_LIMIT,
+    SEARCH_MAX_FACET_TOP,
+    SEARCH_MAX_LIMIT,
+    SEARCH_SUPPORTED_KVS_OPS,
+    SEARCH_SUPPORTED_ORDERS,
+    SEARCH_SUPPORTED_SORT_FIELDS,
+)
+from domain.exceptions import BadRequestError
 from models import File, User
 from services import folder_access as folder_access_service
 from services import filesystem as filesystem_service
-
-SUPPORTED_KVS_OPS = frozenset({"eq", "neq", "gte", "lte", "gt", "lt"})
-SUPPORTED_SORT_FIELDS = frozenset({"name", "size", "created_at", "updated_at"})
-SUPPORTED_ORDERS = frozenset({"asc", "desc"})
-
-DEFAULT_LIMIT = 50
-MAX_LIMIT = 200
-DEFAULT_FACET_TOP = 20
-MAX_FACET_TOP = 100
 
 
 @dataclass(frozen=True)
@@ -64,9 +64,9 @@ class KvsFilter:
         key, op, value = (part.strip() for part in parts)
         if not key:
             raise BadRequestError("kv filter key cannot be empty")
-        if op not in SUPPORTED_KVS_OPS:
+        if op not in SEARCH_SUPPORTED_KVS_OPS:
             raise BadRequestError(
-                f"kv filter op must be one of {sorted(SUPPORTED_KVS_OPS)}"
+                f"kv filter op must be one of {sorted(SEARCH_SUPPORTED_KVS_OPS)}"
             )
         return cls(key=key, op=op, value=value)
 
@@ -89,7 +89,7 @@ class SearchQuery:
     kvs: tuple[KvsFilter, ...] = ()
     sort: str = "updated_at"
     order: str = "desc"
-    limit: int = DEFAULT_LIMIT
+    limit: int = SEARCH_DEFAULT_LIMIT
     offset: int = 0
 
 
@@ -142,13 +142,13 @@ def compute_facets(
     *,
     user: User,
     query: SearchQuery,
-    top: int = DEFAULT_FACET_TOP,
+    top: int = SEARCH_DEFAULT_FACET_TOP,
 ) -> Facets:
     _validate_query(query)
     if top < 1:
         raise BadRequestError("facet top must be >= 1")
-    if top > MAX_FACET_TOP:
-        top = MAX_FACET_TOP
+    if top > SEARCH_MAX_FACET_TOP:
+        top = SEARCH_MAX_FACET_TOP
 
     full_match = _matched_files(db, user=user, query=query)
 
@@ -178,16 +178,16 @@ def compute_facets(
 
 
 def _validate_query(query: SearchQuery) -> None:
-    if query.sort not in SUPPORTED_SORT_FIELDS:
+    if query.sort not in SEARCH_SUPPORTED_SORT_FIELDS:
         raise BadRequestError(
-            f"sort must be one of {sorted(SUPPORTED_SORT_FIELDS)}"
+            f"sort must be one of {sorted(SEARCH_SUPPORTED_SORT_FIELDS)}"
         )
-    if query.order not in SUPPORTED_ORDERS:
+    if query.order not in SEARCH_SUPPORTED_ORDERS:
         raise BadRequestError("order must be 'asc' or 'desc'")
     if query.limit < 1:
         raise BadRequestError("limit must be >= 1")
-    if query.limit > MAX_LIMIT:
-        raise BadRequestError(f"limit must be <= {MAX_LIMIT}")
+    if query.limit > SEARCH_MAX_LIMIT:
+        raise BadRequestError(f"limit must be <= {SEARCH_MAX_LIMIT}")
     if query.offset < 0:
         raise BadRequestError("offset must be >= 0")
     if query.min_size is not None and query.min_size < 0:

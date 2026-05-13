@@ -1,13 +1,13 @@
 import uuid
 
+from database import DbSession
+from enums import BucketTier
 from fastapi import APIRouter, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
-
-from api.dependencies import AdminUser
-from database import DbSession
-from schema_plan import BucketTier
 from services import buckets as bucket_service
 from services.event_context import context_from_headers
+
+from api.dependencies import AdminUser
 
 router = APIRouter()
 
@@ -97,7 +97,9 @@ async def create_bucket(
 
 
 @router.get("/{bucket_id}")
-async def get_bucket(bucket_id: uuid.UUID, request: Request, db: DbSession) -> BucketRead:
+async def get_bucket(
+    bucket_id: uuid.UUID, request: Request, db: DbSession
+) -> BucketRead:
     """
     GET /buckets/{id} -> single bucket with blob-derived usage and probe latencies.
     """

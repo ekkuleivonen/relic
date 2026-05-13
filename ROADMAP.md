@@ -160,21 +160,21 @@ Derived views:
 
 ### S3 Gateway Coverage
 
-The gateway now covers the core object, bucket, listing, and multipart flows
-that Relic itself exercises. Broader authentication and client compatibility
-would make it easier to use with existing tooling.
+The gateway now covers the core object, bucket, listing, multipart, presigned,
+and native access-key flows that Relic itself exercises. Broader client
+compatibility testing would make it easier to use with existing tooling.
 
 - `ListBuckets` (shipped).
 - `HeadBucket` (shipped).
 - `ListObjectsV2` with prefixes, delimiters, pagination, and continuation
   tokens (shipped).
-- Live compatibility smoke harness for current presigned-URL gateway flows
-  (shipped).
+- Live compatibility smoke harness for presigned URL and native boto3 gateway
+  flows (shipped).
 - Multipart upload lifecycle (shipped).
 - Access-key `Authorization` header authentication for normal S3 clients
-  (planned). The current supported flows use Relic presigned SigV4 query URLs.
-- Compatibility testing against common clients such as AWS CLI, boto3,
-  rclone, and DuckLake after header authentication lands.
+  (shipped).
+- Compatibility testing against common clients such as AWS CLI, rclone, and
+  DuckLake.
 
 ### Import and Sync
 

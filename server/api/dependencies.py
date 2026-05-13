@@ -1,11 +1,10 @@
 from typing import Annotated
 
-from fastapi import Cookie, Depends, HTTPException, status
-
 import settings as S
 from database import DbSession
+from enums import UserRole
+from fastapi import Cookie, Depends, HTTPException, status
 from models import User
-from schema_plan import UserRole
 from services import auth as auth_service
 
 

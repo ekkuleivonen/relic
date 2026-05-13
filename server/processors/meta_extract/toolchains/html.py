@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 from charset_normalizer import from_bytes
 
-from file_meta import build_file_meta, build_parser_meta
+from domain.files.meta import build_file_meta, build_parser_meta
 from utils.logging import get_logger
 
 log = get_logger(__name__)

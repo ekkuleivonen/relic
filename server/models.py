@@ -20,16 +20,11 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
+from constants import META_EXTRACT_STATUS_PENDING, PROCESSOR_SOURCE_ADMIN
 from utils.crypto import decrypt_string, encrypt_string
 
 JSONType = JSON().with_variant(JSONB, "postgresql")
 GUID = Uuid
-
-META_EXTRACT_STATUS_PENDING = 1
-META_EXTRACT_STATUS_IN_PROGRESS = 2
-META_EXTRACT_STATUS_COMPLETED = 3
-META_EXTRACT_STATUS_FAILED = 4
-
 
 class Base(DeclarativeBase):
     pass
@@ -68,11 +63,21 @@ class AccessKey(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     key_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
-    secret_hash: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    _secret_access_key: Mapped[str] = mapped_column(
+        "secret_access_key", Text, nullable=False
+    )
     last_used_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(back_populates="access_keys")
+
+    @property
+    def secret_access_key(self) -> str:
+        return decrypt_string(self._secret_access_key)
+
+    @secret_access_key.setter
+    def secret_access_key(self, value: str) -> None:
+        self._secret_access_key = encrypt_string(value)
 
 
 class Bucket(Base, TimestampMixin):
@@ -380,10 +385,6 @@ class MaintenanceEvent(Base):
     meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
 
     bucket: Mapped[Bucket | None] = relationship()
-
-
-PROCESSOR_SOURCE_SEED = "seed"
-PROCESSOR_SOURCE_ADMIN = "admin"
 
 
 class Processor(Base, TimestampMixin):

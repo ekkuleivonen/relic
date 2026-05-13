@@ -1,17 +1,16 @@
 import datetime as dt
 
 import pytest
+from api.app import app
+from database import get_db
+from enums import UserRole
 from fastapi.testclient import TestClient
+from models import AuditEvent, Base
+from services.audit_events import trim_audit_events_older_than
+from services.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-
-from api.app import app
-from database import get_db
-from models import AuditEvent, Base
-from schema_plan import UserRole
-from services.auth import create_session_token
-from services.audit_events import trim_audit_events_older_than
 from tests.factories.models import AuditEventFactory, UserFactory
 
 

@@ -2,16 +2,16 @@ import datetime as dt
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, Response, status
-from pydantic import BaseModel, ConfigDict, Field
-
 import settings as S
-from managers.exceptions import BadRequestError
-from api.dependencies import CurrentUser
 from database import DbSession
-from schema_plan import UserRole
-from services import auth as auth_service
+from enums import UserRole
+from fastapi import APIRouter, Cookie, Response, status
+from domain.exceptions import BadRequestError
+from pydantic import BaseModel, ConfigDict, Field
 from services import audit_events as audit_event_service
+from services import auth as auth_service
+
+from api.dependencies import CurrentUser
 
 router = APIRouter()
 
@@ -41,7 +41,9 @@ class SessionRead(BaseModel):
 
 
 @router.post("/login")
-async def login(payload: LoginRequest, response: Response, db: DbSession) -> SessionRead:
+async def login(
+    payload: LoginRequest, response: Response, db: DbSession
+) -> SessionRead:
     try:
         user = auth_service.authenticate_user(
             db,

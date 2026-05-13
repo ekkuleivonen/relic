@@ -8,19 +8,16 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 import settings as S
+from constants import HEALTH_STATUS_FAILED, HEALTH_STATUS_OK
 from models import Bucket, Processor
 from services.placement import bucket_is_healthy
-from services.processor_queue import redis_settings
-
-STATUS_OK = "ok"
-STATUS_FAILED = "failed"
-
+from infra.arq import arq_redis_settings
 
 def health_response() -> dict[str, Any]:
     return {
-        "status": STATUS_OK,
+        "status": HEALTH_STATUS_OK,
         "checks": {
-            "api": {"status": STATUS_OK},
+            "api": {"status": HEALTH_STATUS_OK},
         },
     }
 
@@ -34,9 +31,9 @@ async def readiness_response(db: Session) -> dict[str, Any]:
         "configuration": check_configuration(),
     }
     status = (
-        STATUS_OK
-        if all(check["status"] == STATUS_OK for check in checks.values())
-        else STATUS_FAILED
+        HEALTH_STATUS_OK
+        if all(check["status"] == HEALTH_STATUS_OK for check in checks.values())
+        else HEALTH_STATUS_FAILED
     )
     return {"status": status, "checks": checks}
 
@@ -46,13 +43,13 @@ def check_database(db: Session) -> dict[str, Any]:
         db.execute(text("SELECT 1")).scalar_one()
     except Exception as exc:
         return failed_check(exc)
-    return {"status": STATUS_OK}
+    return {"status": HEALTH_STATUS_OK}
 
 
 async def check_redis_queues() -> dict[str, Any]:
     try:
         redis = await create_pool(
-            redis_settings(),
+            arq_redis_settings(),
             default_queue_name=S.PROCESSING_QUEUE_NAME,
         )
     except Exception as exc:
@@ -71,7 +68,7 @@ async def check_redis_queues() -> dict[str, Any]:
     finally:
         await close_redis(redis)
 
-    return {"status": STATUS_OK, "queues": queues}
+    return {"status": HEALTH_STATUS_OK, "queues": queues}
 
 
 async def queue_snapshot(redis: ArqRedis, queue_name: str) -> dict[str, Any]:
@@ -105,7 +102,7 @@ def check_processors(db: Session) -> dict[str, Any]:
     except Exception as exc:
         return failed_check(exc)
     return {
-        "status": STATUS_OK,
+        "status": HEALTH_STATUS_OK,
         "enabled": int(enabled or 0),
         "total": int(total or 0),
     }
@@ -123,7 +120,7 @@ def check_object_stores(db: Session) -> dict[str, Any]:
         if not bucket_is_healthy(bucket)
     ]
     return {
-        "status": STATUS_FAILED if unhealthy else STATUS_OK,
+        "status": HEALTH_STATUS_FAILED if unhealthy else HEALTH_STATUS_OK,
         "configured": len(buckets),
         "healthy": len(buckets) - len(unhealthy),
         "unhealthy": unhealthy,
@@ -142,14 +139,14 @@ def check_configuration() -> dict[str, Any]:
         warnings.append("RELIC_ADMIN_PASSWORD is using the local development default")
 
     return {
-        "status": STATUS_OK,
+        "status": HEALTH_STATUS_OK,
         "warnings": warnings,
     }
 
 
 def failed_check(exc: Exception) -> dict[str, Any]:
     return {
-        "status": STATUS_FAILED,
+        "status": HEALTH_STATUS_FAILED,
         "error_class": exc.__class__.__name__,
         "error_message": str(exc),
     }

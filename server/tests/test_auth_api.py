@@ -1,14 +1,12 @@
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy import select
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from api.app import app
 from database import get_db
+from enums import UserRole
+from fastapi.testclient import TestClient
 from models import AuditEvent, Base, User
-from schema_plan import UserRole
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from utils.passwords import hash_password
 
 

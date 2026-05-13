@@ -1,14 +1,14 @@
 import datetime as dt
 import uuid
 
+from database import DbSession
+from enums import UserRole
 from fastapi import APIRouter, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
+from services import users as user_service
+from services.event_context import context_from_headers
 
 from api.dependencies import AdminUser
-from database import DbSession
-from schema_plan import UserRole
-from services.event_context import context_from_headers
-from services import users as user_service
 
 router = APIRouter()
 

@@ -1,18 +1,34 @@
-from sqlalchemy import select
+from pathlib import Path
 
 import settings as S
-from database import get_sessionmaker
-from models import Folder, User
-from processors.meta_extract import (
-    DEFAULT_SUBSCRIBED_EVENT_TYPES as META_EXTRACT_DEFAULT_TYPES,
-    KIND as META_EXTRACT_KIND,
+from alembic import command
+from alembic.config import Config
+from constants import (
+    META_EXTRACT_DEFAULT_SUBSCRIBED_EVENT_TYPES,
+    META_EXTRACT_PROCESSOR_KIND,
 )
+from database import get_sessionmaker
+from enums import BucketTier, UserRole
+from models import Folder, User
 from processors.registry import init_builtin_substrates
-from schema_plan import BucketTier, UserRole
 from services import processors as processor_service
+from sqlalchemy import select
+from utils.logging import get_logger
 from utils.passwords import hash_password
 
 init_builtin_substrates()
+
+log = get_logger(__name__)
+SERVER_DIR = Path(__file__).resolve().parent
+
+
+def run_migrations() -> None:
+    config = Config(str(SERVER_DIR / "alembic.ini"))
+    config.set_main_option("script_location", str(SERVER_DIR / "alembic"))
+
+    log.info("running_database_migrations")
+    command.upgrade(config, "head")
+    log.info("database_migrations_complete")
 
 
 def upsert_root_folder(db) -> Folder:
@@ -49,9 +65,9 @@ def upsert_admin_user(db) -> User:
 def upsert_meta_extract_processor(db) -> None:
     processor_service.upsert_seed_processor(
         db,
-        name=META_EXTRACT_KIND,
-        kind=META_EXTRACT_KIND,
-        subscribed_event_types=list(META_EXTRACT_DEFAULT_TYPES),
+        name=META_EXTRACT_PROCESSOR_KIND,
+        kind=META_EXTRACT_PROCESSOR_KIND,
+        subscribed_event_types=list(META_EXTRACT_DEFAULT_SUBSCRIBED_EVENT_TYPES),
         config={},
     )
 
@@ -67,6 +83,7 @@ def seed() -> None:
 
 
 def main():
+    run_migrations()
     seed()
 
 

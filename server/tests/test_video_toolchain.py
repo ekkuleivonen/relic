@@ -2,7 +2,7 @@
 
 import struct
 
-from file_meta import FileMeta, build_file_meta
+from domain.files.meta import FileMeta, build_file_meta
 from processors.meta_extract.toolchains.video import empty_video_meta, parse, parse_video
 
 

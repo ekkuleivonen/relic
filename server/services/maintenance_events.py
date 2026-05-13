@@ -5,13 +5,13 @@ from dataclasses import dataclass
 from sqlalchemy import Select, delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from managers.exceptions import BadRequestError
+from constants import (
+    MAINTENANCE_EVENT_DEFAULT_LIMIT,
+    MAINTENANCE_EVENT_MAX_LIMIT,
+    MAINTENANCE_EVENT_SUPPORTED_STATUSES,
+)
+from domain.exceptions import BadRequestError
 from models import MaintenanceEvent
-
-DEFAULT_LIMIT = 50
-MAX_LIMIT = 200
-SUPPORTED_STATUSES = frozenset({"succeeded", "failed", "skipped"})
-
 
 @dataclass(frozen=True)
 class MaintenanceEventPage:
@@ -80,13 +80,13 @@ def list_maintenance_events(
     blob_id: uuid.UUID | None = None,
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
-    limit: int = DEFAULT_LIMIT,
+    limit: int = MAINTENANCE_EVENT_DEFAULT_LIMIT,
     offset: int = 0,
 ) -> MaintenanceEventPage:
     if limit < 1:
         raise BadRequestError("limit must be >= 1")
-    if limit > MAX_LIMIT:
-        raise BadRequestError(f"limit must be <= {MAX_LIMIT}")
+    if limit > MAINTENANCE_EVENT_MAX_LIMIT:
+        raise BadRequestError(f"limit must be <= {MAINTENANCE_EVENT_MAX_LIMIT}")
     if offset < 0:
         raise BadRequestError("offset must be >= 0")
 
@@ -159,6 +159,8 @@ def _clean_optional(value: str | None) -> str | None:
 
 def _clean_status(value: str) -> str:
     cleaned = _clean_required(value, "status")
-    if cleaned not in SUPPORTED_STATUSES:
-        raise BadRequestError(f"status must be one of {sorted(SUPPORTED_STATUSES)}")
+    if cleaned not in MAINTENANCE_EVENT_SUPPORTED_STATUSES:
+        raise BadRequestError(
+            f"status must be one of {sorted(MAINTENANCE_EVENT_SUPPORTED_STATUSES)}"
+        )
     return cleaned

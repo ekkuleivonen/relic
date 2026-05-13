@@ -1,6 +1,6 @@
 """Tests for processors.meta_extract.toolchains.csv."""
 
-from file_meta import FileMeta, build_file_meta
+from domain.files.meta import FileMeta, build_file_meta
 from processors.meta_extract.toolchains.csv import empty_csv_meta, parse, parse_csv
 
 

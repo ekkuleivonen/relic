@@ -3,20 +3,22 @@ import hashlib
 import io
 
 import pytest
+import settings as S
+from api.app import app
+from botocore.auth import S3SigV4Auth
+from botocore.awsrequest import AWSRequest
+from botocore.credentials import Credentials
+from database import get_db
+from enums import BucketTier, Permission
 from fastapi.testclient import TestClient
+from models import AuditEvent, Base, Blob, File, Folder, FolderAccess
+from services import s3_signing
+from services.auth import create_session_token
+from services.storage_maintenance import purge_dereferenced_blobs_batch
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-
-from api.app import app
-from database import get_db
-import settings as S
-from models import AuditEvent, Base, Blob, File, Folder, FolderAccess
-from schema_plan import BucketTier, Permission
-from services.auth import create_session_token
-from services import s3_signing
-from services.storage_maintenance import purge_dereferenced_blobs_batch
-from tests.factories.models import BucketFactory, UserFactory
+from tests.factories.models import AccessKeyFactory, BucketFactory, UserFactory
 
 
 @pytest.fixture()
@@ -106,12 +108,43 @@ def physical_bucket(db_session):
 
 
 def grant(db_session, user, folder, permissions: int) -> FolderAccess:
-    access = FolderAccess(
-        user_id=user.id, folder_id=folder.id, permissions=permissions
-    )
+    access = FolderAccess(user_id=user.id, folder_id=folder.id, permissions=permissions)
     db_session.add(access)
     db_session.commit()
     return access
+
+
+def create_access_key(db_session, user, *, secret="native-secret"):
+    access_key = AccessKeyFactory.build(
+        user_id=user.id,
+        key_id="RK_NATIVE_TEST",
+        secret_access_key=secret,
+    )
+    db_session.add(access_key)
+    db_session.commit()
+    return access_key
+
+
+def sign_native_s3_request(
+    access_key,
+    *,
+    method: str,
+    path: str,
+    body: bytes = b"",
+    headers: dict[str, str] | None = None,
+) -> dict[str, str]:
+    request = AWSRequest(
+        method=method,
+        url=f"http://testserver{path}",
+        data=body,
+        headers={"Host": "testserver", **(headers or {})},
+    )
+    S3SigV4Auth(
+        Credentials(access_key.key_id, access_key.secret_access_key),
+        "s3",
+        S.RELIC_SIGNING_REGION,
+    ).add_auth(request)
+    return dict(request.headers.items())
 
 
 class FakeStreamingBody:
@@ -175,11 +208,193 @@ def upload_file(client, folder, *, filename, content):
     )
     assert presign.status_code == 200, presign.text
     signed = presign.json()
-    put_response = client.put(
-        signed["url"], content=content, headers=signed["headers"]
-    )
+    put_response = client.put(signed["url"], content=content, headers=signed["headers"])
     assert put_response.status_code == 200, put_response.text
     return signed
+
+
+# ---------------------------------------------------------------------------
+# Native Authorization header auth
+# ---------------------------------------------------------------------------
+
+
+def test_native_header_put_creates_file_and_marks_key_used(
+    client, db_session, user, photos_folder, physical_bucket, fake_storage
+):
+    grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
+    access_key = create_access_key(db_session, user)
+    body = b"native cat photo"
+    headers = sign_native_s3_request(
+        access_key,
+        method="PUT",
+        path="/s3/photos/native-cat.jpg",
+        body=body,
+        headers={"x-amz-meta-album": "native"},
+    )
+
+    response = client.put("/s3/photos/native-cat.jpg", content=body, headers=headers)
+
+    assert response.status_code == 200, response.text
+    db_session.refresh(access_key)
+    assert access_key.last_used_at is not None
+    file = db_session.scalar(select(File).where(File.name == "native-cat.jpg"))
+    assert file is not None
+    assert file.uploaded_by == user.id
+    assert file.meta["kvs"]["album"] == "native"
+    blob = db_session.get(Blob, file.blob_id)
+    assert fake_storage.objects[(physical_bucket.bucket, blob.bucket_key)] == body
+
+
+def test_native_header_list_head_get_and_delete(
+    client, db_session, user, photos_folder, physical_bucket, fake_storage
+):
+    grant(
+        db_session,
+        user,
+        photos_folder,
+        int(Permission.READ | Permission.WRITE | Permission.DELETE),
+    )
+    upload_file(client, photos_folder, filename="cat.jpg", content=b"cat photo")
+    access_key = create_access_key(db_session, user)
+
+    list_headers = sign_native_s3_request(
+        access_key,
+        method="GET",
+        path="/s3/photos?list-type=2",
+    )
+    list_response = client.get("/s3/photos?list-type=2", headers=list_headers)
+    assert list_response.status_code == 200, list_response.text
+    assert "<Key>cat.jpg</Key>" in list_response.text
+
+    head_headers = sign_native_s3_request(
+        access_key,
+        method="HEAD",
+        path="/s3/photos/cat.jpg",
+    )
+    assert client.head("/s3/photos/cat.jpg", headers=head_headers).status_code == 200
+
+    get_headers = sign_native_s3_request(
+        access_key,
+        method="GET",
+        path="/s3/photos/cat.jpg",
+    )
+    get_response = client.get("/s3/photos/cat.jpg", headers=get_headers)
+    assert get_response.status_code == 200, get_response.text
+    assert get_response.content == b"cat photo"
+
+    delete_headers = sign_native_s3_request(
+        access_key,
+        method="DELETE",
+        path="/s3/photos/cat.jpg",
+    )
+    delete_response = client.delete("/s3/photos/cat.jpg", headers=delete_headers)
+    assert delete_response.status_code == 204
+    assert db_session.scalar(select(File).where(File.name == "cat.jpg")) is None
+
+
+def test_native_header_multipart_upload(
+    client, db_session, user, photos_folder, physical_bucket, fake_storage
+):
+    grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
+    access_key = create_access_key(db_session, user)
+    create_headers = sign_native_s3_request(
+        access_key,
+        method="POST",
+        path="/s3/photos/native-large.bin?uploads=",
+    )
+    create_response = client.post(
+        "/s3/photos/native-large.bin?uploads=",
+        headers=create_headers,
+    )
+    assert create_response.status_code == 200, create_response.text
+    upload_id = create_response.text.split("<UploadId>", 1)[1].split("</UploadId>", 1)[
+        0
+    ]
+
+    uploaded_parts = []
+    for part_number, content in [(1, b"native "), (2, b"multipart")]:
+        path = (
+            f"/s3/photos/native-large.bin?partNumber={part_number}&uploadId={upload_id}"
+        )
+        headers = sign_native_s3_request(
+            access_key,
+            method="PUT",
+            path=path,
+            body=content,
+        )
+        response = client.put(path, content=content, headers=headers)
+        assert response.status_code == 200, response.text
+        uploaded_parts.append((part_number, response.headers["etag"]))
+
+    complete_body = (
+        "<CompleteMultipartUpload>"
+        + "".join(
+            f"<Part><PartNumber>{part_number}</PartNumber><ETag>{etag}</ETag></Part>"
+            for part_number, etag in uploaded_parts
+        )
+        + "</CompleteMultipartUpload>"
+    ).encode()
+    complete_path = f"/s3/photos/native-large.bin?uploadId={upload_id}"
+    complete_headers = sign_native_s3_request(
+        access_key,
+        method="POST",
+        path=complete_path,
+        body=complete_body,
+    )
+    complete_response = client.post(
+        complete_path,
+        content=complete_body,
+        headers=complete_headers,
+    )
+
+    assert complete_response.status_code == 200, complete_response.text
+    file = db_session.scalar(select(File).where(File.name == "native-large.bin"))
+    assert file is not None
+    blob = db_session.get(Blob, file.blob_id)
+    assert blob.size_bytes == len(b"native multipart")
+    assert (
+        fake_storage.objects[(physical_bucket.bucket, blob.bucket_key)]
+        == b"native multipart"
+    )
+
+
+def test_native_header_rejects_bad_payload_hash(
+    client, db_session, user, photos_folder, physical_bucket, fake_storage
+):
+    grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
+    access_key = create_access_key(db_session, user)
+    headers = sign_native_s3_request(
+        access_key,
+        method="PUT",
+        path="/s3/photos/bad-hash.jpg",
+        body=b"signed body",
+    )
+
+    response = client.put(
+        "/s3/photos/bad-hash.jpg", content=b"tampered", headers=headers
+    )
+
+    assert response.status_code == 403
+    assert "XAmzContentSHA256Mismatch" in response.text
+
+
+def test_native_header_revoked_access_key_is_rejected(
+    client, db_session, user, photos_folder, physical_bucket
+):
+    grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
+    access_key = create_access_key(db_session, user)
+    access_key.revoked_at = dt.datetime.now(dt.UTC)
+    db_session.commit()
+    headers = sign_native_s3_request(
+        access_key,
+        method="GET",
+        path="/s3/photos?list-type=2",
+    )
+
+    response = client.get("/s3/photos?list-type=2", headers=headers)
+
+    assert response.status_code == 403
+    assert "InvalidAccessKeyId" in response.text
 
 
 # ---------------------------------------------------------------------------
@@ -278,9 +493,7 @@ def test_delete_keeps_blob_when_other_files_share_it(
         json={"file_id": str(file_a.id)},
     )
     delete_signed = delete_presign.json()
-    response = client.delete(
-        delete_signed["url"], headers=delete_signed["headers"]
-    )
+    response = client.delete(delete_signed["url"], headers=delete_signed["headers"])
     assert response.status_code == 204
 
     db_session.refresh(blob)
@@ -308,7 +521,13 @@ def test_presign_delete_requires_delete_permission(
 
 
 def test_presigned_copy_creates_file_and_bumps_refcount(
-    client, db_session, user, photos_folder, archives_folder, physical_bucket, fake_storage
+    client,
+    db_session,
+    user,
+    photos_folder,
+    archives_folder,
+    physical_bucket,
+    fake_storage,
 ):
     grant(
         db_session,
@@ -354,7 +573,13 @@ def test_presigned_copy_creates_file_and_bumps_refcount(
 
 
 def test_presign_copy_requires_write_on_destination(
-    client, db_session, user, photos_folder, archives_folder, physical_bucket, fake_storage
+    client,
+    db_session,
+    user,
+    photos_folder,
+    archives_folder,
+    physical_bucket,
+    fake_storage,
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     grant(db_session, user, archives_folder, int(Permission.READ))
@@ -374,7 +599,13 @@ def test_presign_copy_requires_write_on_destination(
 
 
 def test_presign_copy_to_other_folder(
-    client, db_session, user, photos_folder, archives_folder, physical_bucket, fake_storage
+    client,
+    db_session,
+    user,
+    photos_folder,
+    archives_folder,
+    physical_bucket,
+    fake_storage,
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     grant(db_session, user, archives_folder, int(Permission.READ | Permission.WRITE))
@@ -394,7 +625,13 @@ def test_presign_copy_to_other_folder(
 
 
 def test_presigned_copy_replace_directive_overrides_meta(
-    client, db_session, user, photos_folder, archives_folder, physical_bucket, fake_storage
+    client,
+    db_session,
+    user,
+    photos_folder,
+    archives_folder,
+    physical_bucket,
+    fake_storage,
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     grant(db_session, user, archives_folder, int(Permission.READ | Permission.WRITE))
@@ -498,7 +735,9 @@ def test_multipart_upload_completes_object(
     create_response = client.post(create.url, headers=create.headers)
 
     assert create_response.status_code == 200, create_response.text
-    upload_id = create_response.text.split("<UploadId>", 1)[1].split("</UploadId>", 1)[0]
+    upload_id = create_response.text.split("<UploadId>", 1)[1].split("</UploadId>", 1)[
+        0
+    ]
     uploaded_parts = []
     for part_number, content in [(1, b"hello "), (2, b"world")]:
         signed = s3_signing.sign_request_url(
@@ -543,7 +782,10 @@ def test_multipart_upload_completes_object(
     assert file is not None
     blob = db_session.get(Blob, file.blob_id)
     assert blob.size_bytes == len(b"hello world")
-    assert fake_storage.objects[(physical_bucket.bucket, blob.bucket_key)] == b"hello world"
+    assert (
+        fake_storage.objects[(physical_bucket.bucket, blob.bucket_key)]
+        == b"hello world"
+    )
     assert not [
         key
         for (_bucket, key) in fake_storage.objects
@@ -566,7 +808,9 @@ def test_multipart_upload_abort_removes_temp_parts(
         query_params={"uploads": ""},
     )
     create_response = client.post(create.url, headers=create.headers)
-    upload_id = create_response.text.split("<UploadId>", 1)[1].split("</UploadId>", 1)[0]
+    upload_id = create_response.text.split("<UploadId>", 1)[1].split("</UploadId>", 1)[
+        0
+    ]
     signed = s3_signing.sign_request_url(
         method="PUT",
         bucket="photos",
@@ -577,7 +821,10 @@ def test_multipart_upload_abort_removes_temp_parts(
         ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
         query_params={"partNumber": "1", "uploadId": upload_id},
     )
-    assert client.put(signed.url, content=b"part", headers=signed.headers).status_code == 200
+    assert (
+        client.put(signed.url, content=b"part", headers=signed.headers).status_code
+        == 200
+    )
     assert any(
         key.startswith("__relic_multipart_uploads/")
         for (_bucket, key) in fake_storage.objects
@@ -656,9 +903,7 @@ def test_delete_url_expired(
 
     frozen = dt.datetime(2026, 5, 9, 0, 0, tzinfo=dt.UTC)
     monkeypatch.setattr("services.s3_signing.now_utc", lambda: frozen)
-    presign = client.post(
-        "/api/uploads/presign-delete", json={"file_id": str(file.id)}
-    )
+    presign = client.post("/api/uploads/presign-delete", json={"file_id": str(file.id)})
     signed = presign.json()
     monkeypatch.setattr(
         "services.s3_signing.now_utc",

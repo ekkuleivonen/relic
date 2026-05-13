@@ -8,20 +8,25 @@ from typing import Any, BinaryIO
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
+from constants import (
+    META_EXTRACT_STATUS_PENDING,
+    S3_METADATA_DIRECTIVE_COPY,
+    S3_METADATA_DIRECTIVE_REPLACE,
+)
+from enums import BucketTier, Permission
+from domain.files.meta import build_file_meta, validate_file_meta_dict
+from domain.exceptions import BadRequestError, ConflictError, ResourceNotFound
+from models import Blob, Bucket, File, Folder, User
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from utils.logging import get_logger
 
-from file_meta import build_file_meta, validate_file_meta_dict
-from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
-from models import Blob, Bucket, File, Folder, META_EXTRACT_STATUS_PENDING, User
-from schema_plan import BucketTier, Permission
 from services import folder_access as folder_access_service
 from services.audit_events import elapsed_ms, timer_start
 from services.event_context import EventContext
 from services.file_events import create_file_event
 from services.folder_storage_policy import effective_min_tier
 from services.placement import adjust_bucket_usage_cache, choose_bucket
-from utils.logging import get_logger
 
 log = get_logger(__name__)
 
@@ -66,10 +71,6 @@ class CreateBlobResult:
     remote_latency_ms: int
 
 
-METADATA_DIRECTIVE_COPY = "COPY"
-METADATA_DIRECTIVE_REPLACE = "REPLACE"
-
-
 def put_object(
     db: Session,
     *,
@@ -109,9 +110,7 @@ def put_object(
         size_bytes=size_bytes,
     )
     digest_hex = digest.hex()
-    blob = db.scalar(
-        select(Blob).where(Blob.content_hash == digest, Blob.refcount > 0)
-    )
+    blob = db.scalar(select(Blob).where(Blob.content_hash == digest, Blob.refcount > 0))
 
     if blob:
         if existing_file is None or existing_file.blob_id != blob.id:
@@ -199,7 +198,9 @@ def resolve_object_path(
     event_context: EventContext | None = None,
 ) -> tuple[Folder, str]:
     normalized_key = normalize_key(key)
-    parts = [part for part in PurePosixPath(normalized_key).parts if part not in ("", ".")]
+    parts = [
+        part for part in PurePosixPath(normalized_key).parts if part not in ("", ".")
+    ]
     if not parts:
         raise BadRequestError("Object key must include a file name")
 
@@ -462,7 +463,7 @@ def copy_object(
     dest_bucket: str,
     dest_key: str,
     ingest_meta: dict,
-    metadata_directive: str = METADATA_DIRECTIVE_COPY,
+    metadata_directive: str = S3_METADATA_DIRECTIVE_COPY,
     current_user: User,
     event_context: EventContext | None = None,
 ) -> CopyObjectResult:
@@ -470,10 +471,11 @@ def copy_object(
     S3 CopyObject - metadata-only copy. The new File points at the same Blob;
     refcount on the Blob is incremented.
     """
-    if metadata_directive not in (METADATA_DIRECTIVE_COPY, METADATA_DIRECTIVE_REPLACE):
-        raise BadRequestError(
-            "x-amz-metadata-directive must be COPY or REPLACE"
-        )
+    if metadata_directive not in (
+        S3_METADATA_DIRECTIVE_COPY,
+        S3_METADATA_DIRECTIVE_REPLACE,
+    ):
+        raise BadRequestError("x-amz-metadata-directive must be COPY or REPLACE")
 
     source_folder, source_file_name = require_existing_object_path(
         db, bucket_name=source_bucket, key=source_key
@@ -501,7 +503,7 @@ def copy_object(
     if (
         source_folder.id == dest_folder.id
         and source_file_name == dest_file_name
-        and metadata_directive == METADATA_DIRECTIVE_COPY
+        and metadata_directive == S3_METADATA_DIRECTIVE_COPY
     ):
         raise BadRequestError(
             "Source and destination must differ when metadata-directive is COPY"
@@ -519,7 +521,7 @@ def copy_object(
 
     copied_meta = (
         validate_file_meta_dict(dict(source_file.meta)).model_dump(mode="json")
-        if metadata_directive == METADATA_DIRECTIVE_COPY
+        if metadata_directive == S3_METADATA_DIRECTIVE_COPY
         else build_file_meta(
             file_name=dest_file_name,
             size=blob.size_bytes,
@@ -608,9 +610,7 @@ def head_object(
     key: str,
     current_user: User | None = None,
 ) -> GetObjectResult:
-    return get_object(
-        db, bucket_name=bucket_name, key=key, current_user=current_user
-    )
+    return get_object(db, bucket_name=bucket_name, key=key, current_user=current_user)
 
 
 def get_object_bytes(
@@ -621,9 +621,7 @@ def get_object_bytes(
     range_header: str | None = None,
     current_user: User | None = None,
 ) -> GetObjectBytesResult:
-    result = get_object(
-        db, bucket_name=bucket_name, key=key, current_user=current_user
-    )
+    result = get_object(db, bucket_name=bucket_name, key=key, current_user=current_user)
     boto_response = fetch_blob_bytes(
         bucket=result.bucket,
         bucket_key=result.blob.bucket_key,
@@ -674,7 +672,9 @@ def resolve_existing_object_path(
     intermediate folders. Returns (None, "") if any segment is missing.
     """
     normalized_key = normalize_key(key)
-    parts = [part for part in PurePosixPath(normalized_key).parts if part not in ("", ".")]
+    parts = [
+        part for part in PurePosixPath(normalized_key).parts if part not in ("", ".")
+    ]
     if not parts:
         return None, ""
 

@@ -23,6 +23,9 @@ from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any
 
+import boto3
+from botocore.client import Config
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import settings as S
@@ -172,6 +175,7 @@ def run_compat(config: CompatConfig, client: HttpClient) -> None:
         assert_pagination(client, config, user["id"])
         assert_head_and_get(client, config, user["id"])
         assert_multipart_upload(client, config, user["id"])
+        assert_native_boto_client(client, config, user["id"])
         print("S3 compatibility smoke checks passed")
     finally:
         if config.keep_data:
@@ -435,6 +439,85 @@ def abort_multipart_upload(
         query_params={"uploadId": upload_id},
     )
     client.request("DELETE", abort.url, headers=abort.headers, expected={204, 404})
+
+
+def assert_native_boto_client(
+    client: HttpClient, config: CompatConfig, user_id: str
+) -> None:
+    key = client_json(
+        client,
+        "POST",
+        "/api/access-keys/",
+        json_body={"user_id": user_id, "name": "s3 gateway compat"},
+    )
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=f"{config.api_url.rstrip('/')}/s3",
+        aws_access_key_id=key["key_id"],
+        aws_secret_access_key=key["secret_access_key"],
+        region_name=S.RELIC_SIGNING_REGION,
+        config=Config(s3={"addressing_style": "path"}),
+    )
+
+    native_key = "native-boto.txt"
+    s3.put_object(
+        Bucket=config.bucket_name,
+        Key=native_key,
+        Body=b"native boto",
+        Metadata={"source": "boto"},
+    )
+    bucket_names = [bucket["Name"] for bucket in s3.list_buckets()["Buckets"]]
+    assert_contains(
+        bucket_names,
+        config.bucket_name,
+        "native ListBuckets should include compat bucket",
+    )
+    s3.head_bucket(Bucket=config.bucket_name)
+    listed = s3.list_objects_v2(Bucket=config.bucket_name, Prefix="native-")
+    assert_equal(
+        [item["Key"] for item in listed.get("Contents", [])],
+        [native_key],
+        "native ListObjectsV2 contents",
+    )
+    s3.head_object(Bucket=config.bucket_name, Key=native_key)
+    body = s3.get_object(Bucket=config.bucket_name, Key=native_key)["Body"].read()
+    assert_equal(body, b"native boto", "native GetObject body")
+
+    multipart_key = "native-multipart.bin"
+    upload_id = s3.create_multipart_upload(
+        Bucket=config.bucket_name,
+        Key=multipart_key,
+    )["UploadId"]
+    try:
+        parts = []
+        for part_number, content in [(1, b"native-"), (2, b"multipart")]:
+            response = s3.upload_part(
+                Bucket=config.bucket_name,
+                Key=multipart_key,
+                UploadId=upload_id,
+                PartNumber=part_number,
+                Body=content,
+            )
+            parts.append({"PartNumber": part_number, "ETag": response["ETag"]})
+        s3.complete_multipart_upload(
+            Bucket=config.bucket_name,
+            Key=multipart_key,
+            UploadId=upload_id,
+            MultipartUpload={"Parts": parts},
+        )
+        upload_id = None
+        body = s3.get_object(Bucket=config.bucket_name, Key=multipart_key)["Body"].read()
+        assert_equal(body, b"native-multipart", "native multipart body")
+    finally:
+        if upload_id is not None:
+            s3.abort_multipart_upload(
+                Bucket=config.bucket_name,
+                Key=multipart_key,
+                UploadId=upload_id,
+            )
+
+    s3.delete_object(Bucket=config.bucket_name, Key=native_key)
+    print("Native boto client auth OK")
 
 
 def header_value(headers: dict[str, str], name: str) -> str:

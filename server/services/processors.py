@@ -25,10 +25,16 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
-from models import (
+from constants import (
+    PROCESSOR_DEFAULT_DISPATCH_BATCH,
+    PROCESSOR_DEFAULT_LIST_LIMIT,
+    PROCESSOR_MAX_LIST_LIMIT,
+    PROCESSOR_MAX_REWIND_OFFSET,
     PROCESSOR_SOURCE_ADMIN,
     PROCESSOR_SOURCE_SEED,
+)
+from domain.exceptions import BadRequestError, ConflictError, ResourceNotFound
+from models import (
     FileEvent,
     Folder,
     Processor,
@@ -47,12 +53,6 @@ from services.filesystem import collect_descendant_folder_ids
 from utils.logging import get_logger
 
 log = get_logger(__name__)
-
-DEFAULT_LIST_LIMIT = 50
-MAX_LIST_LIMIT = 200
-DEFAULT_DISPATCH_BATCH = 100
-MAX_REWIND_OFFSET = 9_223_372_036_854_775_807  # PG bigint cap
-
 
 @dataclass(frozen=True)
 class ProcessorWithLag:
@@ -309,13 +309,13 @@ def require_processor(db: Session, processor_id: uuid.UUID) -> Processor:
 def list_processors(
     db: Session,
     *,
-    limit: int = DEFAULT_LIST_LIMIT,
+    limit: int = PROCESSOR_DEFAULT_LIST_LIMIT,
     offset: int = 0,
 ) -> ProcessorPage:
     if limit < 1:
         raise BadRequestError("limit must be >= 1")
-    if limit > MAX_LIST_LIMIT:
-        raise BadRequestError(f"limit must be <= {MAX_LIST_LIMIT}")
+    if limit > PROCESSOR_MAX_LIST_LIMIT:
+        raise BadRequestError(f"limit must be <= {PROCESSOR_MAX_LIST_LIMIT}")
     if offset < 0:
         raise BadRequestError("offset must be >= 0")
 
@@ -368,7 +368,7 @@ def _pending_count(db: Session, processor: Processor) -> int:
 def collect_pending_jobs(
     db: Session,
     *,
-    batch_size: int = DEFAULT_DISPATCH_BATCH,
+    batch_size: int = PROCESSOR_DEFAULT_DISPATCH_BATCH,
 ) -> list[PendingDispatchJob]:
     """One pass over enabled processors.
 
@@ -605,7 +605,7 @@ def rewind_cursor(
     """
     if target_offset < 0:
         raise BadRequestError("target_offset must be >= 0")
-    if target_offset > MAX_REWIND_OFFSET:
+    if target_offset > PROCESSOR_MAX_REWIND_OFFSET:
         raise BadRequestError("target_offset is too large")
 
     cleaned_reason = _clean_reason(reason)
@@ -810,9 +810,6 @@ def _clear_failure_state(processor: Processor) -> None:
 
 
 __all__ = [
-    "DEFAULT_DISPATCH_BATCH",
-    "DEFAULT_LIST_LIMIT",
-    "MAX_LIST_LIMIT",
     "ExecutionResult",
     "PendingDispatchJob",
     "ProcessorPage",

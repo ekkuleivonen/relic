@@ -1,22 +1,21 @@
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from api.app import app
+from constants import META_EXTRACT_STATUS_COMPLETED
 from database import get_db
-from file_meta import build_file_meta
+from enums import BucketTier, Permission, UserRole
+from fastapi.testclient import TestClient
+from domain.files.meta import build_file_meta
 from models import (
     Base,
     File,
     Folder,
     FolderAccess,
-    META_EXTRACT_STATUS_COMPLETED,
     User,
 )
-from schema_plan import BucketTier, Permission, UserRole
 from services.auth import create_session_token
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from tests.factories.models import BlobFactory, BucketFactory, UserFactory
 from utils.passwords import hash_password
 
@@ -97,7 +96,9 @@ def grant_access(db_session, user: User, folder: Folder, permissions: int) -> No
     db_session.commit()
 
 
-def test_get_folder_tree_returns_nested_filesystem(client, db_session, user, root_folder):
+def test_get_folder_tree_returns_nested_filesystem(
+    client, db_session, user, root_folder
+):
     photos = add_folder(db_session, root_folder, "photos")
     add_folder(db_session, photos, "raw")
     add_folder(db_session, root_folder, "docs")
@@ -194,7 +195,9 @@ def test_admin_get_folder_tree_bypasses_folder_access(db_session, root_folder):
     )
 
 
-def test_get_folder_tree_filters_to_readable_scopes(client, db_session, user, root_folder):
+def test_get_folder_tree_filters_to_readable_scopes(
+    client, db_session, user, root_folder
+):
     photos = add_folder(db_session, root_folder, "photos")
     add_folder(db_session, photos, "raw")
     add_folder(db_session, root_folder, "docs")
@@ -229,7 +232,9 @@ def test_get_folder_tree_reparents_readable_descendant_when_parent_is_unreadable
     assert tree["children"][0]["parent_id"] == str(photos.id)
 
 
-def test_get_folder_tree_returns_root_shell_without_grants(client, db_session, root_folder):
+def test_get_folder_tree_returns_root_shell_without_grants(
+    client, db_session, root_folder
+):
     add_folder(db_session, root_folder, "photos")
 
     response = client.get("/api/folders/tree")
