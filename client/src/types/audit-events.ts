@@ -1,12 +1,11 @@
 import type { User } from "@/types/users"
 
-export type EventStatus = "succeeded" | "failed"
+export type AuditEventStatus = "succeeded" | "failed"
 
-export type EventRecord = {
+export type AuditEventRecord = {
   id: string
-  source: string
   operation: string
-  status: EventStatus
+  status: AuditEventStatus
   actor_user_id: string | null
   actor: User | null
   request_id: string | null
@@ -18,10 +17,9 @@ export type EventRecord = {
   updated_at: string
 }
 
-export type EventsQuery = {
-  source?: string
+export type AuditEventsQuery = {
   operation?: string
-  status?: EventStatus
+  status?: AuditEventStatus
   actor_user_id?: string
   request_id?: string
   created_after?: string
@@ -30,8 +28,8 @@ export type EventsQuery = {
   offset?: number
 }
 
-export type EventsResponse = {
-  items: EventRecord[]
+export type AuditEventsResponse = {
+  items: AuditEventRecord[]
   total: number
   limit: number
   offset: number

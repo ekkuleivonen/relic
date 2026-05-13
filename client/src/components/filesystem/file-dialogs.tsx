@@ -45,12 +45,6 @@ export function RenameFileDialog({ open, onOpenChange, file }: RenameProps) {
   const [name, setName] = React.useState(file.name)
   const rename = useRenameFile()
 
-  React.useEffect(() => {
-    if (open) {
-      setName(file.name)
-    }
-  }, [open, file.name])
-
   async function submit(event: React.FormEvent) {
     event.preventDefault()
     const trimmed = name.trim()
@@ -118,12 +112,6 @@ export function DuplicateFileDialog({
 }: DuplicateProps) {
   const [name, setName] = React.useState(() => suggestCopyName(file.name))
   const copy = useCopyFile()
-
-  React.useEffect(() => {
-    if (open) {
-      setName(suggestCopyName(file.name))
-    }
-  }, [open, file.name])
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -197,12 +185,6 @@ export function MoveFileDialog({
   const tree = useFolderTree()
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
   const move = useMoveFile()
-
-  React.useEffect(() => {
-    if (open) {
-      setSelectedId(null)
-    }
-  }, [open])
 
   const candidates = React.useMemo(() => {
     if (!tree.data) return []

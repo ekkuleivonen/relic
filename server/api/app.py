@@ -3,11 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import settings as S
 from .access_keys import router as access_keys_router
+from .audit_events import router as audit_events_router
 from .auth import router as auth_router
 from .blobs import router as blobs_router
 from .buckets import router as buckets_router
 from .dependencies import require_admin, require_user
-from .events import router as events_router
 from .exception_handlers import register_exception_handlers
 from .files import router as files_router
 from .folder_access import router as folder_access_router
@@ -86,9 +86,9 @@ app.include_router(
     dependencies=[Depends(require_admin)],
 )
 app.include_router(
-    events_router,
-    prefix=f"{API_PREFIX}/events",
-    tags=["events"],
+    audit_events_router,
+    prefix=f"{API_PREFIX}/audit-events",
+    tags=["audit-events"],
     dependencies=[Depends(require_admin)],
 )
 

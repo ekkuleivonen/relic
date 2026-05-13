@@ -8,7 +8,7 @@ from sqlalchemy import Select, delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from managers.exceptions import BadRequestError
-from models import Event
+from models import AuditEvent
 
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
@@ -16,15 +16,14 @@ SUPPORTED_STATUSES = frozenset({"succeeded", "failed"})
 
 
 @dataclass(frozen=True)
-class EventContext:
-    source: str
+class AuditEventContext:
     actor_user_id: uuid.UUID | None = None
     request_id: str | None = None
 
 
 @dataclass(frozen=True)
-class EventPage:
-    items: list[Event]
+class AuditEventPage:
+    items: list[AuditEvent]
     total: int
     limit: int
     offset: int
@@ -52,10 +51,9 @@ def latency_metadata(
     return metadata
 
 
-def create_event(
+def create_audit_event(
     db: Session,
     *,
-    source: str,
     operation: str,
     status: str = "succeeded",
     actor_user_id: uuid.UUID | None = None,
@@ -64,9 +62,8 @@ def create_event(
     folder_ids: list[uuid.UUID | str] | None = None,
     blob_ids: list[uuid.UUID | str] | None = None,
     metadata: dict | None = None,
-) -> Event:
-    event = Event(
-        source=_clean_required(source, "source"),
+) -> AuditEvent:
+    event = AuditEvent(
         operation=_clean_required(operation, "operation"),
         status=_clean_status(status),
         actor_user_id=actor_user_id,
@@ -81,10 +78,9 @@ def create_event(
     return event
 
 
-def record_event(
+def record_audit_event(
     db: Session,
     *,
-    source: str,
     operation: str,
     status: str = "succeeded",
     actor_user_id: uuid.UUID | None = None,
@@ -93,10 +89,9 @@ def record_event(
     folder_ids: list[uuid.UUID | str] | None = None,
     blob_ids: list[uuid.UUID | str] | None = None,
     metadata: dict | None = None,
-) -> Event:
-    event = create_event(
+) -> AuditEvent:
+    event = create_audit_event(
         db,
-        source=source,
         operation=operation,
         status=status,
         actor_user_id=actor_user_id,
@@ -111,13 +106,13 @@ def record_event(
     return event
 
 
-def clear_events(db: Session) -> int:
-    result = db.execute(delete(Event))
+def clear_audit_events(db: Session) -> int:
+    result = db.execute(delete(AuditEvent))
     db.commit()
     return result.rowcount or 0
 
 
-def trim_events_older_than(
+def trim_audit_events_older_than(
     db: Session,
     *,
     retention_days: int,
@@ -125,7 +120,7 @@ def trim_events_older_than(
 ) -> int:
     effective_now = now or dt.datetime.now(dt.UTC)
     cutoff = effective_now - dt.timedelta(days=retention_days)
-    result = db.execute(delete(Event).where(Event.created_at < cutoff))
+    result = db.execute(delete(AuditEvent).where(AuditEvent.created_at < cutoff))
     db.commit()
     return result.rowcount or 0
 
@@ -133,11 +128,9 @@ def trim_events_older_than(
 def context_from_headers(
     headers: Headers,
     *,
-    source: str,
     actor_user_id: uuid.UUID | None = None,
-) -> EventContext:
-    return EventContext(
-        source=source,
+) -> AuditEventContext:
+    return AuditEventContext(
         actor_user_id=actor_user_id,
         request_id=request_id_from_headers(headers),
     )
@@ -147,10 +140,9 @@ def request_id_from_headers(headers: Headers) -> str | None:
     return headers.get("x-request-id") or headers.get("x-correlation-id")
 
 
-def list_events(
+def list_audit_events(
     db: Session,
     *,
-    source: str | None = None,
     operation: str | None = None,
     status: str | None = None,
     actor_user_id: uuid.UUID | None = None,
@@ -159,7 +151,7 @@ def list_events(
     created_before: dt.datetime | None = None,
     limit: int = DEFAULT_LIMIT,
     offset: int = 0,
-) -> EventPage:
+) -> AuditEventPage:
     if limit < 1:
         raise BadRequestError("limit must be >= 1")
     if limit > MAX_LIMIT:
@@ -168,7 +160,6 @@ def list_events(
         raise BadRequestError("offset must be >= 0")
 
     stmt = _filtered_stmt(
-        source=source,
         operation=operation,
         status=status,
         actor_user_id=actor_user_id,
@@ -179,40 +170,37 @@ def list_events(
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     items = list(
         db.scalars(
-            stmt.options(selectinload(Event.actor))
-            .order_by(Event.created_at.desc(), Event.id.desc())
+            stmt.options(selectinload(AuditEvent.actor))
+            .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
             .limit(limit)
             .offset(offset)
         )
     )
-    return EventPage(items=items, total=total, limit=limit, offset=offset)
+    return AuditEventPage(items=items, total=total, limit=limit, offset=offset)
 
 
 def _filtered_stmt(
     *,
-    source: str | None,
     operation: str | None,
     status: str | None,
     actor_user_id: uuid.UUID | None,
     request_id: str | None,
     created_after: dt.datetime | None,
     created_before: dt.datetime | None,
-) -> Select[tuple[Event]]:
-    stmt = select(Event)
-    if source := _clean_optional(source):
-        stmt = stmt.where(Event.source == source)
+) -> Select[tuple[AuditEvent]]:
+    stmt = select(AuditEvent)
     if operation := _clean_optional(operation):
-        stmt = stmt.where(Event.operation == operation)
+        stmt = stmt.where(AuditEvent.operation == operation)
     if status := _clean_optional(status):
-        stmt = stmt.where(Event.status == _clean_status(status))
+        stmt = stmt.where(AuditEvent.status == _clean_status(status))
     if actor_user_id is not None:
-        stmt = stmt.where(Event.actor_user_id == actor_user_id)
+        stmt = stmt.where(AuditEvent.actor_user_id == actor_user_id)
     if request_id := _clean_optional(request_id):
-        stmt = stmt.where(Event.request_id == request_id)
+        stmt = stmt.where(AuditEvent.request_id == request_id)
     if created_after is not None:
-        stmt = stmt.where(Event.created_at >= created_after)
+        stmt = stmt.where(AuditEvent.created_at >= created_after)
     if created_before is not None:
-        stmt = stmt.where(Event.created_at < created_before)
+        stmt = stmt.where(AuditEvent.created_at < created_before)
     return stmt
 
 

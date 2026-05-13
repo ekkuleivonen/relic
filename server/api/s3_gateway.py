@@ -17,7 +17,6 @@ from managers.exceptions import (
     ResourceNotFound,
 )
 from models import User
-from services import events as event_service
 from services import objects as object_service
 from services import parser_queue, s3_signing
 
@@ -141,11 +140,6 @@ async def put_object(
             size_bytes=spooled.size_bytes,
             ingest_meta=extract_user_metadata(request),
             current_user=user,
-            event_context=event_service.context_from_headers(
-                request.headers,
-                source="s3_gateway",
-                actor_user_id=user.id,
-            ),
         )
         await parser_queue.enqueue_parse_file_best_effort(result.file.id)
     except s3_signing.S3SigningError as exc:
@@ -179,11 +173,6 @@ def handle_copy_object(
         ingest_meta=extract_user_metadata(request),
         metadata_directive=metadata_directive,
         current_user=user,
-        event_context=event_service.context_from_headers(
-            request.headers,
-            source="s3_gateway",
-            actor_user_id=user.id,
-        ),
     )
     last_modified = result.file.updated_at.strftime("%Y-%m-%dT%H:%M:%S.000Z")
     body = (
@@ -296,11 +285,6 @@ async def head_object(
             bucket_name=bucket,
             key=key,
             current_user=user,
-            event_context=event_service.context_from_headers(
-                request.headers,
-                source="s3_gateway",
-                actor_user_id=user.id,
-            ),
         )
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
@@ -332,11 +316,6 @@ async def get_object(
             key=key,
             range_header=request.headers.get("range"),
             current_user=user,
-            event_context=event_service.context_from_headers(
-                request.headers,
-                source="s3_gateway",
-                actor_user_id=user.id,
-            ),
         )
         result = object_bytes.result
         boto_response = object_bytes.boto_response
@@ -409,11 +388,6 @@ async def delete_object(
             bucket_name=bucket,
             key=key,
             current_user=user,
-            event_context=event_service.context_from_headers(
-                request.headers,
-                source="s3_gateway",
-                actor_user_id=user.id,
-            ),
         )
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)

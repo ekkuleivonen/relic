@@ -11,7 +11,7 @@ from api.dependencies import CurrentUser
 from database import DbSession
 from schema_plan import UserRole
 from services import auth as auth_service
-from services import events as event_service
+from services import audit_events as audit_event_service
 
 router = APIRouter()
 
@@ -49,9 +49,8 @@ async def login(payload: LoginRequest, response: Response, db: DbSession) -> Ses
             password=payload.password,
         )
     except BadRequestError:
-        event_service.record_event(
+        audit_event_service.record_audit_event(
             db,
-            source="relic_api",
             operation="auth.login.failed",
             status="failed",
             metadata={"email": payload.email.lower()},
@@ -65,9 +64,8 @@ async def login(payload: LoginRequest, response: Response, db: DbSession) -> Ses
         secure=S.SESSION_COOKIE_SECURE,
         samesite="lax",
     )
-    event_service.record_event(
+    audit_event_service.record_audit_event(
         db,
-        source="relic_api",
         operation="auth.login.succeeded",
         actor_user_id=user.id,
         metadata={"email": user.email},
@@ -88,9 +86,8 @@ async def logout(
         secure=S.SESSION_COOKIE_SECURE,
         samesite="lax",
     )
-    event_service.record_event(
+    audit_event_service.record_audit_event(
         db,
-        source="relic_api",
         operation="auth.logout",
         actor_user_id=user.id if user else None,
     )

@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
-from models import Base, Bucket, Event, User
+from models import AuditEvent, Base, Bucket, User
 from schema_plan import BucketTier, UserRole
 from services.auth import create_session_token
 from tests.factories.models import BlobFactory, BucketFactory
@@ -197,13 +197,9 @@ def test_probe_bucket_updates_operation_latencies(client, db_session, monkeypatc
     assert body["probe_latency_head_ms"] >= 1
     assert body["probe_latency_get_ms"] >= 1
     assert body["probe_latency_delete_ms"] >= 1
-    event = db_session.scalars(
-        select(Event).where(Event.operation == "bucket.probed")
-    ).one()
-    assert event.source == "relic_api"
-    assert event.status == "succeeded"
-    assert event.meta["reachable"] is True
-    assert event.meta["probe_latency_put_ms"] >= 1
-    assert event.meta["duration_ms"] >= 1
-    assert event.meta["db_latency_ms"] >= 0
-    assert event.meta["remote_latency_ms"] >= 1
+    assert (
+        db_session.scalar(
+            select(AuditEvent).where(AuditEvent.operation == "bucket.probed")
+        )
+        is None
+    )

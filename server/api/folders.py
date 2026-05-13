@@ -8,7 +8,7 @@ from database import DbSession
 from models import Folder, User
 from schema_plan import UserRole
 from services import filesystem as filesystem_service
-from services import events as event_service
+from services import audit_events as audit_event_service
 from services import folders as folders_service
 from services.folder_storage_policy import effective_cooldown_days, effective_min_tier
 from services.folders import FolderResult
@@ -176,9 +176,8 @@ async def create_folder(
         current_user,
         parent_id=payload.parent_id,
         name=payload.name,
-        event_context=event_service.context_from_headers(
+        event_context=audit_event_service.context_from_headers(
             request.headers,
-            source="relic_api",
             actor_user_id=current_user.id,
         ),
     )
@@ -211,9 +210,8 @@ async def update_folder(
         cooldown_days=payload.cooldown_days,
         set_min_tier="min_tier" in payload.model_fields_set,
         set_cooldown_days="cooldown_days" in payload.model_fields_set,
-        event_context=event_service.context_from_headers(
+        event_context=audit_event_service.context_from_headers(
             request.headers,
-            source="relic_api",
             actor_user_id=current_user.id,
         ),
     )
@@ -240,9 +238,8 @@ async def delete_folder(
         current_user,
         folder_id=folder_id,
         recursive=recursive,
-        event_context=event_service.context_from_headers(
+        event_context=audit_event_service.context_from_headers(
             request.headers,
-            source="relic_api",
             actor_user_id=current_user.id,
         ),
     )
@@ -271,9 +268,8 @@ async def copy_folder(
         destination_parent_id=payload.destination_parent_id,
         name=payload.name,
         recursive=payload.recursive,
-        event_context=event_service.context_from_headers(
+        event_context=audit_event_service.context_from_headers(
             request.headers,
-            source="relic_api",
             actor_user_id=current_user.id,
         ),
     )

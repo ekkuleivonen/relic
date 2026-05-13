@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from managers.exceptions import ConflictError, ResourceNotFound
 from models import User
-from services.events import EventContext, create_event
+from services.audit_events import AuditEventContext, create_audit_event
 from utils.passwords import hash_password
 
 
@@ -14,7 +14,7 @@ def list_users(db: Session) -> list[User]:
 
 
 def create_user(
-    db: Session, data: dict, *, event_context: EventContext | None = None
+    db: Session, data: dict, *, event_context: AuditEventContext | None = None
 ) -> User:
     ensure_email_available(db, data["email"])
     user = User(
@@ -26,9 +26,8 @@ def create_user(
     db.add(user)
     db.flush()
     if event_context is not None:
-        create_event(
+        create_audit_event(
             db,
-            source=event_context.source,
             operation="user.created",
             actor_user_id=event_context.actor_user_id,
             request_id=event_context.request_id,
@@ -56,7 +55,7 @@ def update_user(
     user_id: uuid.UUID,
     data: dict,
     *,
-    event_context: EventContext | None = None,
+    event_context: AuditEventContext | None = None,
 ) -> User:
     user = get_user(db, user_id)
     changed_fields = sorted(data)
@@ -74,9 +73,8 @@ def update_user(
 
     db.flush()
     if event_context is not None:
-        create_event(
+        create_audit_event(
             db,
-            source=event_context.source,
             operation="user.updated",
             actor_user_id=event_context.actor_user_id,
             request_id=event_context.request_id,
@@ -92,7 +90,7 @@ def update_user(
 
 
 def delete_user(
-    db: Session, user_id: uuid.UUID, *, event_context: EventContext | None = None
+    db: Session, user_id: uuid.UUID, *, event_context: AuditEventContext | None = None
 ) -> None:
     user = get_user(db, user_id)
     metadata = {"user_id": str(user.id), "email": user.email}
@@ -101,9 +99,8 @@ def delete_user(
         actor_user_id = None
     db.delete(user)
     if event_context is not None:
-        create_event(
+        create_audit_event(
             db,
-            source=event_context.source,
             operation="user.deleted",
             actor_user_id=actor_user_id,
             request_id=event_context.request_id,

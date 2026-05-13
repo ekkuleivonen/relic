@@ -1,6 +1,6 @@
 import factory
 
-from models import AccessKey, Blob, Bucket, Event, Folder, FolderAccess, User
+from models import AccessKey, AuditEvent, Blob, Bucket, Folder, FolderAccess, User
 from schema_plan import BucketTier, Permission, UserRole
 from utils.passwords import hash_password
 
@@ -71,11 +71,10 @@ class FolderAccessFactory(factory.Factory):
     permissions = int(Permission.READ)
 
 
-class EventFactory(factory.Factory):
+class AuditEventFactory(factory.Factory):
     class Meta:
-        model = Event
+        model = AuditEvent
 
-    source = "relic_api"
     operation = factory.Sequence(lambda n: f"operation-{n}")
     status = "succeeded"
     actor_user_id = None

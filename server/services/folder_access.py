@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from managers.exceptions import BadRequestError, PermissionDenied, ResourceNotFound
 from models import Folder, FolderAccess, User
 from schema_plan import Permission, UserRole
-from services.events import EventContext, create_event
+from services.audit_events import AuditEventContext, create_audit_event
 from utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -57,7 +57,7 @@ def grant_folder_access(
     user_id: uuid.UUID,
     folder_id: uuid.UUID,
     permissions: int,
-    event_context: EventContext | None = None,
+    event_context: AuditEventContext | None = None,
 ) -> FolderAccessRow:
     """Insert or update an access grant. Idempotent on (user_id, folder_id)."""
     validate_permissions(permissions)
@@ -86,9 +86,8 @@ def grant_folder_access(
     db.flush()
     folder_path = resolve_folder_path(db, folder)
     if event_context is not None:
-        create_event(
+        create_audit_event(
             db,
-            source=event_context.source,
             operation="folder.access.updated" if existing else "folder.access.granted",
             actor_user_id=event_context.actor_user_id,
             request_id=event_context.request_id,
@@ -118,7 +117,7 @@ def grant_folder_access(
 
 
 def revoke_folder_access(
-    db: Session, access_id: uuid.UUID, *, event_context: EventContext | None = None
+    db: Session, access_id: uuid.UUID, *, event_context: AuditEventContext | None = None
 ) -> None:
     access = db.get(FolderAccess, access_id)
     if not access:
@@ -133,9 +132,8 @@ def revoke_folder_access(
     folder_ids = [access.folder_id]
     db.delete(access)
     if event_context is not None:
-        create_event(
+        create_audit_event(
             db,
-            source=event_context.source,
             operation="folder.access.revoked",
             actor_user_id=event_context.actor_user_id,
             request_id=event_context.request_id,

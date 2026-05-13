@@ -8,11 +8,11 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
-from models import Base, Event
+from models import AuditEvent, Base
 from schema_plan import UserRole
 from services.auth import create_session_token
-from services.events import trim_events_older_than
-from tests.factories.models import EventFactory, UserFactory
+from services.audit_events import trim_audit_events_older_than
+from tests.factories.models import AuditEventFactory, UserFactory
 
 
 @pytest.fixture()
@@ -52,10 +52,9 @@ def client(db_session, admin):
         app.dependency_overrides.clear()
 
 
-def test_list_events_returns_recent_events_first(client, db_session, admin):
+def test_list_audit_events_returns_recent_audit_events_first(client, db_session, admin):
     now = dt.datetime.now(dt.UTC)
-    older = EventFactory.build(
-        source="s3_gateway",
+    older = AuditEventFactory.build(
         operation="GET",
         actor_user_id=admin.id,
         request_id="req-old",
@@ -64,8 +63,7 @@ def test_list_events_returns_recent_events_first(client, db_session, admin):
         created_at=now - dt.timedelta(minutes=1),
         updated_at=now - dt.timedelta(minutes=1),
     )
-    newer = EventFactory.build(
-        source="relic_api",
+    newer = AuditEventFactory.build(
         operation="folder.move",
         actor_user_id=admin.id,
         request_id="req-new",
@@ -77,7 +75,7 @@ def test_list_events_returns_recent_events_first(client, db_session, admin):
     db_session.add_all([older, newer])
     db_session.commit()
 
-    response = client.get("/api/events/")
+    response = client.get("/api/audit-events/")
 
     assert response.status_code == 200
     body = response.json()
@@ -87,25 +85,23 @@ def test_list_events_returns_recent_events_first(client, db_session, admin):
     assert [item["request_id"] for item in body["items"]] == ["req-new", "req-old"]
     assert body["items"][0]["actor"]["email"] == "admin@relic.local"
     assert body["items"][0]["metadata"] == {"destination_folder_id": "folder-2"}
+    assert "source" not in body["items"][0]
 
 
-def test_list_events_filters_and_paginates(client, db_session, admin):
+def test_list_audit_events_filters_and_paginates(client, db_session, admin):
     db_session.add_all(
         [
-            EventFactory.build(
-                source="s3_gateway",
+            AuditEventFactory.build(
                 operation="GET",
                 actor_user_id=admin.id,
                 request_id="req-get-1",
             ),
-            EventFactory.build(
-                source="s3_gateway",
+            AuditEventFactory.build(
                 operation="PUT",
                 actor_user_id=admin.id,
                 request_id="req-put-1",
             ),
-            EventFactory.build(
-                source="relic_api",
+            AuditEventFactory.build(
                 operation="GET",
                 actor_user_id=admin.id,
                 request_id="req-api-1",
@@ -115,43 +111,43 @@ def test_list_events_filters_and_paginates(client, db_session, admin):
     db_session.commit()
 
     response = client.get(
-        "/api/events/",
-        params={"source": "s3_gateway", "operation": "GET", "limit": 1},
+        "/api/audit-events/",
+        params={"operation": "GET", "limit": 1},
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 1
+    assert body["total"] == 2
     assert len(body["items"]) == 1
-    assert body["items"][0]["request_id"] == "req-get-1"
+    assert body["items"][0]["operation"] == "GET"
 
 
-def test_list_events_rejects_invalid_status(client):
-    response = client.get("/api/events/", params={"status": "maybe"})
+def test_list_audit_events_rejects_invalid_status(client):
+    response = client.get("/api/audit-events/", params={"status": "maybe"})
 
     assert response.status_code == 400
     assert response.json()["detail"] == "status must be one of ['failed', 'succeeded']"
 
 
-def test_clear_events_removes_all_events(client, db_session, admin):
+def test_clear_audit_events_removes_all_audit_events(client, db_session, admin):
     db_session.add_all(
         [
-            EventFactory.build(actor_user_id=admin.id, request_id="req-1"),
-            EventFactory.build(actor_user_id=admin.id, request_id="req-2"),
+            AuditEventFactory.build(actor_user_id=admin.id, request_id="req-1"),
+            AuditEventFactory.build(actor_user_id=admin.id, request_id="req-2"),
         ]
     )
     db_session.commit()
 
-    response = client.delete("/api/events/")
+    response = client.delete("/api/audit-events/")
 
     assert response.status_code == 204
-    assert db_session.scalars(select(Event)).all() == []
+    assert db_session.scalars(select(AuditEvent)).all() == []
 
 
-def test_clear_events_requires_admin(db_session):
+def test_clear_audit_events_requires_admin(db_session):
     user = UserFactory.build(role=UserRole.USER)
     db_session.add(user)
-    db_session.add(EventFactory.build(request_id="req-1"))
+    db_session.add(AuditEventFactory.build(request_id="req-1"))
     db_session.commit()
 
     def override_get_db():
@@ -161,27 +157,29 @@ def test_clear_events_requires_admin(db_session):
     try:
         with TestClient(app) as test_client:
             test_client.cookies.set("relic_session", create_session_token(user))
-            response = test_client.delete("/api/events/")
+            response = test_client.delete("/api/audit-events/")
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 403
-    assert len(db_session.scalars(select(Event)).all()) == 1
+    assert len(db_session.scalars(select(AuditEvent)).all()) == 1
 
 
-def test_trim_events_older_than_deletes_only_events_before_cutoff(db_session):
+def test_trim_audit_events_older_than_deletes_only_audit_events_before_cutoff(
+    db_session,
+):
     now = dt.datetime.now(dt.UTC)
-    old_event = EventFactory.build(
+    old_event = AuditEventFactory.build(
         request_id="req-old",
         created_at=now - dt.timedelta(days=31),
         updated_at=now - dt.timedelta(days=31),
     )
-    cutoff_event = EventFactory.build(
+    cutoff_event = AuditEventFactory.build(
         request_id="req-cutoff",
         created_at=now - dt.timedelta(days=30),
         updated_at=now - dt.timedelta(days=30),
     )
-    recent_event = EventFactory.build(
+    recent_event = AuditEventFactory.build(
         request_id="req-recent",
         created_at=now - dt.timedelta(days=1),
         updated_at=now - dt.timedelta(days=1),
@@ -189,10 +187,10 @@ def test_trim_events_older_than_deletes_only_events_before_cutoff(db_session):
     db_session.add_all([old_event, cutoff_event, recent_event])
     db_session.commit()
 
-    deleted = trim_events_older_than(db_session, retention_days=30, now=now)
+    deleted = trim_audit_events_older_than(db_session, retention_days=30, now=now)
 
     remaining_request_ids = {
-        event.request_id for event in db_session.scalars(select(Event)).all()
+        event.request_id for event in db_session.scalars(select(AuditEvent)).all()
     }
     assert deleted == 1
     assert remaining_request_ids == {"req-cutoff", "req-recent"}

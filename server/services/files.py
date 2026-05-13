@@ -15,7 +15,6 @@ from models import File, PARSE_STATUS_PENDING, User
 from schema_plan import Permission
 from services import folder_access as folder_access_service
 from services import objects as object_service
-from services.events import EventContext, create_event
 
 
 def _with_preserved_extension(original_filename: str, new_filename: str) -> str:
@@ -42,7 +41,6 @@ def move_file(
     destination_folder_id: uuid.UUID,
     name: str | None,
     current_user: User,
-    event_context: EventContext | None = None,
 ) -> File:
     file = object_service.get_file_for_user(
         db, file_id, current_user, Permission.DELETE
@@ -70,22 +68,6 @@ def move_file(
     if name is not None:
         file.parse_status = PARSE_STATUS_PENDING
     db.flush()
-    if event_context is not None:
-        create_event(
-            db,
-            source=event_context.source,
-            operation="file.moved",
-            actor_user_id=event_context.actor_user_id,
-            request_id=event_context.request_id,
-            file_ids=[file.id],
-            folder_ids=[file.folder_id, destination.id],
-            blob_ids=[file.blob_id],
-            metadata={
-                "destination_folder_id": str(destination.id),
-                "name": file.name,
-                "renamed": name is not None,
-            },
-        )
     db.commit()
     db.refresh(file)
     return file
@@ -97,7 +79,6 @@ def rename_file(
     file_id: uuid.UUID,
     name: str,
     current_user: User,
-    event_context: EventContext | None = None,
 ) -> File:
     file = object_service.get_file_for_user(
         db, file_id, current_user, Permission.WRITE
@@ -114,18 +95,6 @@ def rename_file(
     file.name = name
     file.parse_status = PARSE_STATUS_PENDING
     db.flush()
-    if event_context is not None:
-        create_event(
-            db,
-            source=event_context.source,
-            operation="file.renamed",
-            actor_user_id=event_context.actor_user_id,
-            request_id=event_context.request_id,
-            file_ids=[file.id],
-            folder_ids=[file.folder_id],
-            blob_ids=[file.blob_id],
-            metadata={"name": file.name},
-        )
     db.commit()
     db.refresh(file)
     return file

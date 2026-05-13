@@ -5,7 +5,7 @@ from arq.cron import cron
 
 from database import get_sessionmaker
 from parsers import base
-from services import events as event_service
+from services import audit_events as audit_event_service
 from services import storage_maintenance
 from services.parser_queue import redis_settings
 from utils.logging import get_logger
@@ -19,11 +19,7 @@ async def parse_file(ctx, file_id: str) -> None:
     del ctx
     with get_sessionmaker()() as db:
         parsed_file_id = uuid.UUID(file_id)
-        base.parse_file(
-            db,
-            parsed_file_id,
-            event_context=event_service.EventContext(source="processor"),
-        )
+        base.parse_file(db, parsed_file_id)
 
 
 async def purge_dereferenced_blobs_worker(ctx) -> None:
@@ -35,7 +31,6 @@ async def purge_dereferenced_blobs_worker(ctx) -> None:
             storage_maintenance.purge_dereferenced_blobs_batch(
                 db,
                 batch=S.STORAGE_MAINTENANCE_PURGE_BATCH,
-                event_context=event_service.EventContext(source="maintenance"),
             )
 
     await asyncio.to_thread(run)
@@ -47,10 +42,7 @@ async def refresh_all_bucket_probes_worker(ctx) -> None:
     def run() -> None:
         sm = get_sessionmaker()
         with sm() as db:
-            storage_maintenance.probe_all_buckets(
-                db,
-                event_context=event_service.EventContext(source="maintenance"),
-            )
+            storage_maintenance.probe_all_buckets(db)
 
     await asyncio.to_thread(run)
 
@@ -65,24 +57,23 @@ async def rebalance_blob_storage_worker(ctx) -> None:
                 db,
                 migrate_limit=S.STORAGE_MAINTENANCE_MIGRATE_BATCH,
                 pressure_ratio=S.STORAGE_MAINTENANCE_BUCKET_PRESSURE_RATIO,
-                event_context=event_service.EventContext(source="maintenance"),
             )
 
     await asyncio.to_thread(run)
 
 
-async def trim_old_events_worker(ctx) -> None:
+async def trim_old_audit_events_worker(ctx) -> None:
     del ctx
 
     def run() -> None:
         sm = get_sessionmaker()
         with sm() as db:
-            deleted_rows = event_service.trim_events_older_than(
+            deleted_rows = audit_event_service.trim_audit_events_older_than(
                 db,
                 retention_days=S.EVENT_RETENTION_DAYS,
             )
         log.info(
-            "event_retention_trimmed",
+            "audit_event_retention_trimmed",
             retention_days=S.EVENT_RETENTION_DAYS,
             deleted_rows=deleted_rows,
         )
@@ -95,7 +86,7 @@ async def storage_maintenance_tick(ctx) -> None:
     await redis.enqueue_job("purge_dereferenced_blobs_worker")
     await redis.enqueue_job("refresh_all_bucket_probes_worker")
     await redis.enqueue_job("rebalance_blob_storage_worker")
-    await redis.enqueue_job("trim_old_events_worker")
+    await redis.enqueue_job("trim_old_audit_events_worker")
     log.info(
         "storage_maintenance_tick_enqueued",
         queue=S.PARSER_QUEUE_NAME,
@@ -108,7 +99,7 @@ class WorkerSettings:
         purge_dereferenced_blobs_worker,
         refresh_all_bucket_probes_worker,
         rebalance_blob_storage_worker,
-        trim_old_events_worker,
+        trim_old_audit_events_worker,
     ]
     cron_jobs = [
         cron(

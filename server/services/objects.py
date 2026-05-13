@@ -16,13 +16,7 @@ from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import Blob, Bucket, File, Folder, PARSE_STATUS_PENDING, User
 from schema_plan import BucketTier, Permission
 from services import folder_access as folder_access_service
-from services.events import (
-    EventContext,
-    create_event,
-    elapsed_ms,
-    latency_metadata,
-    timer_start,
-)
+from services.audit_events import elapsed_ms, timer_start
 from services.folder_storage_policy import effective_min_tier
 from services.placement import adjust_bucket_usage_cache, choose_bucket
 from utils.logging import get_logger
@@ -84,12 +78,7 @@ def put_object(
     current_user: User,
     content_hash: bytes | None = None,
     size_bytes: int | None = None,
-    event_context: EventContext | None = None,
 ) -> PutObjectResult:
-    started_at = timer_start()
-    db_latency_ms = 0
-    remote_latency_ms = 0
-    db_started = timer_start()
     folder, file_name = resolve_object_path(
         db,
         bucket_name=bucket_name,
@@ -103,7 +92,6 @@ def put_object(
         Permission.WRITE,
     )
     ensure_file_name_available(db, folder.id, file_name)
-    db_latency_ms += elapsed_ms(db_started, minimum=0)
 
     body_file, digest, object_size = prepare_body(
         body=body,
@@ -111,7 +99,6 @@ def put_object(
         size_bytes=size_bytes,
     )
     digest_hex = digest.hex()
-    db_started = timer_start()
     blob = db.scalar(
         select(Blob).where(Blob.content_hash == digest, Blob.refcount > 0)
     )
@@ -124,7 +111,6 @@ def put_object(
             tier=BucketTier(effective_min_tier(db, folder)),
             size_bytes=object_size,
         )
-        db_latency_ms += elapsed_ms(db_started, minimum=0)
         created_blob = create_blob(
             db,
             bucket=bucket,
@@ -133,8 +119,6 @@ def put_object(
             size_bytes=object_size,
         )
         blob = created_blob.blob
-        remote_latency_ms += created_blob.remote_latency_ms
-        db_started = timer_start()
 
     file = File(
         folder_id=folder.id,
@@ -150,29 +134,6 @@ def put_object(
     )
     db.add(file)
     db.flush()
-    db_latency_ms += elapsed_ms(db_started, minimum=0)
-    if event_context is not None:
-        create_event(
-            db,
-            source=event_context.source,
-            operation="object.put",
-            actor_user_id=event_context.actor_user_id,
-            request_id=event_context.request_id,
-            file_ids=[file.id],
-            folder_ids=[file.folder_id],
-            blob_ids=[blob.id],
-            metadata={
-                "bucket": bucket_name,
-                "key": key,
-                "etag": digest_hex,
-                "size_bytes": blob.size_bytes,
-                **latency_metadata(
-                    started_at,
-                    db_latency_ms=db_latency_ms,
-                    remote_latency_ms=remote_latency_ms,
-                ),
-            },
-        )
     db.commit()
     db.refresh(file)
     db.refresh(blob)
@@ -345,7 +306,6 @@ def delete_object(
     bucket_name: str,
     key: str,
     current_user: User | None = None,
-    event_context: EventContext | None = None,
 ) -> DeleteObjectResult:
     """
     Delete a File by bucket+key and decrement the Blob refcount.
@@ -357,70 +317,27 @@ def delete_object(
     S3 DELETE is idempotent: missing keys still return success. We mirror that
     so external clients (DuckLake, rclone) get the contract they expect.
     """
-    started_at = timer_start()
-    db_latency_ms = 0
-    db_started = timer_start()
     folder, file_name = resolve_existing_object_path(
         db, bucket_name=bucket_name, key=key
     )
-    db_latency_ms += elapsed_ms(db_started, minimum=0)
     if folder is None:
-        if event_context is not None:
-            create_event(
-                db,
-                source=event_context.source,
-                operation="object.deleted",
-                actor_user_id=event_context.actor_user_id,
-                request_id=event_context.request_id,
-                metadata={
-                    "bucket": bucket_name,
-                    "key": key,
-                    "existed": False,
-                    **latency_metadata(started_at, db_latency_ms=db_latency_ms),
-                },
-            )
-            db.commit()
         return DeleteObjectResult(existed=False)
 
     if current_user is not None:
-        db_started = timer_start()
         folder_access_service.require_folder_permission_strict(
             db,
             current_user,
             folder.id,
             Permission.DELETE,
         )
-        db_latency_ms += elapsed_ms(db_started, minimum=0)
 
-    db_started = timer_start()
     file = db.scalar(
         select(File).where(File.folder_id == folder.id, File.name == file_name)
     )
-    db_latency_ms += elapsed_ms(db_started, minimum=0)
     if file is None:
-        if event_context is not None:
-            create_event(
-                db,
-                source=event_context.source,
-                operation="object.deleted",
-                actor_user_id=event_context.actor_user_id,
-                request_id=event_context.request_id,
-                folder_ids=[folder.id],
-                metadata={
-                    "bucket": bucket_name,
-                    "key": key,
-                    "existed": False,
-                    **latency_metadata(started_at, db_latency_ms=db_latency_ms),
-                },
-            )
-            db.commit()
         return DeleteObjectResult(existed=False)
 
-    db_started = timer_start()
     blob = db.get(Blob, file.blob_id)
-    file_id = file.id
-    folder_id = file.folder_id
-    blob_id = file.blob_id
     db.delete(file)
     db.flush()
 
@@ -428,25 +345,7 @@ def delete_object(
         blob.refcount -= 1
         if blob.refcount < 0:
             blob.refcount = 0
-    db_latency_ms += elapsed_ms(db_started, minimum=0)
 
-    if event_context is not None:
-        create_event(
-            db,
-            source=event_context.source,
-            operation="object.deleted",
-            actor_user_id=event_context.actor_user_id,
-            request_id=event_context.request_id,
-            file_ids=[file_id],
-            folder_ids=[folder_id],
-            blob_ids=[blob_id],
-            metadata={
-                "bucket": bucket_name,
-                "key": key,
-                "existed": True,
-                **latency_metadata(started_at, db_latency_ms=db_latency_ms),
-            },
-        )
     db.commit()
     return DeleteObjectResult(existed=True)
 
@@ -480,20 +379,16 @@ def copy_object(
     ingest_meta: dict,
     metadata_directive: str = METADATA_DIRECTIVE_COPY,
     current_user: User,
-    event_context: EventContext | None = None,
 ) -> CopyObjectResult:
     """
     S3 CopyObject - metadata-only copy. The new File points at the same Blob;
     refcount on the Blob is incremented.
     """
-    started_at = timer_start()
-    db_latency_ms = 0
     if metadata_directive not in (METADATA_DIRECTIVE_COPY, METADATA_DIRECTIVE_REPLACE):
         raise BadRequestError(
             "x-amz-metadata-directive must be COPY or REPLACE"
         )
 
-    db_started = timer_start()
     source_folder, source_file_name = require_existing_object_path(
         db, bucket_name=source_bucket, key=source_key
     )
@@ -534,7 +429,6 @@ def copy_object(
     blob = db.get(Blob, source_file.blob_id)
     if blob is None:
         raise ResourceNotFound("Source blob not found")
-    db_latency_ms += elapsed_ms(db_started, minimum=0)
 
     copied_meta = (
         validate_file_meta_dict(dict(source_file.meta)).model_dump(mode="json")
@@ -556,29 +450,7 @@ def copy_object(
     )
     db.add(new_file)
     blob.refcount += 1
-    db_started = timer_start()
     db.flush()
-    db_latency_ms += elapsed_ms(db_started, minimum=0)
-    if event_context is not None:
-        create_event(
-            db,
-            source=event_context.source,
-            operation="object.copied",
-            actor_user_id=event_context.actor_user_id,
-            request_id=event_context.request_id,
-            file_ids=[new_file.id],
-            folder_ids=[source_folder.id, dest_folder.id],
-            blob_ids=[blob.id],
-            metadata={
-                "bucket": dest_bucket,
-                "key": dest_key,
-                "source_bucket": source_bucket,
-                "source_key": source_key,
-                "metadata_directive": metadata_directive,
-                "etag": blob.content_hash.hex(),
-                **latency_metadata(started_at, db_latency_ms=db_latency_ms),
-            },
-        )
     db.commit()
     db.refresh(new_file)
     db.refresh(blob)
@@ -631,32 +503,10 @@ def head_object(
     bucket_name: str,
     key: str,
     current_user: User | None = None,
-    event_context: EventContext | None = None,
 ) -> GetObjectResult:
-    started_at = timer_start()
-    db_started = timer_start()
-    result = get_object(
+    return get_object(
         db, bucket_name=bucket_name, key=key, current_user=current_user
     )
-    db_latency_ms = elapsed_ms(db_started, minimum=0)
-    if event_context is not None:
-        create_event(
-            db,
-            source=event_context.source,
-            operation="object.head",
-            actor_user_id=event_context.actor_user_id,
-            request_id=event_context.request_id,
-            file_ids=[result.file.id],
-            folder_ids=[result.file.folder_id],
-            blob_ids=[result.blob.id],
-            metadata={
-                "bucket": bucket_name,
-                "key": key,
-                **latency_metadata(started_at, db_latency_ms=db_latency_ms),
-            },
-        )
-        db.commit()
-    return result
 
 
 def get_object_bytes(
@@ -666,44 +516,15 @@ def get_object_bytes(
     key: str,
     range_header: str | None = None,
     current_user: User | None = None,
-    event_context: EventContext | None = None,
 ) -> GetObjectBytesResult:
-    started_at = timer_start()
-    db_started = timer_start()
     result = get_object(
         db, bucket_name=bucket_name, key=key, current_user=current_user
     )
-    db_latency_ms = elapsed_ms(db_started, minimum=0)
-    remote_started = timer_start()
     boto_response = fetch_blob_bytes(
         bucket=result.bucket,
         bucket_key=result.blob.bucket_key,
         range_header=range_header,
     )
-    remote_latency_ms = elapsed_ms(remote_started, minimum=0)
-    if event_context is not None:
-        create_event(
-            db,
-            source=event_context.source,
-            operation="object.get",
-            actor_user_id=event_context.actor_user_id,
-            request_id=event_context.request_id,
-            file_ids=[result.file.id],
-            folder_ids=[result.file.folder_id],
-            blob_ids=[result.blob.id],
-            metadata={
-                "bucket": bucket_name,
-                "key": key,
-                "range": range_header,
-                "content_length": boto_response.get("ContentLength"),
-                **latency_metadata(
-                    started_at,
-                    db_latency_ms=db_latency_ms,
-                    remote_latency_ms=remote_latency_ms,
-                ),
-            },
-        )
-        db.commit()
     return GetObjectBytesResult(result=result, boto_response=boto_response)
 
 

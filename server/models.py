@@ -215,16 +215,15 @@ class File(Base, TimestampMixin):
         return self.uploader.name if self.uploader else None
 
 
-class Event(Base, TimestampMixin):
-    __tablename__ = "events"
+class AuditEvent(Base, TimestampMixin):
+    __tablename__ = "audit_events"
     __table_args__ = (
-        Index("ix_events_created_at_id", "created_at", "id"),
-        Index("ix_events_source_operation_created_at", "source", "operation", "created_at"),
-        Index("ix_events_status_created_at", "status", "created_at"),
+        Index("ix_audit_events_created_at_id", "created_at", "id"),
+        Index("ix_audit_events_operation_created_at", "operation", "created_at"),
+        Index("ix_audit_events_status_created_at", "status", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    source: Mapped[str] = mapped_column(String(128), nullable=False)
     operation: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(64), nullable=False)
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(

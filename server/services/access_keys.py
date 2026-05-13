@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from managers.exceptions import ResourceNotFound
 from models import AccessKey, User
-from services.events import EventContext, create_event
+from services.audit_events import AuditEventContext, create_audit_event
 from services.users import get_user
 from utils.logging import get_logger
 
@@ -42,7 +42,7 @@ def create_access_key(
     *,
     user_id: uuid.UUID,
     name: str,
-    event_context: EventContext | None = None,
+    event_context: AuditEventContext | None = None,
 ) -> CreatedAccessKey:
     user = get_user(db, user_id)
     key_id = generate_key_id()
@@ -56,9 +56,8 @@ def create_access_key(
     db.add(access_key)
     db.flush()
     if event_context is not None:
-        create_event(
+        create_audit_event(
             db,
-            source=event_context.source,
             operation="access_key.created",
             actor_user_id=event_context.actor_user_id,
             request_id=event_context.request_id,
@@ -96,16 +95,15 @@ def get_access_key_by_key_id(db: Session, key_id: str) -> AccessKeyRow:
 
 
 def revoke_access_key(
-    db: Session, key_id: str, *, event_context: EventContext | None = None
+    db: Session, key_id: str, *, event_context: AuditEventContext | None = None
 ) -> AccessKeyRow:
     row = get_access_key_by_key_id(db, key_id)
     if row.access_key.revoked_at is None:
         row.access_key.revoked_at = dt.datetime.now(dt.UTC)
         db.flush()
         if event_context is not None:
-            create_event(
+            create_audit_event(
                 db,
-                source=event_context.source,
                 operation="access_key.revoked",
                 actor_user_id=event_context.actor_user_id,
                 request_id=event_context.request_id,
@@ -128,7 +126,7 @@ def revoke_access_key(
 
 
 def delete_access_key(
-    db: Session, key_id: str, *, event_context: EventContext | None = None
+    db: Session, key_id: str, *, event_context: AuditEventContext | None = None
 ) -> None:
     row = get_access_key_by_key_id(db, key_id)
     metadata = {
@@ -138,9 +136,8 @@ def delete_access_key(
     }
     db.delete(row.access_key)
     if event_context is not None:
-        create_event(
+        create_audit_event(
             db,
-            source=event_context.source,
             operation="access_key.deleted",
             actor_user_id=event_context.actor_user_id,
             request_id=event_context.request_id,

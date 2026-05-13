@@ -2,32 +2,36 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { apiRequest, extractApiError } from "@/lib/api"
-import type { EventsQuery, EventsResponse } from "@/types/events"
+import type {
+  AuditEventsQuery,
+  AuditEventsResponse,
+} from "@/types/audit-events"
 
-export const EVENTS_PAGE_SIZE = 50
+export const AUDIT_EVENTS_PAGE_SIZE = 50
 
-export const eventsQueryRootKey = ["events"] as const
-export const eventsQueryKey = (query: EventsQuery) =>
-  [...eventsQueryRootKey, query] as const
+export const auditEventsQueryRootKey = ["audit-events"] as const
+export const auditEventsQueryKey = (query: AuditEventsQuery) =>
+  [...auditEventsQueryRootKey, query] as const
 
-export function useEvents(query: EventsQuery) {
+export function useAuditEvents(query: AuditEventsQuery) {
   return useQuery({
-    queryKey: eventsQueryKey(query),
-    queryFn: () => apiRequest<EventsResponse>(`/events/${toQueryString(query)}`),
+    queryKey: auditEventsQueryKey(query),
+    queryFn: () =>
+      apiRequest<AuditEventsResponse>(`/audit-events/${toQueryString(query)}`),
   })
 }
 
-export function useClearEvents() {
+export function useClearAuditEvents() {
   const queryClient = useQueryClient()
 
   return useMutation({
     mutationFn: () =>
-      apiRequest<void>("/events/", {
+      apiRequest<void>("/audit-events/", {
         method: "DELETE",
       }),
     onSuccess: () => {
       toast.success("Audit log cleared")
-      void queryClient.invalidateQueries({ queryKey: eventsQueryRootKey })
+      void queryClient.invalidateQueries({ queryKey: auditEventsQueryRootKey })
     },
     onError: (error) => {
       toast.error(extractApiError(error))
@@ -35,16 +39,15 @@ export function useClearEvents() {
   })
 }
 
-function toQueryString(query: EventsQuery) {
+function toQueryString(query: AuditEventsQuery) {
   const params = new URLSearchParams()
-  addString(params, "source", query.source)
   addString(params, "operation", query.operation)
   addString(params, "status", query.status)
   addString(params, "actor_user_id", query.actor_user_id)
   addString(params, "request_id", query.request_id)
   addString(params, "created_after", query.created_after)
   addString(params, "created_before", query.created_before)
-  params.set("limit", String(query.limit ?? EVENTS_PAGE_SIZE))
+  params.set("limit", String(query.limit ?? AUDIT_EVENTS_PAGE_SIZE))
   params.set("offset", String(query.offset ?? 0))
   const serialized = params.toString()
   return serialized ? `?${serialized}` : ""

@@ -11,7 +11,6 @@ from database import DbSession
 from managers.exceptions import BadRequestError
 from schema_plan import Permission
 from services import folder_access as folder_access_service
-from services import events as event_service
 from services import objects as object_service
 from services import s3_signing
 
@@ -84,15 +83,6 @@ async def presign_upload(
         host=request.headers.get("host", "testserver"),
         ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
     )
-    event_service.record_event(
-        db,
-        source="relic_api",
-        operation="presign.upload.created",
-        actor_user_id=current_user.id,
-        request_id=event_service.request_id_from_headers(request.headers),
-        folder_ids=[folder.id],
-        metadata={"bucket": bucket, "key": key, "filename": payload.filename},
-    )
     return PresignUploadResponse(
         url=signed.url,
         headers=signed.headers,
@@ -118,17 +108,6 @@ async def presign_delete(
         host=request.headers.get("host", "testserver"),
         ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
     )
-    event_service.record_event(
-        db,
-        source="relic_api",
-        operation="presign.delete.created",
-        actor_user_id=current_user.id,
-        request_id=event_service.request_id_from_headers(request.headers),
-        file_ids=[file.id],
-        folder_ids=[file.folder_id],
-        blob_ids=[file.blob_id],
-        metadata={"bucket": bucket, "key": key},
-    )
     return PresignUploadResponse(
         url=signed.url,
         headers=signed.headers,
@@ -153,17 +132,6 @@ async def presign_download(
         user_id=current_user.id,
         host=request.headers.get("host", "testserver"),
         ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
-    )
-    event_service.record_event(
-        db,
-        source="relic_api",
-        operation="presign.download.created",
-        actor_user_id=current_user.id,
-        request_id=event_service.request_id_from_headers(request.headers),
-        file_ids=[file.id],
-        folder_ids=[file.folder_id],
-        blob_ids=[file.blob_id],
-        metadata={"bucket": bucket, "key": key},
     )
     return PresignUploadResponse(
         url=signed.url,
@@ -219,23 +187,6 @@ async def presign_copy(
         user_id=current_user.id,
         host=request.headers.get("host", "testserver"),
         ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
-    )
-    event_service.record_event(
-        db,
-        source="relic_api",
-        operation="presign.copy.created",
-        actor_user_id=current_user.id,
-        request_id=event_service.request_id_from_headers(request.headers),
-        file_ids=[source_file.id],
-        folder_ids=[source_file.folder_id, dest_folder.id],
-        blob_ids=[source_file.blob_id],
-        metadata={
-            "source_bucket": source_bucket,
-            "source_key": source_key,
-            "destination_bucket": dest_bucket,
-            "destination_key": dest_key,
-            "metadata_directive": payload.metadata_directive,
-        },
     )
     return PresignUploadResponse(
         url=signed.url,

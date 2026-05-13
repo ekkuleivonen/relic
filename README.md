@@ -85,26 +85,24 @@ values where they overlap.
 - Admin screens for users, folder grants, buckets, and access keys.
 - SigV4 access keys for S3-style API access.
 
-### Audit Log and Events
+### Audit Log
 
-- Durable `events` table for audit records across the JSON API, S3 gateway, and
-  background processors.
-- Mutating operations write audit events in the same database transaction as the
-  user, folder, file, bucket, access, object, or metadata mutation.
-- Read-only access events such as S3 `GET` and `HEAD` are persisted
-  synchronously before the request is considered complete.
-- Event records capture source, operation, status, actor, request ID, related
+- Durable `audit_events` table for identity, access, bucket, and folder audit
+  records.
+- Audit-worthy mutations write audit events in the same database transaction as
+  the user, folder, bucket, or access change.
+- Object/content activity such as S3 object writes/deletes, file metadata
+  updates, parsing, blob maintenance, and signed URL creation is not written to
+  the audit log.
+- Audit records capture operation, status, actor, request ID, related
   file/folder/blob IDs, and operation-specific metadata.
-- Event retention is controlled by `EVENT_RETENTION_DAYS`; the maintenance
-  worker deletes any event older than that age during its regular cron tick.
-- The durable `events` table is the primary human-readable audit surface; there
-  is no separate audit projection.
-- Admin audit log UI with filters for source, operation, status, request ID,
-  actor, and time range.
+- Audit retention is controlled by `EVENT_RETENTION_DAYS`; the maintenance
+  worker deletes any audit event older than that age during its regular cron
+  tick.
+- Admin audit log UI with filters for operation, status, request ID, actor, and
+  time range.
 - Expandable event details that show metadata and related entity IDs for
   investigation.
-- Parser failure events include processor stage, filename, MIME type when
-  available, and exception class/message.
 - Admin-only audit log clearing for local or operational reset workflows.
 
 ### API and S3 Gateway
@@ -127,10 +125,10 @@ Relic is split into a React client, a FastAPI server, and an ARQ worker:
 - `client/` is a Vite, React, TypeScript, Tailwind, and shadcn/ui app.
 - `server/api/` contains the HTTP API and S3 gateway routes.
 - `server/services/` contains the filesystem, object, bucket, search, access,
-  placement, events, and maintenance logic.
+  placement, audit event, and maintenance logic.
 - `server/parsers/` contains the metadata parser queue and toolchains.
 - PostgreSQL stores users, folders, files, blobs, access grants, access keys,
-  bucket registrations, and durable event records.
+  bucket registrations, and durable audit events.
 - Redis backs ARQ parser and maintenance jobs.
 - Garage is used by the local Docker setup as two S3-compatible object stores,
   one hot and one cold.

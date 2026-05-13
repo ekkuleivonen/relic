@@ -6,10 +6,9 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from file_meta import build_file_meta
-from models import Base, Event, File, PARSE_STATUS_COMPLETED, PARSE_STATUS_FAILED
+from models import AuditEvent, Base, File, PARSE_STATUS_COMPLETED, PARSE_STATUS_FAILED
 from parsers.base import detect_mime_type, is_parquet_file, parse_file
 from schema_plan import BucketTier
-from services.events import EventContext
 from tests.factories.models import BlobFactory, BucketFactory, FolderFactory, UserFactory
 
 
@@ -75,23 +74,15 @@ def test_parse_csv_file_accepts_legacy_meta_missing_summary(
         lambda **kwargs: csv_bytes,
     )
 
-    parsed = parse_file(
-        db_session,
-        file.id,
-        event_context=EventContext(source="processor"),
-    )
+    parsed = parse_file(db_session, file.id)
 
     assert parsed.parse_status == PARSE_STATUS_COMPLETED
     assert parsed.meta["summary"] == "CSV table with 2 rows and 2 columns"
     assert parsed.meta["kvs"]["row_count"] == 2
-    event = db_session.scalars(
-        select(Event).where(Event.operation == "file.metadata.updated")
-    ).one()
-    assert event.status == "succeeded"
-    assert event.file_ids == [str(file.id)]
+    assert db_session.scalars(select(AuditEvent)).all() == []
 
 
-def test_parse_failure_event_includes_actionable_error_context(
+def test_parse_failure_marks_file_failed_without_audit_event(
     db_session, monkeypatch
 ) -> None:
     user = UserFactory.build()
@@ -118,26 +109,8 @@ def test_parse_failure_event_includes_actionable_error_context(
     monkeypatch.setattr("parsers.base.read_blob_prefix", fail_read_prefix)
 
     with pytest.raises(RuntimeError):
-        parse_file(
-            db_session,
-            file.id,
-            event_context=EventContext(source="processor"),
-        )
+        parse_file(db_session, file.id)
 
     db_session.refresh(file)
-    event = db_session.scalars(
-        select(Event).where(Event.operation == "parse.failed")
-    ).one()
     assert file.parse_status == PARSE_STATUS_FAILED
-    assert event.status == "failed"
-    assert event.file_ids == [str(file.id)]
-    assert event.folder_ids == [str(folder.id)]
-    assert event.blob_ids == [str(blob.id)]
-    assert event.meta == {
-        "processor": "parse_file",
-        "stage": "read_prefix",
-        "file_name": "broken.pdf",
-        "mimetype": None,
-        "error_type": "RuntimeError",
-        "error_message": "source object is unreadable",
-    }
+    assert db_session.scalars(select(AuditEvent)).all() == []

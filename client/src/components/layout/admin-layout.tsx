@@ -9,7 +9,7 @@ const adminNavItems = [
   { to: "/admin/users", label: "Users" },
   { to: "/admin/access-keys", label: "Access Keys" },
   { to: "/admin/folders", label: "Folder Access" },
-  { to: "/admin/events", label: "Audit Log" },
+  { to: "/admin/audit-events", label: "Audit Log" },
   { to: "/admin/files", label: "Files" },
   { to: "/admin/blobs", label: "Blobs" },
 ] as const

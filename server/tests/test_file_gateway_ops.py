@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 from api.app import app
 from database import get_db
 import settings as S
-from models import Base, Blob, Event, File, Folder, FolderAccess
+from models import AuditEvent, Base, Blob, File, Folder, FolderAccess
 from schema_plan import BucketTier, Permission
 from services.auth import create_session_token
 from services import s3_signing
@@ -214,6 +214,7 @@ def test_presigned_delete_drops_file_and_blob(
     purge_dereferenced_blobs_batch(db_session, batch=S.STORAGE_MAINTENANCE_PURGE_BATCH)
     assert db_session.scalar(select(Blob).where(Blob.id == blob_id)) is None
     assert fake_storage.objects == {}
+    assert db_session.scalars(select(AuditEvent)).all() == []
 
 
 def test_delete_idempotent_on_missing_key(
@@ -237,6 +238,7 @@ def test_delete_idempotent_on_missing_key(
     second = client.delete(signed["url"], headers=signed["headers"])
     assert first.status_code == 204
     assert second.status_code == 204
+    assert db_session.scalars(select(AuditEvent)).all() == []
 
 
 def test_delete_keeps_blob_when_other_files_share_it(
@@ -426,7 +428,7 @@ def test_presigned_copy_replace_directive_overrides_meta(
 
 
 def test_presigned_download_streams_bytes(
-    client, db_session, user, photos_folder, physical_bucket, fake_storage, monkeypatch
+    client, db_session, user, photos_folder, physical_bucket, fake_storage
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     upload_file(client, photos_folder, filename="cat.jpg", content=b"cat photo")
@@ -439,31 +441,22 @@ def test_presigned_download_streams_bytes(
     assert presign.status_code == 200, presign.text
     signed = presign.json()
 
-    def fail_route_level_record_event(*args, **kwargs):
-        raise AssertionError("S3 gateway must not record events outside object service")
-
-    monkeypatch.setattr(
-        "api.s3_gateway.event_service.record_event",
-        fail_route_level_record_event,
-    )
     response = client.get(signed["url"], headers=signed["headers"])
     assert response.status_code == 200
     assert response.content == b"cat photo"
     digest = hashlib.sha256(b"cat photo").hexdigest()
     assert response.headers["etag"] == f'"{digest}"'
     assert response.headers["content-type"] == "image/jpeg"
-    event = db_session.scalar(select(Event).where(Event.operation == "object.get"))
-    assert event is not None
-    assert event.source == "s3_gateway"
-    assert event.file_ids == [str(file.id)]
-    assert event.meta["content_length"] == len(b"cat photo")
-    assert event.meta["duration_ms"] >= 1
-    assert event.meta["db_latency_ms"] >= 0
-    assert event.meta["remote_latency_ms"] >= 0
+    assert (
+        db_session.scalar(
+            select(AuditEvent).where(AuditEvent.operation == "object.get")
+        )
+        is None
+    )
 
 
-def test_presigned_head_records_event_inside_object_service(
-    client, db_session, user, photos_folder, physical_bucket, fake_storage, monkeypatch
+def test_presigned_head_does_not_emit_audit_event(
+    client, db_session, user, photos_folder, physical_bucket, fake_storage
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     upload_file(client, photos_folder, filename="cat.jpg", content=b"cat photo")
@@ -478,22 +471,14 @@ def test_presigned_head_records_event_inside_object_service(
         ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
     )
 
-    def fail_route_level_record_event(*args, **kwargs):
-        raise AssertionError("S3 gateway must not record events outside object service")
-
-    monkeypatch.setattr(
-        "api.s3_gateway.event_service.record_event",
-        fail_route_level_record_event,
-    )
     response = client.head(signed.url, headers=signed.headers)
     assert response.status_code == 200
-    event = db_session.scalar(select(Event).where(Event.operation == "object.head"))
-    assert event is not None
-    assert event.source == "s3_gateway"
-    assert event.file_ids == [str(file.id)]
-    assert event.meta["duration_ms"] >= 1
-    assert event.meta["db_latency_ms"] >= 0
-    assert "remote_latency_ms" not in event.meta
+    assert (
+        db_session.scalar(
+            select(AuditEvent).where(AuditEvent.operation == "object.head")
+        )
+        is None
+    )
 
 
 def test_presigned_download_passes_range_header(

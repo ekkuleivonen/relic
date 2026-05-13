@@ -6,17 +6,16 @@ from pydantic import BaseModel, ConfigDict
 
 from api.users import UserRead
 from database import DbSession
-from models import Event
-from services import events as event_service
+from models import AuditEvent
+from services import audit_events as audit_event_service
 
 router = APIRouter()
 
 
-class EventRead(BaseModel):
+class AuditEventRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: uuid.UUID
-    source: str
     operation: str
     status: str
     actor_user_id: uuid.UUID | None
@@ -30,10 +29,9 @@ class EventRead(BaseModel):
     updated_at: dt.datetime
 
     @classmethod
-    def from_event(cls, event: Event) -> "EventRead":
+    def from_event(cls, event: AuditEvent) -> "AuditEventRead":
         return cls(
             id=event.id,
-            source=event.source,
             operation=event.operation,
             status=event.status,
             actor_user_id=event.actor_user_id,
@@ -48,31 +46,33 @@ class EventRead(BaseModel):
         )
 
 
-class EventListResponse(BaseModel):
+class AuditEventListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    items: list[EventRead]
+    items: list[AuditEventRead]
     total: int
     limit: int
     offset: int
 
 
 @router.get("/")
-async def list_events(
+async def list_audit_events(
     db: DbSession,
-    source: str | None = None,
     operation: str | None = None,
     status: str | None = None,
     actor_user_id: uuid.UUID | None = None,
     request_id: str | None = None,
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
-    limit: int = Query(default=event_service.DEFAULT_LIMIT, ge=1, le=event_service.MAX_LIMIT),
+    limit: int = Query(
+        default=audit_event_service.DEFAULT_LIMIT,
+        ge=1,
+        le=audit_event_service.MAX_LIMIT,
+    ),
     offset: int = Query(default=0, ge=0),
-) -> EventListResponse:
-    page = event_service.list_events(
+) -> AuditEventListResponse:
+    page = audit_event_service.list_audit_events(
         db,
-        source=source,
         operation=operation,
         status=status,
         actor_user_id=actor_user_id,
@@ -82,8 +82,8 @@ async def list_events(
         limit=limit,
         offset=offset,
     )
-    return EventListResponse(
-        items=[EventRead.from_event(event) for event in page.items],
+    return AuditEventListResponse(
+        items=[AuditEventRead.from_event(event) for event in page.items],
         total=page.total,
         limit=page.limit,
         offset=page.offset,
@@ -91,6 +91,6 @@ async def list_events(
 
 
 @router.delete("/")
-async def clear_events(db: DbSession) -> Response:
-    event_service.clear_events(db)
+async def clear_audit_events(db: DbSession) -> Response:
+    audit_event_service.clear_audit_events(db)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

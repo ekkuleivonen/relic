@@ -14,17 +14,20 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import type { EventRecord } from "@/types/events"
+import type { AuditEventRecord } from "@/types/audit-events"
 
-type EventsTableProps = {
-  events: EventRecord[]
+type AuditEventsTableProps = {
+  auditEvents: AuditEventRecord[]
   isLoading: boolean
 }
 
-export function EventsTable({ events, isLoading }: EventsTableProps) {
-  const [expandedEventIds, setExpandedEventIds] = React.useState<Set<string>>(
-    () => new Set()
-  )
+export function AuditEventsTable({
+  auditEvents,
+  isLoading,
+}: AuditEventsTableProps) {
+  const [expandedAuditEventIds, setExpandedAuditEventIds] = React.useState<
+    Set<string>
+  >(() => new Set())
 
   if (isLoading) {
     return (
@@ -37,22 +40,22 @@ export function EventsTable({ events, isLoading }: EventsTableProps) {
     )
   }
 
-  if (events.length === 0) {
+  if (auditEvents.length === 0) {
     return (
       <div className="border px-4 py-10 text-center text-sm text-muted-foreground">
-        No events match these filters.
+        No audit events match these filters.
       </div>
     )
   }
 
-  function toggleExpanded(eventId: string) {
-    setExpandedEventIds((current) => {
+  function toggleExpanded(auditEventId: string) {
+    setExpandedAuditEventIds((current) => {
       const next = new Set(current)
 
-      if (next.has(eventId)) {
-        next.delete(eventId)
+      if (next.has(auditEventId)) {
+        next.delete(auditEventId)
       } else {
-        next.add(eventId)
+        next.add(auditEventId)
       }
 
       return next
@@ -64,7 +67,7 @@ export function EventsTable({ events, isLoading }: EventsTableProps) {
       <TableHeader>
         <TableRow>
           <TableHead>Time</TableHead>
-          <TableHead>Event</TableHead>
+          <TableHead>Audit Event</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Actor</TableHead>
           <TableHead>Request</TableHead>
@@ -73,36 +76,31 @@ export function EventsTable({ events, isLoading }: EventsTableProps) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {events.map((event) => {
-          const isExpanded = expandedEventIds.has(event.id)
-          const hasMetadata = Object.keys(event.metadata).length > 0
+        {auditEvents.map((auditEvent) => {
+          const isExpanded = expandedAuditEventIds.has(auditEvent.id)
+          const hasMetadata = Object.keys(auditEvent.metadata).length > 0
           const hasRelatedIds =
-            event.file_ids.length > 0 || event.folder_ids.length > 0
+            auditEvent.file_ids.length > 0 || auditEvent.folder_ids.length > 0
           const hasDetails = hasMetadata || hasRelatedIds
 
           return (
-            <React.Fragment key={event.id}>
+            <React.Fragment key={auditEvent.id}>
               <TableRow>
                 <TableCell className="whitespace-nowrap text-xs">
-                  {formatDate(event.created_at)}
+                  {formatDate(auditEvent.created_at)}
                 </TableCell>
                 <TableCell>
-                  <div className="space-y-1">
-                    <div className="font-medium">{event.operation}</div>
-                    <div className="font-mono text-xs text-muted-foreground">
-                      {event.source}
-                    </div>
-                  </div>
+                  <div className="font-medium">{auditEvent.operation}</div>
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={event.status} />
+                  <StatusBadge status={auditEvent.status} />
                 </TableCell>
                 <TableCell>
-                  {event.actor ? (
+                  {auditEvent.actor ? (
                     <div className="space-y-1">
-                      <div className="text-sm">{event.actor.name}</div>
+                      <div className="text-sm">{auditEvent.actor.name}</div>
                       <div className="text-xs text-muted-foreground">
-                        {event.actor.email}
+                        {auditEvent.actor.email}
                       </div>
                     </div>
                   ) : (
@@ -112,10 +110,10 @@ export function EventsTable({ events, isLoading }: EventsTableProps) {
                   )}
                 </TableCell>
                 <TableCell className="max-w-48 truncate font-mono text-xs">
-                  {event.request_id ?? "—"}
+                  {auditEvent.request_id ?? "—"}
                 </TableCell>
                 <TableCell>
-                  <RelatedCounts event={event} />
+                  <RelatedCounts auditEvent={auditEvent} />
                 </TableCell>
                 <TableCell className="text-right">
                   {hasDetails ? (
@@ -124,7 +122,7 @@ export function EventsTable({ events, isLoading }: EventsTableProps) {
                       variant="ghost"
                       size="sm"
                       aria-expanded={isExpanded}
-                      onClick={() => toggleExpanded(event.id)}
+                      onClick={() => toggleExpanded(auditEvent.id)}
                     >
                       <ChevronRight
                         className={cn(
@@ -145,14 +143,14 @@ export function EventsTable({ events, isLoading }: EventsTableProps) {
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
                   <TableCell colSpan={7} className="whitespace-normal p-3">
                     <div className="space-y-2">
-                      {hasRelatedIds && <RelatedIds event={event} />}
+                      {hasRelatedIds && <RelatedIds auditEvent={auditEvent} />}
                       {hasMetadata && (
                         <div className="space-y-2">
                           <div className="text-xs font-medium text-muted-foreground">
                             Metadata
                           </div>
                           <pre className="max-h-64 overflow-auto rounded-md bg-background px-3 py-2 font-mono text-xs">
-                            {formatMetadata(event.metadata)}
+                            {formatMetadata(auditEvent.metadata)}
                           </pre>
                         </div>
                       )}
@@ -168,13 +166,17 @@ export function EventsTable({ events, isLoading }: EventsTableProps) {
   )
 }
 
-function RelatedIds({ event }: { event: EventRecord }) {
+function RelatedIds({ auditEvent }: { auditEvent: AuditEventRecord }) {
   return (
     <div className="grid gap-2 text-xs md:grid-cols-2">
-      <IdList label="Files" ids={event.file_ids} buildHref={buildFileHref} />
+      <IdList
+        label="Files"
+        ids={auditEvent.file_ids}
+        buildHref={buildFileHref}
+      />
       <IdList
         label="Folders"
-        ids={event.folder_ids}
+        ids={auditEvent.folder_ids}
         buildHref={buildFolderHref}
       />
     </div>
@@ -210,7 +212,7 @@ function IdList({
   )
 }
 
-function StatusBadge({ status }: { status: EventRecord["status"] }) {
+function StatusBadge({ status }: { status: AuditEventRecord["status"] }) {
   return (
     <Badge variant={status === "succeeded" ? "secondary" : "destructive"}>
       {status}
@@ -218,10 +220,10 @@ function StatusBadge({ status }: { status: EventRecord["status"] }) {
   )
 }
 
-function RelatedCounts({ event }: { event: EventRecord }) {
+function RelatedCounts({ auditEvent }: { auditEvent: AuditEventRecord }) {
   const parts = [
-    relatedCount(event.file_ids, "file", buildFileHref),
-    relatedCount(event.folder_ids, "folder", buildFolderHref),
+    relatedCount(auditEvent.file_ids, "file", buildFileHref),
+    relatedCount(auditEvent.folder_ids, "folder", buildFolderHref),
   ].filter(isRelatedCount)
 
   if (parts.length === 0) {
