@@ -6,7 +6,7 @@ from typing import BinaryIO
 
 import settings as S
 from constants import S3_MULTIPART_MAX_PART_NUMBER, S3_MULTIPART_MIN_PART_NUMBER
-from enums import BucketTier, Permission
+from enums import Permission
 from domain.exceptions import BadRequestError, ResourceNotFound
 from models import MultipartUpload, MultipartUploadPart, User
 from sqlalchemy import select
@@ -16,8 +16,7 @@ from utils.logging import get_logger
 from services import folder_access as folder_access_service
 from services import objects as object_service
 from services.event_context import EventContext
-from services.folder_storage_policy import effective_min_tier
-from services.placement import choose_bucket
+from services.placement import choose_bucket, effective_preferred_bucket_id
 
 log = get_logger(__name__)
 
@@ -41,6 +40,17 @@ class CompleteMultipartResult:
     etag: str
 
 
+@dataclass(frozen=True)
+class MultipartUploadListPage:
+    uploads: list[MultipartUpload]
+
+
+@dataclass(frozen=True)
+class MultipartPartListPage:
+    upload: MultipartUpload
+    parts: list[MultipartUploadPart]
+
+
 def create_multipart_upload(
     db: Session,
     *,
@@ -50,7 +60,7 @@ def create_multipart_upload(
     current_user: User,
     event_context: EventContext | None = None,
 ) -> MultipartUpload:
-    folder, file_name = object_service.resolve_object_path(
+    folder, _file_name = object_service.resolve_object_path(
         db,
         bucket_name=bucket_name,
         key=key,
@@ -65,15 +75,14 @@ def create_multipart_upload(
     )
     storage_bucket = choose_bucket(
         db,
-        tier=BucketTier(effective_min_tier(db, folder)),
         size_bytes=0,
+        preferred_bucket_id=effective_preferred_bucket_id(db, folder),
     )
     upload = MultipartUpload(
         bucket_name=bucket_name,
         object_key=object_service.normalize_key(key),
         folder_id=folder.id,
-        file_name=file_name,
-        uploaded_by=current_user.id,
+        actor_id=current_user.id,
         storage_bucket_id=storage_bucket.id,
         meta=ingest_meta,
     )
@@ -92,6 +101,7 @@ def upload_part(
     part_number: int,
     body: BinaryIO,
     content_hash: bytes,
+    content_md5: bytes,
     size_bytes: int,
     current_user: User,
 ) -> UploadedPart:
@@ -105,7 +115,7 @@ def upload_part(
     )
     storage_bucket = upload.storage_bucket
     bucket_key = build_part_bucket_key(upload.id, part_number)
-    etag = content_hash.hex()
+    etag = content_md5.hex()
 
     existing = db.scalar(
         select(MultipartUploadPart).where(
@@ -189,6 +199,7 @@ def complete_multipart_upload(
             assembled.write(chunk)
             total_size += len(chunk)
     assembled.seek(0)
+    completed_etag = build_complete_multipart_etag(ordered_parts)
 
     put_result = object_service.put_object(
         db,
@@ -218,7 +229,7 @@ def complete_multipart_upload(
     return CompleteMultipartResult(
         bucket=bucket_name,
         key=key,
-        etag=put_result.etag,
+        etag=completed_etag or put_result.etag,
     )
 
 
@@ -250,6 +261,76 @@ def abort_multipart_upload(
             )
     db.delete(upload)
     db.commit()
+
+
+def list_multipart_uploads(
+    db: Session,
+    *,
+    bucket_name: str,
+    current_user: User,
+) -> MultipartUploadListPage:
+    uploads = list(
+        db.scalars(
+            select(MultipartUpload)
+            .where(MultipartUpload.bucket_name == bucket_name)
+            .order_by(MultipartUpload.created_at.asc(), MultipartUpload.id.asc())
+        )
+    )
+    visible = [
+        upload
+        for upload in uploads
+        if folder_access_service.get_effective_permissions(
+            db, current_user, upload.folder_id
+        )
+        & int(Permission.WRITE)
+    ]
+    return MultipartUploadListPage(uploads=visible)
+
+
+def list_multipart_parts(
+    db: Session,
+    *,
+    upload_id: uuid.UUID,
+    bucket_name: str,
+    key: str,
+    current_user: User,
+) -> MultipartPartListPage:
+    upload = require_upload(
+        db,
+        upload_id=upload_id,
+        bucket_name=bucket_name,
+        key=key,
+        current_user=current_user,
+        with_parts=True,
+    )
+    return MultipartPartListPage(upload=upload, parts=list(upload.parts))
+
+
+def abort_incomplete_uploads_older_than(db: Session, cutoff) -> int:
+    uploads = list(
+        db.scalars(
+            select(MultipartUpload)
+            .where(MultipartUpload.created_at < cutoff)
+            .options(
+                selectinload(MultipartUpload.parts),
+                selectinload(MultipartUpload.storage_bucket),
+            )
+        )
+    )
+    for upload in uploads:
+        for part in upload.parts:
+            try:
+                delete_part_bytes(upload, part)
+            except BadRequestError as exc:
+                log.warning(
+                    "multipart_cleanup_part_delete_failed",
+                    upload_id=str(upload.id),
+                    part_number=part.part_number,
+                    error=str(exc),
+                )
+        db.delete(upload)
+    db.commit()
+    return len(uploads)
 
 
 def require_upload(
@@ -294,6 +375,18 @@ def validate_part_number(part_number: int) -> None:
 
 def build_part_bucket_key(upload_id: uuid.UUID, part_number: int) -> str:
     return f"__relic_multipart_uploads/{upload_id}/{part_number}"
+
+
+def build_complete_multipart_etag(parts: list[MultipartUploadPart]) -> str | None:
+    if not parts:
+        return None
+    try:
+        digest = hashlib.md5(usedforsecurity=False)
+    except TypeError:
+        digest = hashlib.md5()
+    for part in parts:
+        digest.update(bytes.fromhex(part.etag))
+    return f"{digest.hexdigest()}-{len(parts)}"
 
 
 def delete_part_bytes(upload: MultipartUpload, part: MultipartUploadPart) -> None:

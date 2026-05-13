@@ -3,7 +3,7 @@ import uuid
 import pytest
 from api.app import app
 from database import get_db
-from enums import BucketTier, UserRole
+from enums import UserRole
 from fastapi.testclient import TestClient
 from models import AuditEvent, Base, Bucket, User
 from services.auth import create_session_token
@@ -58,7 +58,6 @@ def bucket_payload(name: str = "garage-hot") -> dict:
         "bucket": bucket.bucket,
         "key_id": bucket.key_id,
         "secret_access_key": bucket.secret_access_key,
-        "tier": bucket.tier,
         "max_size_bytes": bucket.max_size_bytes,
     }
 
@@ -104,7 +103,6 @@ def test_get_and_update_bucket(client):
             "endpoint": "http://garage-hot:3900",
             "region": "garage-renamed",
             "bucket": "blobs-renamed",
-            "tier": BucketTier.WARM,
             "max_size_bytes": 2_000_000_000,
         },
     )
@@ -115,7 +113,6 @@ def test_get_and_update_bucket(client):
     assert updated["endpoint"] == "http://garage-hot:3900"
     assert updated["region"] == "garage-renamed"
     assert updated["bucket"] == "blobs-renamed"
-    assert updated["tier"] == BucketTier.WARM
     assert updated["max_size_bytes"] == 2_000_000_000
 
 
@@ -169,7 +166,7 @@ def test_delete_bucket_with_blobs_returns_conflict(client, db_session):
     assert response.json()["detail"]["blob_count"] == 1
 
 
-def test_probe_bucket_updates_operation_latencies(client, db_session, monkeypatch):
+def test_probe_bucket_records_probe_sample(client, db_session, monkeypatch):
     class FakeS3Client:
         def put_object(self, Bucket, Key, Body):
             return None
@@ -198,10 +195,16 @@ def test_probe_bucket_updates_operation_latencies(client, db_session, monkeypatc
     assert response.status_code == 200
     body = response.json()
     assert body["reachable"] is True
-    assert body["probe_latency_put_ms"] >= 1
-    assert body["probe_latency_head_ms"] >= 1
-    assert body["probe_latency_get_ms"] >= 1
-    assert body["probe_latency_delete_ms"] >= 1
+    assert body["probe_sample_count"] >= 1
+    assert body["avg_latency_ms"] is not None and body["avg_latency_ms"] >= 0
+
+    probes = client.get(f"/api/buckets/{bucket_id}/probes").json()
+    assert len(probes) == 1
+    sample = probes[0]
+    assert sample["success"] is True
+    for key in ("put_ms", "head_ms", "get_ms", "delete_ms"):
+        assert sample[key] is not None and sample[key] >= 0
+
     assert (
         db_session.scalar(
             select(AuditEvent).where(AuditEvent.operation == "bucket.probed")

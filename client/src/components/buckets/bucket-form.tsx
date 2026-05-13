@@ -15,12 +15,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import {
-  bucketTiers,
-  type Bucket,
-  type BucketCreateInput,
-  type BucketTier,
-} from "@/types/buckets"
+import type { Bucket, BucketCreateInput } from "@/types/buckets"
 
 type BucketFormProps = {
   bucketRecord?: Bucket
@@ -36,9 +31,7 @@ type FieldLabelProps = {
   tooltip: string
 }
 
-type BucketFormValues = Omit<BucketCreateInput, "tier" | "max_size_bytes"> & {
-  tier: BucketTier | ""
-}
+type BucketFormValues = Omit<BucketCreateInput, "max_size_bytes">
 
 export function BucketForm({
   bucketRecord,
@@ -54,7 +47,6 @@ export function BucketForm({
     bucket: bucketRecord?.bucket ?? "",
     key_id: bucketRecord?.key_id ?? "",
     secret_access_key: bucketRecord?.secret_access_key ?? "",
-    tier: bucketRecord?.tier ?? "",
   }))
   const [maxSizeValue, setMaxSizeValue] = React.useState(() =>
     bucketRecord ? String(bucketRecord.max_size_bytes / 1_000_000_000) : ""
@@ -65,13 +57,12 @@ export function BucketForm({
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (values.tier === "" || maxSizeUnit === "") {
+    if (maxSizeUnit === "") {
       return
     }
 
     await onSubmit({
       ...values,
-      tier: values.tier,
       max_size_bytes: toBytes(Number(maxSizeValue), maxSizeUnit),
     })
   }
@@ -190,72 +181,43 @@ export function BucketForm({
         />
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <FieldLabel
-            label="Tier"
-            tooltip="Bucket warmth tier used by placement and future lifecycle policies."
+      <div className="grid gap-2">
+        <FieldLabel
+          htmlFor="bucket-max-size"
+          label="Max Size"
+          tooltip="User-provided write limit for this bucket. Relic derives usage from stored blobs when placing new data."
+        />
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <Input
+            id="bucket-max-size"
+            type="number"
+            min={0}
+            step="0.1"
+            placeholder="1"
+            value={maxSizeValue}
+            onChange={(event) => {
+              setMaxSizeValue(event.target.value)
+            }}
+            required
           />
           <Select
-            value={values.tier === "" ? undefined : String(values.tier)}
-            onValueChange={(value) =>
-              setValues((current) => ({
-                ...current,
-                tier: Number(value) as BucketTier,
-              }))
-            }
+            value={maxSizeUnit === "" ? undefined : maxSizeUnit}
+            onValueChange={(value) => {
+              const unit = value as SizeUnit
+              setMaxSizeUnit(unit)
+            }}
           >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Select tier" />
+            <SelectTrigger>
+              <SelectValue placeholder="Unit" />
             </SelectTrigger>
             <SelectContent>
-              {bucketTiers.map((tier) => (
-                <SelectItem key={tier.value} value={String(tier.value)}>
-                  {tier.label}
+              {sizeUnits.map((unit) => (
+                <SelectItem key={unit} value={unit}>
+                  {unit}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        </div>
-
-        <div className="grid gap-2">
-          <FieldLabel
-            htmlFor="bucket-max-size"
-            label="Max Size"
-            tooltip="User-provided write limit for this bucket. Relic derives usage from stored blobs when placing new data."
-          />
-          <div className="grid grid-cols-[1fr_auto] gap-2">
-            <Input
-              id="bucket-max-size"
-              type="number"
-              min={0}
-              step="0.1"
-              placeholder="1"
-              value={maxSizeValue}
-              onChange={(event) => {
-                setMaxSizeValue(event.target.value)
-              }}
-              required
-            />
-            <Select
-              value={maxSizeUnit === "" ? undefined : maxSizeUnit}
-              onValueChange={(value) => {
-                const unit = value as SizeUnit
-                setMaxSizeUnit(unit)
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Unit" />
-              </SelectTrigger>
-              <SelectContent>
-                {sizeUnits.map((unit) => (
-                  <SelectItem key={unit} value={unit}>
-                    {unit}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
         </div>
       </div>
 

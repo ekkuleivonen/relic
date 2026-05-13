@@ -9,7 +9,7 @@ The search engine is shaped around the four query primitives of `FileMeta`:
 
 Plus the surrounding structured fields (``mimetype``, ``extension``, ``size``,
 ``original_filename``) and the columns on ``File`` itself (``folder_id``,
-``uploaded_by``, ``created_at``).
+``actor_id``, ``created_at``).
 
 The implementation does a SQL-side pre-filter on what is portable across SQLite
 (tests) and Postgres (prod), then applies the JSON-shaped filters in Python.
@@ -81,7 +81,7 @@ class SearchQuery:
     extensions: tuple[str, ...] = ()
     min_size: int | None = None
     max_size: int | None = None
-    uploaded_by: uuid.UUID | None = None
+    actor_id: uuid.UUID | None = None
     folder_id: uuid.UUID | None = None
     recursive: bool = False
     created_after: dt.datetime | None = None
@@ -220,8 +220,8 @@ def _candidates(db: Session, *, user: User, query: SearchQuery) -> list[File]:
         return []
 
     stmt = select(File).where(File.folder_id.in_(scope_ids))
-    if query.uploaded_by is not None:
-        stmt = stmt.where(File.uploaded_by == query.uploaded_by)
+    if query.actor_id is not None:
+        stmt = stmt.where(File.actor_id == query.actor_id)
     if query.created_after is not None:
         stmt = stmt.where(File.created_at >= query.created_after)
     if query.created_before is not None:

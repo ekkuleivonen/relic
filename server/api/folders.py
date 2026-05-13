@@ -4,12 +4,12 @@ from database import DbSession
 from enums import UserRole
 from fastapi import APIRouter, Request, Response, status
 from models import Folder, User
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 from services import filesystem as filesystem_service
 from services import folders as folders_service
 from services.event_context import context_from_headers
-from services.folder_storage_policy import effective_cooldown_days, effective_min_tier
 from services.folders import FolderResult
+from services.placement import effective_preferred_bucket_id
 
 from api.dependencies import CurrentUser
 
@@ -18,8 +18,10 @@ router = APIRouter()
 """
 Folder CRUD - the virtual filesystem.
 
-Most user-facing operations: browsing, creating subfolders, and managing
-per-folder cooldown policies.
+Folders carry an optional ``preferred_bucket_id`` (admin-only). New uploads
+under a folder land in the preferred bucket if it has capacity, else in the
+hottest bucket per the latency-driven ranking. Inheritance walks ancestors
+when the field is NULL.
 """
 
 
@@ -31,10 +33,8 @@ class FolderRead(BaseModel):
     name: str
     path: str
     effective_permissions: int
-    cooldown_days: int | None = None
-    min_tier: int | None = None
-    effective_min_tier: int | None = None
-    effective_cooldown_days: int | None = None
+    preferred_bucket_id: uuid.UUID | None = None
+    effective_preferred_bucket_id: uuid.UUID | None = None
 
     @classmethod
     def from_result(
@@ -59,10 +59,10 @@ class FolderRead(BaseModel):
             name=result.folder.name,
             path=result.path,
             effective_permissions=result.effective_permissions,
-            cooldown_days=result.folder.cooldown_days,
-            min_tier=result.folder.min_tier,
-            effective_min_tier=effective_min_tier(db, result.folder),
-            effective_cooldown_days=effective_cooldown_days(db, result.folder),
+            preferred_bucket_id=result.folder.preferred_bucket_id,
+            effective_preferred_bucket_id=effective_preferred_bucket_id(
+                db, result.folder
+            ),
         )
 
 
@@ -78,17 +78,7 @@ class FolderUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
     parent_id: uuid.UUID | None = None
-    min_tier: int | None = None
-    cooldown_days: int | None = Field(default=None, ge=1, le=36_500)
-
-    @field_validator("min_tier")
-    @classmethod
-    def validate_min_tier_opt(cls, v: int | None) -> int | None:
-        if v is None:
-            return None
-        if not 1 <= v <= 4:
-            raise ValueError("min_tier must be between 1 and 4")
-        return v
+    preferred_bucket_id: uuid.UUID | None = None
 
 
 class FolderDuplicate(BaseModel):
@@ -107,11 +97,21 @@ class FolderTreeRead(BaseModel):
     parent_id: uuid.UUID | None
     path: str
     effective_permissions: int
-    cooldown_days: int | None = None
-    min_tier: int | None = None
-    effective_min_tier: int | None = None
-    effective_cooldown_days: int | None = None
+    preferred_bucket_id: uuid.UUID | None = None
+    effective_preferred_bucket_id: uuid.UUID | None = None
     children: list["FolderTreeRead"]
+
+
+class FolderStatsRead(BaseModel):
+    """Recursive rollup over a folder and all of its descendants."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    folder_id: uuid.UUID
+    file_count: int
+    enriched_file_count: int
+    logical_size_bytes: int
+    enrichment_coverage: float | None
 
 
 def _folder_to_tree_read(
@@ -132,14 +132,14 @@ def _folder_to_tree_read(
             )
             for child in folder.children
         ],
-        cooldown_days=folder.cooldown_days if include_storage_policy else None,
-        min_tier=folder.min_tier if include_storage_policy else None,
-        effective_min_tier=effective_min_tier(db, folder)
-        if include_storage_policy
-        else None,
-        effective_cooldown_days=effective_cooldown_days(db, folder)
-        if include_storage_policy
-        else None,
+        preferred_bucket_id=(
+            folder.preferred_bucket_id if include_storage_policy else None
+        ),
+        effective_preferred_bucket_id=(
+            effective_preferred_bucket_id(db, folder)
+            if include_storage_policy
+            else None
+        ),
     )
 
 
@@ -160,6 +160,30 @@ async def get_folder_tree(
     return _folder_to_tree_read(db, root, include_storage_policy=include_storage)
 
 
+@router.get("/{folder_id}/stats")
+async def get_folder_stats(
+    folder_id: uuid.UUID,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> FolderStatsRead:
+    """
+    GET /folders/{id}/stats -> recursive rollup over this folder + descendants.
+    Returns total file count, enriched (meta_extract COMPLETED) count, and
+    logical size in bytes (sum of blob sizes per file row, no dedupe).
+    Caller needs READ on the folder.
+    """
+    stats = filesystem_service.get_folder_stats(
+        db, current_user, folder_id=folder_id
+    )
+    return FolderStatsRead(
+        folder_id=stats.folder_id,
+        file_count=stats.file_count,
+        enriched_file_count=stats.enriched_file_count,
+        logical_size_bytes=stats.logical_size_bytes,
+        enrichment_coverage=stats.enrichment_coverage,
+    )
+
+
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_folder(
     payload: FolderCreate,
@@ -170,7 +194,7 @@ async def create_folder(
     """
     POST /folders -> create a new folder under `parent_id`.
     Body: { parent_id, name }
-    New folders default to inheriting parent storage policy (no local overrides).
+    New folders inherit the ancestor preferred_bucket_id.
     Caller needs WRITE on the parent.
     """
     result = folders_service.create_folder(
@@ -180,7 +204,7 @@ async def create_folder(
         name=payload.name,
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=current_user.id,
+            actor_id=current_user.id,
         ),
     )
     return FolderRead.from_result(db, result, user=current_user)
@@ -195,12 +219,9 @@ async def update_folder(
     current_user: CurrentUser,
 ) -> FolderRead:
     """
-    PATCH /folders/{id} -> rename, move, and/or (admins) storage policy.
-    Body: { name?, parent_id?, min_tier?, cooldown_days? }
-    `min_tier` / `cooldown_days` are admin-only. Set to null to inherit from a
-    parent (root must keep an explicit ``min_tier``).
-    Caller needs WRITE on the folder, plus WRITE on the new parent when moving.
-    Cycles (moving a folder into a descendant) are rejected.
+    PATCH /folders/{id} -> rename, move, and/or (admins) preferred bucket.
+    Body: { name?, parent_id?, preferred_bucket_id? }
+    Set preferred_bucket_id to null to inherit from a parent.
     """
     result = folders_service.update_folder(
         db,
@@ -208,13 +229,11 @@ async def update_folder(
         folder_id=folder_id,
         name=payload.name,
         parent_id=payload.parent_id,
-        min_tier=payload.min_tier,
-        cooldown_days=payload.cooldown_days,
-        set_min_tier="min_tier" in payload.model_fields_set,
-        set_cooldown_days="cooldown_days" in payload.model_fields_set,
+        preferred_bucket_id=payload.preferred_bucket_id,
+        set_preferred_bucket_id="preferred_bucket_id" in payload.model_fields_set,
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=current_user.id,
+            actor_id=current_user.id,
         ),
     )
     return FolderRead.from_result(db, result, user=current_user)
@@ -242,7 +261,7 @@ async def delete_folder(
         recursive=recursive,
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=current_user.id,
+            actor_id=current_user.id,
         ),
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -272,7 +291,7 @@ async def copy_folder(
         recursive=payload.recursive,
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=current_user.id,
+            actor_id=current_user.id,
         ),
     )
     return FolderRead.from_result(db, result, user=current_user)

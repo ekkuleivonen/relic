@@ -18,8 +18,24 @@ class Permission(enum.IntFlag):
     ENRICH = 8  # for processors/substrates updating meta
 
 
-class BucketTier(enum.IntEnum):
-    HOT = 1
-    WARM = 2
-    COLD = 3
-    FROZEN = 4
+class MetaExtractStatus(enum.IntEnum):
+    PENDING = 1
+    IN_PROGRESS = 2
+    COMPLETED = 3
+    FAILED = 4
+
+
+class ProcessorSource(enum.StrEnum):
+    SEED = "seed"
+    ADMIN = "admin"
+
+
+class EventStatus(enum.StrEnum):
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class HealthStatus(enum.StrEnum):
+    OK = "ok"
+    FAILED = "failed"

@@ -21,7 +21,7 @@ class FileEventRead(BaseModel):
     schema_version: int
     event_type: str
     status: str
-    actor_user_id: uuid.UUID | None
+    actor_id: uuid.UUID | None
     actor: UserRead | None
     request_id: str | None
     idempotency_key: str | None
@@ -38,7 +38,7 @@ class FileEventRead(BaseModel):
             schema_version=event.schema_version,
             event_type=event.event_type,
             status=event.status,
-            actor_user_id=event.actor_user_id,
+            actor_id=event.actor_id,
             actor=UserRead.model_validate(event.actor) if event.actor else None,
             request_id=event.request_id,
             idempotency_key=event.idempotency_key,
@@ -63,7 +63,7 @@ async def list_file_events(
     db: DbSession,
     event_type: str | None = None,
     status: str | None = None,
-    actor_user_id: uuid.UUID | None = None,
+    actor_id: uuid.UUID | None = None,
     request_id: str | None = None,
     file_id: uuid.UUID | None = None,
     folder_id: uuid.UUID | None = None,
@@ -80,7 +80,7 @@ async def list_file_events(
         db,
         event_type=event_type,
         status=status,
-        actor_user_id=actor_user_id,
+        actor_id=actor_id,
         request_id=request_id,
         file_id=file_id,
         folder_id=folder_id,

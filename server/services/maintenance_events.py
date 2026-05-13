@@ -8,10 +8,12 @@ from sqlalchemy.orm import Session, selectinload
 from constants import (
     MAINTENANCE_EVENT_DEFAULT_LIMIT,
     MAINTENANCE_EVENT_MAX_LIMIT,
-    MAINTENANCE_EVENT_SUPPORTED_STATUSES,
 )
 from domain.exceptions import BadRequestError
+from enums import EventStatus
 from models import MaintenanceEvent
+
+MAINTENANCE_EVENT_SUPPORTED_STATUSES = frozenset(status.value for status in EventStatus)
 
 @dataclass(frozen=True)
 class MaintenanceEventPage:

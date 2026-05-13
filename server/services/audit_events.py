@@ -9,10 +9,14 @@ from sqlalchemy.orm import Session, selectinload
 from constants import (
     AUDIT_EVENT_DEFAULT_LIMIT,
     AUDIT_EVENT_MAX_LIMIT,
-    AUDIT_EVENT_SUPPORTED_STATUSES,
 )
 from domain.exceptions import BadRequestError
+from enums import EventStatus
 from models import AuditEvent
+
+AUDIT_EVENT_SUPPORTED_STATUSES = frozenset(
+    {EventStatus.SUCCEEDED.value, EventStatus.FAILED.value}
+)
 
 @dataclass(frozen=True)
 class AuditEventPage:
@@ -48,8 +52,8 @@ def create_audit_event(
     db: Session,
     *,
     operation: str,
-    status: str = "succeeded",
-    actor_user_id: uuid.UUID | None = None,
+    status: str = EventStatus.SUCCEEDED.value,
+    actor_id: uuid.UUID | None = None,
     request_id: str | None = None,
     metadata: dict | None = None,
 ) -> AuditEvent:
@@ -63,7 +67,7 @@ def create_audit_event(
     event = AuditEvent(
         operation=_clean_required(operation, "operation"),
         status=_clean_status(status),
-        actor_user_id=actor_user_id,
+        actor_id=actor_id,
         request_id=_clean_optional(request_id),
         meta=dict(metadata or {}),
     )
@@ -76,8 +80,8 @@ def record_audit_event(
     db: Session,
     *,
     operation: str,
-    status: str = "succeeded",
-    actor_user_id: uuid.UUID | None = None,
+    status: str = EventStatus.SUCCEEDED.value,
+    actor_id: uuid.UUID | None = None,
     request_id: str | None = None,
     metadata: dict | None = None,
 ) -> AuditEvent:
@@ -85,7 +89,7 @@ def record_audit_event(
         db,
         operation=operation,
         status=status,
-        actor_user_id=actor_user_id,
+        actor_id=actor_id,
         request_id=request_id,
         metadata=metadata,
     )
@@ -118,7 +122,7 @@ def list_audit_events(
     *,
     operation: str | None = None,
     status: str | None = None,
-    actor_user_id: uuid.UUID | None = None,
+    actor_id: uuid.UUID | None = None,
     request_id: str | None = None,
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
@@ -135,7 +139,7 @@ def list_audit_events(
     stmt = _filtered_stmt(
         operation=operation,
         status=status,
-        actor_user_id=actor_user_id,
+        actor_id=actor_id,
         request_id=request_id,
         created_after=created_after,
         created_before=created_before,
@@ -156,7 +160,7 @@ def _filtered_stmt(
     *,
     operation: str | None,
     status: str | None,
-    actor_user_id: uuid.UUID | None,
+    actor_id: uuid.UUID | None,
     request_id: str | None,
     created_after: dt.datetime | None,
     created_before: dt.datetime | None,
@@ -166,8 +170,8 @@ def _filtered_stmt(
         stmt = stmt.where(AuditEvent.operation == operation)
     if status := _clean_optional(status):
         stmt = stmt.where(AuditEvent.status == _clean_status(status))
-    if actor_user_id is not None:
-        stmt = stmt.where(AuditEvent.actor_user_id == actor_user_id)
+    if actor_id is not None:
+        stmt = stmt.where(AuditEvent.actor_id == actor_id)
     if request_id := _clean_optional(request_id):
         stmt = stmt.where(AuditEvent.request_id == request_id)
     if created_after is not None:

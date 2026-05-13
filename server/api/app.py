@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 import settings as S
-from constants import API_PREFIX, HEALTH_STATUS_OK
+from constants import API_PREFIX
+from enums import HealthStatus
 from database import DbSession
 from processors.registry import init_builtin_substrates
 from services import health as health_service
@@ -122,7 +123,7 @@ def healthz():
 @app.get("/readyz")
 async def readyz(db: DbSession):
     payload = await health_service.readiness_response(db)
-    if payload["status"] != HEALTH_STATUS_OK:
+    if payload["status"] != HealthStatus.OK.value:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content=payload,

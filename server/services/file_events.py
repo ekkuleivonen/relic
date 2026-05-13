@@ -9,10 +9,14 @@ from constants import (
     FILE_EVENT_CHANNEL,
     FILE_EVENT_DEFAULT_LIMIT,
     FILE_EVENT_MAX_LIMIT,
-    FILE_EVENT_SUPPORTED_STATUSES,
 )
 from domain.exceptions import BadRequestError
+from enums import EventStatus
 from models import FileEvent, Processor
+
+FILE_EVENT_SUPPORTED_STATUSES = frozenset(
+    {EventStatus.SUCCEEDED.value, EventStatus.FAILED.value}
+)
 
 @dataclass(frozen=True)
 class FileEventPage:
@@ -26,8 +30,8 @@ def create_file_event(
     db: Session,
     *,
     event_type: str,
-    status: str = "succeeded",
-    actor_user_id: uuid.UUID | None = None,
+    status: str = EventStatus.SUCCEEDED.value,
+    actor_id: uuid.UUID | None = None,
     request_id: str | None = None,
     idempotency_key: str | None = None,
     file_id: uuid.UUID | None = None,
@@ -37,7 +41,7 @@ def create_file_event(
     event = FileEvent(
         event_type=_clean_required(event_type, "event_type"),
         status=_clean_status(status),
-        actor_user_id=actor_user_id,
+        actor_id=actor_id,
         request_id=_clean_optional(request_id),
         idempotency_key=_clean_optional(idempotency_key),
         file_id=file_id,
@@ -87,7 +91,7 @@ def list_file_events(
     *,
     event_type: str | None = None,
     status: str | None = None,
-    actor_user_id: uuid.UUID | None = None,
+    actor_id: uuid.UUID | None = None,
     request_id: str | None = None,
     file_id: uuid.UUID | None = None,
     folder_id: uuid.UUID | None = None,
@@ -106,7 +110,7 @@ def list_file_events(
     stmt = _filtered_stmt(
         event_type=event_type,
         status=status,
-        actor_user_id=actor_user_id,
+        actor_id=actor_id,
         request_id=request_id,
         file_id=file_id,
         folder_id=folder_id,
@@ -129,7 +133,7 @@ def _filtered_stmt(
     *,
     event_type: str | None,
     status: str | None,
-    actor_user_id: uuid.UUID | None,
+    actor_id: uuid.UUID | None,
     request_id: str | None,
     file_id: uuid.UUID | None,
     folder_id: uuid.UUID | None,
@@ -141,8 +145,8 @@ def _filtered_stmt(
         stmt = stmt.where(FileEvent.event_type == event_type)
     if status := _clean_optional(status):
         stmt = stmt.where(FileEvent.status == _clean_status(status))
-    if actor_user_id is not None:
-        stmt = stmt.where(FileEvent.actor_user_id == actor_user_id)
+    if actor_id is not None:
+        stmt = stmt.where(FileEvent.actor_id == actor_id)
     if request_id := _clean_optional(request_id):
         stmt = stmt.where(FileEvent.request_id == request_id)
     if file_id is not None:

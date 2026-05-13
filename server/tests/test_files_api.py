@@ -1,8 +1,7 @@
 import pytest
 from api.app import app
-from constants import META_EXTRACT_STATUS_COMPLETED
 from database import get_db
-from enums import BucketTier, Permission
+from enums import MetaExtractStatus, Permission
 from fastapi.testclient import TestClient
 from domain.files.meta import build_file_meta
 from models import (
@@ -59,8 +58,6 @@ def root_folder(db_session):
     root = Folder(
         name="",
         parent_id=None,
-        cooldown_days=None,
-        min_tier=BucketTier.HOT,
     )
     db_session.add(root)
     db_session.commit()
@@ -72,8 +69,6 @@ def photos_folder(db_session, root_folder):
     folder = Folder(
         name="photos",
         parent_id=root_folder.id,
-        cooldown_days=None,
-        min_tier=BucketTier.HOT,
     )
     db_session.add(folder)
     db_session.commit()
@@ -85,8 +80,6 @@ def archives_folder(db_session, root_folder):
     folder = Folder(
         name="archives",
         parent_id=root_folder.id,
-        cooldown_days=None,
-        min_tier=BucketTier.HOT,
     )
     db_session.add(folder)
     db_session.commit()
@@ -95,18 +88,18 @@ def archives_folder(db_session, root_folder):
 
 @pytest.fixture()
 def physical_bucket(db_session):
+    from tests.factories.models import BucketProbeFactory
+
     bucket = BucketFactory.build(name="hot")
-    bucket.probe_latency_put_ms = 10
-    bucket.probe_latency_head_ms = 10
-    bucket.probe_latency_get_ms = 10
-    bucket.probe_latency_delete_ms = 10
     db_session.add(bucket)
+    db_session.flush()
+    db_session.add(BucketProbeFactory.build(bucket_id=bucket.id))
     db_session.commit()
     return bucket
 
 
 def grant(db_session, user, folder, permissions: int) -> FolderAccess:
-    access = FolderAccess(user_id=user.id, folder_id=folder.id, permissions=permissions)
+    access = FolderAccess(actor_id=user.id, folder_id=folder.id, permissions=permissions)
     db_session.add(access)
     db_session.commit()
     return access
@@ -122,9 +115,9 @@ def make_file(db_session, *, folder, blob, name, user, meta=None):
     file = File(
         folder_id=folder.id,
         blob_id=blob.id,
-        uploaded_by=user.id,
+        actor_id=user.id,
         name=name,
-        meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
+        meta_extract_status=MetaExtractStatus.COMPLETED,
         meta=meta,
     )
     db_session.add(file)

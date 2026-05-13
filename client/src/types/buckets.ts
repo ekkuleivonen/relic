@@ -1,12 +1,3 @@
-export const bucketTiers = [
-  { value: 1, label: "Hot" },
-  { value: 2, label: "Warm" },
-  { value: 3, label: "Cold" },
-  { value: 4, label: "Frozen" },
-] as const
-
-export type BucketTier = (typeof bucketTiers)[number]["value"]
-
 export type Bucket = {
   id: string
   name: string
@@ -15,14 +6,12 @@ export type Bucket = {
   bucket: string
   key_id: string
   secret_access_key: string
-  tier: BucketTier
   max_size_bytes: number
   object_count: number
   current_size_bytes: number
-  probe_latency_put_ms: number | null
-  probe_latency_head_ms: number | null
-  probe_latency_get_ms: number | null
-  probe_latency_delete_ms: number | null
+  avg_latency_ms: number | null
+  probe_sample_count: number
+  reachable: boolean
 }
 
 export type BucketCreateInput = {
@@ -32,7 +21,6 @@ export type BucketCreateInput = {
   bucket: string
   key_id: string
   secret_access_key: string
-  tier: BucketTier
   max_size_bytes: number
 }
 
@@ -45,11 +33,18 @@ export type BucketUpdateInput = Partial<
     | "bucket"
     | "key_id"
     | "secret_access_key"
-    | "tier"
     | "max_size_bytes"
   >
 >
 
-export type BucketProbeResult = Bucket & {
-  reachable: boolean
+export type BucketProbeResult = Bucket
+
+export type BucketProbeSample = {
+  id: string
+  observed_at: string
+  success: boolean
+  put_ms: number | null
+  head_ms: number | null
+  get_ms: number | null
+  delete_ms: number | null
 }

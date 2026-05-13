@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 import pytest
 from api.app import app
 from database import get_db
-from enums import BucketTier, Permission
+from enums import Permission
 from fastapi.testclient import TestClient
 from domain.files.meta import build_file_meta
 from models import Base, Blob, File, Folder, FolderAccess
@@ -54,8 +54,6 @@ def root_folder(db_session):
     root = Folder(
         name="",
         parent_id=None,
-        cooldown_days=None,
-        min_tier=BucketTier.HOT,
     )
     db_session.add(root)
     db_session.commit()
@@ -66,8 +64,6 @@ def add_folder(db_session, name: str, parent: Folder) -> Folder:
     folder = Folder(
         name=name,
         parent_id=parent.id,
-        cooldown_days=None,
-        min_tier=None,
     )
     db_session.add(folder)
     db_session.commit()
@@ -76,7 +72,7 @@ def add_folder(db_session, name: str, parent: Folder) -> Folder:
 
 def grant(db_session, user, folder: Folder, permissions: int = int(Permission.READ)):
     db_session.add(
-        FolderAccess(user_id=user.id, folder_id=folder.id, permissions=permissions)
+        FolderAccess(actor_id=user.id, folder_id=folder.id, permissions=permissions)
     )
     db_session.commit()
 
@@ -101,7 +97,7 @@ def add_file(db_session, folder: Folder, user, filename: str, body: bytes) -> Fi
     file = File(
         folder_id=folder.id,
         blob_id=blob.id,
-        uploaded_by=user.id,
+        actor_id=user.id,
         name=filename,
         meta=build_file_meta(file_name=filename, size=len(body), user_meta={}),
     )

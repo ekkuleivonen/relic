@@ -8,7 +8,7 @@ transactions that don't move bytes — see `api-split.md`.
 import os
 import uuid
 
-from constants import META_EXTRACT_STATUS_PENDING
+from enums import MetaExtractStatus
 from enums import Permission
 from domain.exceptions import BadRequestError
 from models import File, User
@@ -19,6 +19,7 @@ from services import folder_access as folder_access_service
 from services import objects as object_service
 from services.event_context import EventContext
 from services.file_events import create_file_event
+from services.s3_hotpath_cache import clear_list_objects_response_cache
 
 
 def _with_preserved_extension(original_filename: str, new_filename: str) -> str:
@@ -74,14 +75,14 @@ def move_file(
     file.folder_id = destination.id
     file.name = new_name
     if name is not None:
-        file.meta_extract_status = META_EXTRACT_STATUS_PENDING
+        file.meta_extract_status = MetaExtractStatus.PENDING
     db.flush()
     if event_context is not None:
         event_type = "file.renamed" if old_name != new_name else "file.moved"
         create_file_event(
             db,
             event_type=event_type,
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             file_id=file.id,
             folder_id=file.folder_id,
@@ -95,6 +96,7 @@ def move_file(
         )
     db.commit()
     db.refresh(file)
+    clear_list_objects_response_cache()
     return file
 
 
@@ -117,13 +119,13 @@ def rename_file(
     object_service.ensure_file_name_available(db, file.folder_id, name)
 
     file.name = name
-    file.meta_extract_status = META_EXTRACT_STATUS_PENDING
+    file.meta_extract_status = MetaExtractStatus.PENDING
     db.flush()
     if event_context is not None:
         create_file_event(
             db,
             event_type="file.renamed",
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             file_id=file.id,
             folder_id=file.folder_id,
@@ -137,6 +139,7 @@ def rename_file(
         )
     db.commit()
     db.refresh(file)
+    clear_list_objects_response_cache()
     return file
 
 

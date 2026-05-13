@@ -9,7 +9,7 @@ from botocore.auth import S3SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from database import get_db
-from enums import BucketTier, Permission
+from enums import Permission
 from fastapi.testclient import TestClient
 from models import AuditEvent, Base, Blob, File, Folder, FolderAccess
 from services import s3_signing
@@ -61,8 +61,6 @@ def root_folder(db_session):
     root = Folder(
         name="",
         parent_id=None,
-        cooldown_days=None,
-        min_tier=BucketTier.HOT,
     )
     db_session.add(root)
     db_session.commit()
@@ -74,8 +72,6 @@ def photos_folder(db_session, root_folder):
     folder = Folder(
         name="photos",
         parent_id=root_folder.id,
-        cooldown_days=None,
-        min_tier=BucketTier.HOT,
     )
     db_session.add(folder)
     db_session.commit()
@@ -87,8 +83,6 @@ def archives_folder(db_session, root_folder):
     folder = Folder(
         name="archives",
         parent_id=root_folder.id,
-        cooldown_days=None,
-        min_tier=BucketTier.HOT,
     )
     db_session.add(folder)
     db_session.commit()
@@ -97,18 +91,18 @@ def archives_folder(db_session, root_folder):
 
 @pytest.fixture()
 def physical_bucket(db_session):
+    from tests.factories.models import BucketProbeFactory
+
     bucket = BucketFactory.build(name="hot")
-    bucket.probe_latency_put_ms = 10
-    bucket.probe_latency_head_ms = 10
-    bucket.probe_latency_get_ms = 10
-    bucket.probe_latency_delete_ms = 10
     db_session.add(bucket)
+    db_session.flush()
+    db_session.add(BucketProbeFactory.build(bucket_id=bucket.id))
     db_session.commit()
     return bucket
 
 
 def grant(db_session, user, folder, permissions: int) -> FolderAccess:
-    access = FolderAccess(user_id=user.id, folder_id=folder.id, permissions=permissions)
+    access = FolderAccess(actor_id=user.id, folder_id=folder.id, permissions=permissions)
     db_session.add(access)
     db_session.commit()
     return access
@@ -116,7 +110,7 @@ def grant(db_session, user, folder, permissions: int) -> FolderAccess:
 
 def create_access_key(db_session, user, *, secret="native-secret"):
     access_key = AccessKeyFactory.build(
-        user_id=user.id,
+        actor_id=user.id,
         key_id="RK_NATIVE_TEST",
         secret_access_key=secret,
     )
@@ -239,7 +233,7 @@ def test_native_header_put_creates_file_and_marks_key_used(
     assert access_key.last_used_at is not None
     file = db_session.scalar(select(File).where(File.name == "native-cat.jpg"))
     assert file is not None
-    assert file.uploaded_by == user.id
+    assert file.actor_id == user.id
     assert file.meta["kvs"]["album"] == "native"
     blob = db_session.get(Blob, file.blob_id)
     assert fake_storage.objects[(physical_bucket.bucket, blob.bucket_key)] == body
@@ -752,7 +746,37 @@ def test_multipart_upload_completes_object(
         )
         response = client.put(signed.url, content=content, headers=signed.headers)
         assert response.status_code == 200, response.text
+        assert response.headers["etag"] == f'"{hashlib.md5(content, usedforsecurity=False).hexdigest()}"'
         uploaded_parts.append((part_number, response.headers["etag"]))
+
+    uploads = s3_signing.sign_bucket_url(
+        method="GET",
+        bucket="photos",
+        headers={},
+        user_id=user.id,
+        host="testserver",
+        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        query_params={"uploads": ""},
+    )
+    uploads_response = client.get(uploads.url, headers=uploads.headers)
+    assert uploads_response.status_code == 200, uploads_response.text
+    assert f"<UploadId>{upload_id}</UploadId>" in uploads_response.text
+    assert "<Initiated>" in uploads_response.text
+
+    parts = s3_signing.sign_request_url(
+        method="GET",
+        bucket="photos",
+        key="large.bin",
+        headers={},
+        user_id=user.id,
+        host="testserver",
+        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        query_params={"uploadId": upload_id},
+    )
+    parts_response = client.get(parts.url, headers=parts.headers)
+    assert parts_response.status_code == 200, parts_response.text
+    assert "<PartNumber>1</PartNumber>" in parts_response.text
+    assert "<PartNumber>2</PartNumber>" in parts_response.text
 
     complete_body = (
         "<CompleteMultipartUpload>"
@@ -778,6 +802,10 @@ def test_multipart_upload_completes_object(
     )
 
     assert complete_response.status_code == 200, complete_response.text
+    complete_digest = hashlib.md5(usedforsecurity=False)
+    for _part_number, etag in uploaded_parts:
+        complete_digest.update(bytes.fromhex(etag.strip('"')))
+    assert complete_response.headers["etag"] == f'"{complete_digest.hexdigest()}-2"'
     file = db_session.scalar(select(File).where(File.name == "large.bin"))
     assert file is not None
     blob = db_session.get(Blob, file.blob_id)

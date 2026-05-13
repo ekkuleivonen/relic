@@ -7,10 +7,8 @@ from sqlalchemy.orm import Session
 import settings
 from constants import (
     META_EXTRACT_PREFIX_BYTES,
-    META_EXTRACT_STATUS_COMPLETED,
-    META_EXTRACT_STATUS_FAILED,
-    META_EXTRACT_STATUS_IN_PROGRESS,
 )
+from enums import MetaExtractStatus
 from domain.files.meta import build_file_meta, merge_parser_meta, validate_file_meta_dict
 from domain.exceptions import ResourceNotFound
 from models import (
@@ -26,7 +24,7 @@ log = get_logger(__name__)
 def parse_file(db: Session, file_id: uuid.UUID) -> File:
     parser_meta: dict | None = None
     file = require_file(db, file_id)
-    file.meta_extract_status = META_EXTRACT_STATUS_IN_PROGRESS
+    file.meta_extract_status = MetaExtractStatus.IN_PROGRESS
     db.flush()
 
     try:
@@ -46,12 +44,12 @@ def parse_file(db: Session, file_id: uuid.UUID) -> File:
 
         validate_parser_meta(parser_meta=parser_meta)
         file.meta = parser_meta
-        file.meta_extract_status = META_EXTRACT_STATUS_COMPLETED
+        file.meta_extract_status = MetaExtractStatus.COMPLETED
         db.flush()
         db.refresh(file)
         return file
     except Exception:
-        file.meta_extract_status = META_EXTRACT_STATUS_FAILED
+        file.meta_extract_status = MetaExtractStatus.FAILED
         db.flush()
         raise
 

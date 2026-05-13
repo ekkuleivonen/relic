@@ -1,8 +1,7 @@
 """Tests for the meta_extract substrate base helpers."""
 
 import pytest
-from constants import META_EXTRACT_STATUS_COMPLETED, META_EXTRACT_STATUS_FAILED
-from enums import BucketTier
+from enums import MetaExtractStatus
 from domain.files.meta import build_file_meta
 from models import (
     AuditEvent,
@@ -52,8 +51,8 @@ def test_parse_csv_file_accepts_legacy_meta_missing_summary(
     db_session, monkeypatch
 ) -> None:
     user = UserFactory.build()
-    bucket = BucketFactory.build(tier=int(BucketTier.HOT))
-    folder = FolderFactory.build(name="", parent_id=None, min_tier=BucketTier.HOT)
+    bucket = BucketFactory.build()
+    folder = FolderFactory.build(name="", parent_id=None)
     db_session.add_all([user, bucket, folder])
     db_session.flush()
     blob = BlobFactory.build(bucket_id=bucket.id, bucket_key="objects/legacy.csv")
@@ -69,7 +68,7 @@ def test_parse_csv_file_accepts_legacy_meta_missing_summary(
     file = File(
         folder_id=folder.id,
         blob_id=blob.id,
-        uploaded_by=user.id,
+        actor_id=user.id,
         name="legacy.csv",
         meta=legacy_meta,
     )
@@ -87,7 +86,7 @@ def test_parse_csv_file_accepts_legacy_meta_missing_summary(
 
     parsed = parse_file(db_session, file.id)
 
-    assert parsed.meta_extract_status == META_EXTRACT_STATUS_COMPLETED
+    assert parsed.meta_extract_status == MetaExtractStatus.COMPLETED
     assert parsed.meta["summary"] == "CSV table with 2 rows and 2 columns"
     assert parsed.meta["kvs"]["row_count"] == 2
     assert db_session.scalars(select(AuditEvent)).all() == []
@@ -97,8 +96,8 @@ def test_parse_failure_marks_file_failed_without_audit_event(
     db_session, monkeypatch
 ) -> None:
     user = UserFactory.build()
-    bucket = BucketFactory.build(tier=int(BucketTier.HOT))
-    folder = FolderFactory.build(name="", parent_id=None, min_tier=BucketTier.HOT)
+    bucket = BucketFactory.build()
+    folder = FolderFactory.build(name="", parent_id=None)
     db_session.add_all([user, bucket, folder])
     db_session.flush()
     blob = BlobFactory.build(bucket_id=bucket.id, bucket_key="objects/failing")
@@ -107,7 +106,7 @@ def test_parse_failure_marks_file_failed_without_audit_event(
     file = File(
         folder_id=folder.id,
         blob_id=blob.id,
-        uploaded_by=user.id,
+        actor_id=user.id,
         name="broken.pdf",
         meta={},
     )
@@ -125,5 +124,5 @@ def test_parse_failure_marks_file_failed_without_audit_event(
         parse_file(db_session, file.id)
 
     db_session.refresh(file)
-    assert file.meta_extract_status == META_EXTRACT_STATUS_FAILED
+    assert file.meta_extract_status == MetaExtractStatus.FAILED
     assert db_session.scalars(select(AuditEvent)).all() == []

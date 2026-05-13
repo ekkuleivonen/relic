@@ -24,7 +24,7 @@ Secret is shown ONCE at creation, then only the hash is stored.
 class AccessKeyCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    user_id: uuid.UUID
+    actor_id: uuid.UUID
     name: str = Field(min_length=1, max_length=255)
 
 
@@ -89,17 +89,17 @@ async def create_access_key(
 ) -> AccessKeyCreated:
     """
     POST /access-keys -> mint a new access key.
-    Body: { name, user_id? }   (user_id admin-only; defaults to self)
+    Body: { name, actor_id }
     Returns: { id, key_id, secret_access_key, name, ... }
     The secret is in the response body and CANNOT be retrieved later.
     """
     created = access_key_service.create_access_key(
         db,
-        user_id=payload.user_id,
+        actor_id=payload.actor_id,
         name=payload.name,
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=current_user.id,
+            actor_id=current_user.id,
         ),
     )
     return AccessKeyCreated.from_created(created)
@@ -127,7 +127,7 @@ async def revoke_access_key(
         key_id,
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=current_user.id,
+            actor_id=current_user.id,
         ),
     )
     return AccessKeyRead.from_row(row)
@@ -146,7 +146,7 @@ async def delete_access_key(
         key_id,
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=current_user.id,
+            actor_id=current_user.id,
         ),
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

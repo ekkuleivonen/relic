@@ -30,13 +30,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { useBuckets } from "@/hooks/use-buckets"
 import {
   useCreateFolder,
   useDeleteFolder,
   useDuplicateFolder,
   useUpdateFolder,
 } from "@/hooks/use-folders"
-import { bucketTiers } from "@/types/buckets"
 import type { FolderTreeNode } from "@/types/filesystem"
 
 type WithOpenChange = {
@@ -168,11 +168,11 @@ export function RenameFolderDialog({ open, onOpenChange, folder }: RenameProps) 
   )
 }
 
-type StoragePolicyProps = WithOpenChange & {
+type PreferredBucketProps = WithOpenChange & {
   folder: FolderTreeNode
 }
 
-function StoragePolicyForm({
+function PreferredBucketForm({
   folder,
   onDone,
 }: {
@@ -180,61 +180,33 @@ function StoragePolicyForm({
   onDone: () => void
 }) {
   const update = useUpdateFolder()
-  const isRoot = folder.parent_id === null
-
-  const [minTierChoice, setMinTierChoice] = React.useState(() => {
-    if (isRoot) {
-      return String(
-        folder.min_tier ?? folder.effective_min_tier ?? 1
-      )
-    }
-    return folder.min_tier != null ? String(folder.min_tier) : "inherit"
-  })
-  const [cooldownInput, setCooldownInput] = React.useState(() =>
-    folder.cooldown_days != null ? String(folder.cooldown_days) : ""
+  const bucketsQuery = useBuckets()
+  const buckets = React.useMemo(
+    () => bucketsQuery.data ?? [],
+    [bucketsQuery.data]
   )
 
-  const effectiveTierLabel =
-    bucketTiers.find((t) => t.value === folder.effective_min_tier)?.label ??
-    "Hot"
-  const effectiveCooldown =
-    folder.effective_cooldown_days != null
-      ? `${folder.effective_cooldown_days} day${folder.effective_cooldown_days === 1 ? "" : "s"}`
-      : "none"
+  const [choice, setChoice] = React.useState(() =>
+    folder.preferred_bucket_id ?? "inherit"
+  )
+
+  const effectivePreferredName = React.useMemo(() => {
+    if (folder.effective_preferred_bucket_id == null) return null
+    return (
+      buckets.find((b) => b.id === folder.effective_preferred_bucket_id)?.name ??
+      "an unknown bucket"
+    )
+  }, [buckets, folder.effective_preferred_bucket_id])
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    const trimmed = cooldownInput.trim()
-    let cooldown: number | null
-    if (trimmed === "") {
-      cooldown = null
-    } else {
-      const parsed = Number.parseInt(trimmed, 10)
-      if (!Number.isFinite(parsed) || parsed < 1) {
-        return
-      }
-      cooldown = parsed
-    }
-
-    let minTierPayload: number | null
-    if (isRoot) {
-      const parsed = Number.parseInt(minTierChoice, 10)
-      if (!Number.isFinite(parsed) || parsed < 1 || parsed > 4) {
-        return
-      }
-      minTierPayload = parsed
-    } else {
-      minTierPayload =
-        minTierChoice === "inherit" ? null : Number.parseInt(minTierChoice, 10)
-    }
-
+    const payload = choice === "inherit" ? null : choice
     try {
       await update.mutateAsync({
         id: folder.id,
-        min_tier: minTierPayload,
-        cooldown_days: cooldown,
+        preferred_bucket_id: payload,
       })
-      toast.success("Storage policy updated")
+      toast.success("Preferred bucket updated")
       onDone()
     } catch {
       // hook toasts the error
@@ -244,52 +216,42 @@ function StoragePolicyForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Folder storage policy</DialogTitle>
+        <DialogTitle>Preferred bucket</DialogTitle>
         <DialogDescription>
-          Minimum tier and optional cooldown for <code>{folder.path || "/"}</code>.
-          Non-root folders can inherit from parents; overrides apply to this folder
-          and descendants until changed again.
+          Optional placement hint for <code>{folder.path || "/"}</code>. Without
+          a preference Relic places new uploads in the hottest reachable
+          bucket. The preference is honored when the bucket has capacity; the
+          maintenance loop can still demote/promote based on access patterns.
         </DialogDescription>
       </DialogHeader>
       <form className="flex flex-col gap-3" onSubmit={submit}>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="storage-min-tier">Minimum tier</Label>
+          <Label htmlFor="preferred-bucket">Preferred bucket</Label>
           <Select
-            value={minTierChoice}
-            onValueChange={setMinTierChoice}
-            disabled={update.isPending}
+            value={choice}
+            onValueChange={setChoice}
+            disabled={update.isPending || bucketsQuery.isLoading}
           >
-            <SelectTrigger id="storage-min-tier" className="w-full">
-              <SelectValue />
+            <SelectTrigger id="preferred-bucket" className="w-full">
+              <SelectValue placeholder="Select a bucket" />
             </SelectTrigger>
             <SelectContent>
-              {!isRoot ? (
-                <SelectItem value="inherit">
-                  Inherit ({effectiveTierLabel})
-                </SelectItem>
-              ) : null}
-              {bucketTiers.map((tier) => (
-                <SelectItem key={tier.value} value={String(tier.value)}>
-                  {tier.label}
+              <SelectItem value="inherit">
+                {effectivePreferredName == null
+                  ? "No preference (inherit)"
+                  : `Inherit (${effectivePreferredName})`}
+              </SelectItem>
+              {buckets.map((bucket) => (
+                <SelectItem key={bucket.id} value={bucket.id}>
+                  {bucket.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="storage-cooldown">Cooldown (days)</Label>
-          <Input
-            id="storage-cooldown"
-            type="text"
-            inputMode="numeric"
-            placeholder="Leave empty to inherit"
-            value={cooldownInput}
-            onChange={(event) => setCooldownInput(event.target.value)}
-            disabled={update.isPending}
-          />
           <p className="text-muted-foreground text-xs">
-            Effective cooldown today: {effectiveCooldown}. Empty field inherits
-            from a parent when set; otherwise none.
+            "Inherit" walks up to the nearest ancestor with a preference set.
+            For a deduplicated blob, the preference is only applied when every
+            referencing folder agrees on the same effective bucket.
           </p>
         </div>
         <DialogFooter>
@@ -310,17 +272,17 @@ function StoragePolicyForm({
   )
 }
 
-export function StoragePolicyDialog({
+export function PreferredBucketDialog({
   open,
   onOpenChange,
   folder,
-}: StoragePolicyProps) {
+}: PreferredBucketProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         {open ? (
-          <StoragePolicyForm
-            key={`${folder.id}-${folder.min_tier ?? "i"}-${folder.cooldown_days ?? ""}-${folder.effective_min_tier ?? ""}-${folder.effective_cooldown_days ?? ""}`}
+          <PreferredBucketForm
+            key={`${folder.id}-${folder.preferred_bucket_id ?? "i"}-${folder.effective_preferred_bucket_id ?? ""}`}
             folder={folder}
             onDone={() => onOpenChange(false)}
           />

@@ -1,7 +1,7 @@
 import pytest
 from api.app import app
 from database import get_db
-from enums import BucketTier, UserRole
+from enums import UserRole
 from fastapi.testclient import TestClient
 from domain.files.meta import build_file_meta
 from models import Base, File, Folder, User
@@ -151,14 +151,12 @@ def test_delete_user_with_uploaded_files_returns_conflict(client, db_session):
         password_hash=hash_password("password"),
         role=UserRole.ADMIN,
     )
-    root = Folder(name="", parent_id=None, cooldown_days=None, min_tier=BucketTier.HOT)
+    root = Folder(name="", parent_id=None)
     db_session.add_all([user, root])
     db_session.flush()
     folder = Folder(
         name="photos",
         parent_id=root.id,
-        cooldown_days=None,
-        min_tier=BucketTier.HOT,
     )
     bucket = BucketFactory.build()
     db_session.add_all([folder, bucket])
@@ -170,7 +168,7 @@ def test_delete_user_with_uploaded_files_returns_conflict(client, db_session):
         File(
             folder_id=folder.id,
             blob_id=blob.id,
-            uploaded_by=user.id,
+            actor_id=user.id,
             name="cat.jpg",
             meta=build_file_meta(file_name="cat.jpg", size=1, user_meta={}),
         )

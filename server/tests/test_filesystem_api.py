@@ -1,8 +1,7 @@
 import pytest
 from api.app import app
-from constants import META_EXTRACT_STATUS_COMPLETED
 from database import get_db
-from enums import BucketTier, Permission, UserRole
+from enums import MetaExtractStatus, Permission, UserRole
 from fastapi.testclient import TestClient
 from domain.files.meta import build_file_meta
 from models import (
@@ -65,8 +64,6 @@ def root_folder(db_session):
     root = Folder(
         name="",
         parent_id=None,
-        cooldown_days=None,
-        min_tier=BucketTier.HOT,
     )
     db_session.add(root)
     db_session.commit()
@@ -77,8 +74,6 @@ def add_folder(db_session, parent: Folder, name: str) -> Folder:
     folder = Folder(
         name=name,
         parent_id=parent.id,
-        cooldown_days=None,
-        min_tier=BucketTier.HOT,
     )
     db_session.add(folder)
     db_session.commit()
@@ -88,7 +83,7 @@ def add_folder(db_session, parent: Folder, name: str) -> Folder:
 def grant_access(db_session, user: User, folder: Folder, permissions: int) -> None:
     db_session.add(
         FolderAccess(
-            user_id=user.id,
+            actor_id=user.id,
             folder_id=folder.id,
             permissions=permissions,
         )
@@ -119,12 +114,14 @@ def test_get_folder_tree_returns_nested_filesystem(
     )
 
 
-def test_get_folder_tree_omits_storage_policy_for_non_admin(
+def test_get_folder_tree_omits_storage_preference_for_non_admin(
     client, db_session, user, root_folder
 ):
     photos = add_folder(db_session, root_folder, "photos")
-    photos.cooldown_days = 7
-    photos.min_tier = 2
+    bucket = BucketFactory.build()
+    db_session.add(bucket)
+    db_session.commit()
+    photos.preferred_bucket_id = bucket.id
     db_session.commit()
 
     grant_access(db_session, user, root_folder, int(Permission.READ))
@@ -134,17 +131,19 @@ def test_get_folder_tree_omits_storage_policy_for_non_admin(
     assert response.status_code == 200
     tree = response.json()
     photos_node = next(c for c in tree["children"] if c["name"] == "photos")
-    assert photos_node.get("min_tier") is None
-    assert photos_node.get("cooldown_days") is None
+    assert photos_node.get("preferred_bucket_id") is None
+    assert photos_node.get("effective_preferred_bucket_id") is None
 
 
-def test_get_folder_tree_includes_storage_policy_for_admin(db_session, root_folder):
+def test_get_folder_tree_includes_storage_preference_for_admin(db_session, root_folder):
     photos = add_folder(db_session, root_folder, "photos")
-    photos.cooldown_days = 14
-    photos.min_tier = 3
+    bucket = BucketFactory.build()
+    db_session.add(bucket)
+    db_session.commit()
+    photos.preferred_bucket_id = bucket.id
     db_session.commit()
 
-    admin = UserFactory.build(email="admin-pol@relic.local", role=UserRole.ADMIN)
+    admin = UserFactory.build(email="admin-pref@relic.local", role=UserRole.ADMIN)
     db_session.add(admin)
     db_session.commit()
 
@@ -162,10 +161,8 @@ def test_get_folder_tree_includes_storage_policy_for_admin(db_session, root_fold
     assert response.status_code == 200
     tree = response.json()
     node = next(c for c in tree["children"] if c["name"] == "photos")
-    assert node["min_tier"] == 3
-    assert node["cooldown_days"] == 14
-    assert node["effective_min_tier"] == 3
-    assert node["effective_cooldown_days"] == 14
+    assert node["preferred_bucket_id"] == str(bucket.id)
+    assert node["effective_preferred_bucket_id"] == str(bucket.id)
 
 
 def test_admin_get_folder_tree_bypasses_folder_access(db_session, root_folder):
@@ -261,9 +258,9 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
             File(
                 folder_id=photos.id,
                 blob_id=blob.id,
-                uploaded_by=user.id,
+                actor_id=user.id,
                 name="image.jpg",
-                meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
+                meta_extract_status=MetaExtractStatus.COMPLETED,
                 meta=build_file_meta(
                     file_name="image.jpg",
                     size=1024,
@@ -274,9 +271,9 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
             File(
                 folder_id=docs.id,
                 blob_id=blob.id,
-                uploaded_by=user.id,
+                actor_id=user.id,
                 name="notes.txt",
-                meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
+                meta_extract_status=MetaExtractStatus.COMPLETED,
                 meta=build_file_meta(
                     file_name="notes.txt",
                     size=12,
@@ -327,25 +324,25 @@ def test_recursive_list_files_excludes_unreadable_descendants(
             File(
                 folder_id=photos.id,
                 blob_id=blob.id,
-                uploaded_by=user.id,
+                actor_id=user.id,
                 name="image.jpg",
-                meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
+                meta_extract_status=MetaExtractStatus.COMPLETED,
                 meta=build_file_meta(file_name="image.jpg", size=1024, user_meta={}),
             ),
             File(
                 folder_id=raw.id,
                 blob_id=blob.id,
-                uploaded_by=user.id,
+                actor_id=user.id,
                 name="raw.nef",
-                meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
+                meta_extract_status=MetaExtractStatus.COMPLETED,
                 meta=build_file_meta(file_name="raw.nef", size=2048, user_meta={}),
             ),
             File(
                 folder_id=docs.id,
                 blob_id=blob.id,
-                uploaded_by=user.id,
+                actor_id=user.id,
                 name="notes.txt",
-                meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
+                meta_extract_status=MetaExtractStatus.COMPLETED,
                 meta=build_file_meta(file_name="notes.txt", size=12, user_meta={}),
             ),
         ]
@@ -375,9 +372,9 @@ def test_list_files_pagination(client, db_session, user, root_folder):
             File(
                 folder_id=photos.id,
                 blob_id=blob.id,
-                uploaded_by=user.id,
+                actor_id=user.id,
                 name=name,
-                meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
+                meta_extract_status=MetaExtractStatus.COMPLETED,
                 meta=build_file_meta(file_name=name, size=100, user_meta={}),
             )
         )

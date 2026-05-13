@@ -7,13 +7,13 @@ from pathlib import PurePosixPath
 from typing import Any, BinaryIO
 
 import boto3
+import settings as S
 from botocore.exceptions import BotoCoreError, ClientError
 from constants import (
-    META_EXTRACT_STATUS_PENDING,
     S3_METADATA_DIRECTIVE_COPY,
     S3_METADATA_DIRECTIVE_REPLACE,
 )
-from enums import BucketTier, Permission
+from enums import MetaExtractStatus, Permission
 from domain.files.meta import build_file_meta, validate_file_meta_dict
 from domain.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import Blob, Bucket, File, Folder, User
@@ -25,8 +25,12 @@ from services import folder_access as folder_access_service
 from services.audit_events import elapsed_ms, timer_start
 from services.event_context import EventContext
 from services.file_events import create_file_event
-from services.folder_storage_policy import effective_min_tier
-from services.placement import adjust_bucket_usage_cache, choose_bucket
+from services.placement import (
+    adjust_bucket_usage_cache,
+    choose_bucket,
+    effective_preferred_bucket_id,
+)
+from services.s3_hotpath_cache import clear_list_objects_response_cache
 
 log = get_logger(__name__)
 
@@ -118,8 +122,8 @@ def put_object(
     else:
         bucket = choose_bucket(
             db,
-            tier=BucketTier(effective_min_tier(db, folder)),
             size_bytes=object_size,
+            preferred_bucket_id=effective_preferred_bucket_id(db, folder),
         )
         created_blob = create_blob(
             db,
@@ -134,9 +138,9 @@ def put_object(
         file = File(
             folder_id=folder.id,
             blob_id=blob.id,
-            uploaded_by=current_user.id,
+            actor_id=current_user.id,
             name=file_name,
-            meta_extract_status=META_EXTRACT_STATUS_PENDING,
+            meta_extract_status=MetaExtractStatus.PENDING,
             meta=build_file_meta(
                 file_name=file_name,
                 size=object_size,
@@ -149,8 +153,8 @@ def put_object(
         file = existing_file
         old_blob = db.get(Blob, previous_blob_id)
         file.blob_id = blob.id
-        file.uploaded_by = current_user.id
-        file.meta_extract_status = META_EXTRACT_STATUS_PENDING
+        file.actor_id = current_user.id
+        file.meta_extract_status = MetaExtractStatus.PENDING
         file.meta = build_file_meta(
             file_name=file_name,
             size=object_size,
@@ -177,7 +181,7 @@ def put_object(
         create_file_event(
             db,
             event_type=event_type,
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             file_id=file.id,
             folder_id=file.folder_id,
@@ -186,6 +190,7 @@ def put_object(
     db.commit()
     db.refresh(file)
     db.refresh(blob)
+    clear_list_objects_response_cache()
     return PutObjectResult(file=file, blob=blob, etag=digest_hex)
 
 
@@ -257,16 +262,15 @@ def get_or_create_child_folder(
     child = Folder(
         parent_id=parent.id,
         name=name,
-        cooldown_days=None,
-        min_tier=None,
     )
     db.add(child)
     db.flush()
+    folder_access_service.clear_hotpath_cache(db)
     if event_context is not None:
         create_file_event(
             db,
             event_type="folder.created",
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             folder_id=child.id,
             payload={
@@ -421,7 +425,7 @@ def delete_object(
         create_file_event(
             db,
             event_type="file.deleted",
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             file_id=deleted_file_id,
             folder_id=deleted_folder_id,
@@ -433,6 +437,7 @@ def delete_object(
             },
         )
     db.commit()
+    clear_list_objects_response_cache()
     return DeleteObjectResult(existed=True)
 
 
@@ -532,9 +537,9 @@ def copy_object(
     new_file = File(
         folder_id=dest_folder.id,
         blob_id=blob.id,
-        uploaded_by=current_user.id,
+        actor_id=current_user.id,
         name=dest_file_name,
-        meta_extract_status=META_EXTRACT_STATUS_PENDING,
+        meta_extract_status=MetaExtractStatus.PENDING,
         meta=copied_meta,
     )
     db.add(new_file)
@@ -544,7 +549,7 @@ def copy_object(
         create_file_event(
             db,
             event_type="file.copied",
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             file_id=new_file.id,
             folder_id=new_file.folder_id,
@@ -560,6 +565,7 @@ def copy_object(
     db.commit()
     db.refresh(new_file)
     db.refresh(blob)
+    clear_list_objects_response_cache()
 
     etag = blob.content_hash.hex()
     return CopyObjectResult(file=new_file, blob=blob, etag=etag)
@@ -628,6 +634,45 @@ def get_object_bytes(
         range_header=range_header,
     )
     return GetObjectBytesResult(result=result, boto_response=boto_response)
+
+
+def touch_blob_access(
+    db: Session,
+    blob: Blob,
+    *,
+    now: dt.datetime | None = None,
+    debounce_minutes: int | None = None,
+) -> bool:
+    """Bump ``Blob.accessed_at`` to ``now`` if more than ``debounce_minutes`` old.
+
+    Called from every read code path (S3 GetObject, HeadObject, presign-download
+    issuance) so the maintenance cron has an accurate "last touched" signal for
+    promote/demote decisions. Debouncing keeps high-QPS lakehouse traffic
+    (e.g. catalog HEADs against parquet files) from beating the blobs row to
+    death.
+
+    Returns True if the row was updated, False if the call was debounced.
+    Caller is responsible for committing.
+    """
+    effective_now = now or dt.datetime.now(dt.UTC)
+    if effective_now.tzinfo is None:
+        effective_now = effective_now.replace(tzinfo=dt.UTC)
+    effective_debounce = (
+        debounce_minutes
+        if debounce_minutes is not None
+        else S.ACCESS_TOUCH_DEBOUNCE_MINUTES
+    )
+
+    last = blob.accessed_at
+    if last is not None:
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=dt.UTC)
+        if (effective_now - last) < dt.timedelta(minutes=effective_debounce):
+            return False
+
+    blob.accessed_at = effective_now
+    db.flush()
+    return True
 
 
 def fetch_blob_bytes(

@@ -30,7 +30,7 @@ def create_user(
         create_audit_event(
             db,
             operation="user.created",
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             metadata={
                 "user_id": str(user.id),
@@ -77,7 +77,7 @@ def update_user(
         create_audit_event(
             db,
             operation="user.updated",
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             metadata={
                 "user_id": str(user.id),
@@ -94,22 +94,20 @@ def delete_user(
     db: Session, user_id: uuid.UUID, *, event_context: EventContext | None = None
 ) -> None:
     user = get_user(db, user_id)
-    uploaded_file_id = db.scalar(
-        select(File.id).where(File.uploaded_by == user.id).limit(1)
-    )
+    uploaded_file_id = db.scalar(select(File.id).where(File.actor_id == user.id).limit(1))
     if uploaded_file_id is not None:
         raise ConflictError("Cannot delete user with uploaded files")
 
     metadata = {"user_id": str(user.id), "email": user.email}
-    actor_user_id = event_context.actor_user_id if event_context else None
-    if actor_user_id == user.id:
-        actor_user_id = None
+    actor_id = event_context.actor_id if event_context else None
+    if actor_id == user.id:
+        actor_id = None
     db.delete(user)
     if event_context is not None:
         create_audit_event(
             db,
             operation="user.deleted",
-            actor_user_id=actor_user_id,
+            actor_id=actor_id,
             request_id=event_context.request_id,
             metadata=metadata,
         )

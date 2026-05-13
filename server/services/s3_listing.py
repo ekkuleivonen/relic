@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from services import folder_access as folder_access_service
+from services.s3_hotpath_cache import get_or_set_request
 
 
 @dataclass(frozen=True)
@@ -55,8 +56,12 @@ def list_visible_buckets(db: Session, user: User) -> list[BucketListingItem]:
 
 def require_visible_bucket(db: Session, user: User, bucket_name: str) -> Folder:
     root = require_root_folder(db)
-    bucket = db.scalar(
-        select(Folder).where(Folder.parent_id == root.id, Folder.name == bucket_name)
+    bucket = get_or_set_request(
+        db,
+        f"visible_bucket:{bucket_name}",
+        lambda: db.scalar(
+            select(Folder).where(Folder.parent_id == root.id, Folder.name == bucket_name)
+        ),
     )
     if bucket is None:
         raise ResourceNotFound("Bucket not found")
@@ -266,7 +271,11 @@ def decode_continuation_token(token: str | None) -> int:
 
 
 def require_root_folder(db: Session) -> Folder:
-    root = db.scalar(select(Folder).where(Folder.parent_id.is_(None)))
+    root = get_or_set_request(
+        db,
+        "root_folder",
+        lambda: db.scalar(select(Folder).where(Folder.parent_id.is_(None))),
+    )
     if root is None:
         raise ResourceNotFound("Root folder not found")
     return root

@@ -93,6 +93,26 @@ UPLOAD_SPOOL_MAX_MEMORY_BYTES: int = env.int(
     "UPLOAD_SPOOL_MAX_MEMORY_BYTES",
     default=8 * 1024 * 1024,
 )
+S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS: int = env.int(
+    "S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS",
+    default=24,
+)
+S3_HOTPATH_METADATA_CACHE_TTL_SECONDS: int = env.int(
+    "S3_HOTPATH_METADATA_CACHE_TTL_SECONDS",
+    default=120,
+)
+S3_LIST_OBJECTS_CACHE_TTL_SECONDS: int = env.int(
+    "S3_LIST_OBJECTS_CACHE_TTL_SECONDS",
+    default=15,
+)
+S3_ACCESS_KEY_CACHE_TTL_SECONDS: int = env.int(
+    "S3_ACCESS_KEY_CACHE_TTL_SECONDS",
+    default=120,
+)
+S3_ACCESS_KEY_LAST_USED_DEBOUNCE_SECONDS: int = env.int(
+    "S3_ACCESS_KEY_LAST_USED_DEBOUNCE_SECONDS",
+    default=60,
+)
 
 # =============================================================================
 # meta_extract toolchain byte caps
@@ -186,11 +206,61 @@ STORAGE_MAINTENANCE_PURGE_BATCH: int = env.int(
     "STORAGE_MAINTENANCE_PURGE_BATCH",
     default=80,
 )
-STORAGE_MAINTENANCE_MIGRATE_BATCH: int = env.int(
-    "STORAGE_MAINTENANCE_MIGRATE_BATCH",
-    default=24,
-)
-STORAGE_MAINTENANCE_BUCKET_PRESSURE_RATIO: float = env.float(
-    "STORAGE_MAINTENANCE_BUCKET_PRESSURE_RATIO",
+
+# ---------------------------------------------------------------------------
+# Latency-driven automatic tiering
+# ---------------------------------------------------------------------------
+# The cron has two independent ticks:
+#
+# * Demote: if the hottest bucket holding a blob is full (current/max ratio
+#   >= STORAGE_DEMOTION_PRESSURE_RATIO), oldest-by-accessed_at blobs spill
+#   into the next-hottest bucket with capacity.
+# * Promote: blobs whose accessed_at is within STORAGE_PROMOTION_RECENCY_DAYS
+#   bubble up toward the hottest bucket whose post-move usage would stay
+#   under STORAGE_PROMOTION_HEADROOM_RATIO.
+#
+# Hysteresis: promotion_headroom_ratio < demotion_pressure_ratio prevents
+# ping-ponging. STORAGE_MIGRATION_MIN_RESIDENCY_HOURS adds a per-blob cooloff
+# after a successful migration so we never bounce the same blob twice in a
+# tick window.
+#
+# STORAGE_WRITE_HEADROOM_RATIO is enforced at upload time (placement.choose_bucket)
+# to leave breathing room for the demote cron - never fill a bucket all the way
+# from the user write path.
+
+STORAGE_DEMOTION_PRESSURE_RATIO: float = env.float(
+    "STORAGE_DEMOTION_PRESSURE_RATIO",
     default=0.85,
+)
+STORAGE_PROMOTION_HEADROOM_RATIO: float = env.float(
+    "STORAGE_PROMOTION_HEADROOM_RATIO",
+    default=0.70,
+)
+STORAGE_PROMOTION_RECENCY_DAYS: int = env.int(
+    "STORAGE_PROMOTION_RECENCY_DAYS",
+    default=7,
+)
+STORAGE_MIGRATION_MIN_RESIDENCY_HOURS: int = env.int(
+    "STORAGE_MIGRATION_MIN_RESIDENCY_HOURS",
+    default=6,
+)
+STORAGE_WRITE_HEADROOM_RATIO: float = env.float(
+    "STORAGE_WRITE_HEADROOM_RATIO",
+    default=0.95,
+)
+STORAGE_DEMOTE_BATCH: int = env.int("STORAGE_DEMOTE_BATCH", default=24)
+STORAGE_PROMOTE_BATCH: int = env.int("STORAGE_PROMOTE_BATCH", default=24)
+
+# Hotness ranking averages over the last N successful probes per bucket so a
+# single noisy sample can't reorder buckets.
+PROBE_RANKING_WINDOW: int = env.int("PROBE_RANKING_WINDOW", default=3)
+# How long we keep historical bucket_probes rows (trimmed by maintenance cron).
+PROBES_RETENTION_DAYS: int = env.int("PROBES_RETENTION_DAYS", default=14)
+
+# accessed_at update debounce: only bump on read if the previous bump was
+# longer ago than this. Keeps high-QPS GET/HEAD traffic from beating the
+# blobs row to death.
+ACCESS_TOUCH_DEBOUNCE_MINUTES: int = env.int(
+    "ACCESS_TOUCH_DEBOUNCE_MINUTES",
+    default=5,
 )

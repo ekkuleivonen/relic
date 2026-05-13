@@ -35,8 +35,8 @@ class FileRead(BaseModel):
     id: uuid.UUID
     folder_id: uuid.UUID
     blob_id: uuid.UUID
-    uploaded_by: uuid.UUID
-    uploaded_by_name: str | None
+    actor_id: uuid.UUID
+    actor_name: str | None
     name: str
     meta_extract_status: int
     meta: dict
@@ -139,7 +139,7 @@ async def search_files(
     extension: list[str] = Query(default_factory=list),
     min_size: int | None = None,
     max_size: int | None = None,
-    uploaded_by: uuid.UUID | None = None,
+    actor_id: uuid.UUID | None = None,
     folder_id: uuid.UUID | None = None,
     recursive: bool = False,
     created_after: dt.datetime | None = None,
@@ -165,7 +165,7 @@ async def search_files(
         extensions=extension,
         min_size=min_size,
         max_size=max_size,
-        uploaded_by=uploaded_by,
+        actor_id=actor_id,
         folder_id=folder_id,
         recursive=recursive,
         created_after=created_after,
@@ -197,7 +197,7 @@ async def file_facets(
     extension: list[str] = Query(default_factory=list),
     min_size: int | None = None,
     max_size: int | None = None,
-    uploaded_by: uuid.UUID | None = None,
+    actor_id: uuid.UUID | None = None,
     folder_id: uuid.UUID | None = None,
     recursive: bool = False,
     created_after: dt.datetime | None = None,
@@ -223,7 +223,7 @@ async def file_facets(
         extensions=extension,
         min_size=min_size,
         max_size=max_size,
-        uploaded_by=uploaded_by,
+        actor_id=actor_id,
         folder_id=folder_id,
         recursive=recursive,
         created_after=created_after,
@@ -267,7 +267,7 @@ def build_search_query(
     extensions: list[str],
     min_size: int | None,
     max_size: int | None,
-    uploaded_by: uuid.UUID | None,
+    actor_id: uuid.UUID | None,
     folder_id: uuid.UUID | None,
     recursive: bool,
     created_after: dt.datetime | None,
@@ -287,7 +287,7 @@ def build_search_query(
         extensions=tuple(_dedupe(extensions)),
         min_size=min_size,
         max_size=max_size,
-        uploaded_by=uploaded_by,
+        actor_id=actor_id,
         folder_id=folder_id,
         recursive=recursive,
         created_after=created_after,
@@ -341,7 +341,7 @@ async def rename_file(
         current_user=current_user,
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=current_user.id,
+            actor_id=current_user.id,
         ),
     )
 
@@ -366,6 +366,6 @@ async def move_file(
         current_user=current_user,
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=current_user.id,
+            actor_id=current_user.id,
         ),
     )

@@ -195,7 +195,7 @@ async def create_processor_route(
         else None,
         config=payload.config,
         event_context=context_from_headers(
-            request.headers, actor_user_id=current_user.id
+            request.headers, actor_id=current_user.id
         ),
     )
     item = processor_service.get_processor_with_lag(db, processor.id)
@@ -222,7 +222,7 @@ async def update_processor_route(
         else None,
         config=payload.config,
         event_context=context_from_headers(
-            request.headers, actor_user_id=current_user.id
+            request.headers, actor_id=current_user.id
         ),
     )
     item = processor_service.get_processor_with_lag(db, processor_id)
@@ -237,7 +237,7 @@ async def delete_processor_route(
         db,
         processor_id=processor_id,
         event_context=context_from_headers(
-            request.headers, actor_user_id=current_user.id
+            request.headers, actor_id=current_user.id
         ),
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -257,7 +257,7 @@ async def rewind_processor_route(
         target_offset=payload.target_offset,
         reason=payload.reason,
         event_context=context_from_headers(
-            request.headers, actor_user_id=current_user.id
+            request.headers, actor_id=current_user.id
         ),
     )
     item = processor_service.get_processor_with_lag(db, processor_id)
@@ -278,7 +278,7 @@ async def skip_stuck_event_route(
         event_id=payload.event_id,
         reason=payload.reason,
         event_context=context_from_headers(
-            request.headers, actor_user_id=current_user.id
+            request.headers, actor_id=current_user.id
         ),
     )
     item = processor_service.get_processor_with_lag(db, processor_id)

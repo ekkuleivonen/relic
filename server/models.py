@@ -4,6 +4,7 @@ import uuid
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Identity,
@@ -20,7 +21,13 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
-from constants import META_EXTRACT_STATUS_PENDING, PROCESSOR_SOURCE_ADMIN
+from enums import (
+    EventStatus,
+    MetaExtractStatus,
+    Permission,
+    ProcessorSource,
+    UserRole,
+)
 from utils.crypto import decrypt_string, encrypt_string
 
 JSONType = JSON().with_variant(JSONB, "postgresql")
@@ -44,12 +51,20 @@ class TimestampMixin:
 
 class User(Base, TimestampMixin):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            f"role IN ({','.join(str(int(role)) for role in UserRole)})",
+            name="ck_users_role",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
-    role: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    role: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=int(UserRole.USER)
+    )
 
     access_keys: Mapped[list["AccessKey"]] = relationship(back_populates="user")
 
@@ -58,7 +73,7 @@ class AccessKey(Base, TimestampMixin):
     __tablename__ = "access_keys"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(
+    actor_id: Mapped[uuid.UUID] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -92,14 +107,14 @@ class Bucket(Base, TimestampMixin):
     _secret_access_key: Mapped[str] = mapped_column(
         "secret_access_key", Text, nullable=False
     )
-    tier: Mapped[int] = mapped_column(Integer, nullable=False)
     max_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    probe_latency_put_ms: Mapped[int | None] = mapped_column(Integer)
-    probe_latency_head_ms: Mapped[int | None] = mapped_column(Integer)
-    probe_latency_get_ms: Mapped[int | None] = mapped_column(Integer)
-    probe_latency_delete_ms: Mapped[int | None] = mapped_column(Integer)
 
     blobs: Mapped[list["Blob"]] = relationship(back_populates="bucket")
+    probes: Mapped[list["BucketProbe"]] = relationship(
+        back_populates="bucket",
+        cascade="all, delete-orphan",
+        order_by="desc(BucketProbe.observed_at)",
+    )
 
     @property
     def key_id(self) -> str:
@@ -116,6 +131,40 @@ class Bucket(Base, TimestampMixin):
     @secret_access_key.setter
     def secret_access_key(self, value: str) -> None:
         self._secret_access_key = encrypt_string(value)
+
+
+class BucketProbe(Base):
+    """Per-probe sample of bucket reachability and per-op latency.
+
+    Buckets do not carry a static ``tier`` anymore; placement ranks them by
+    averaging ``put/head/get/delete`` latency across the most recent successful
+    probes (see :func:`services.placement.hotness_ranked_buckets`).
+    """
+
+    __tablename__ = "bucket_probes"
+    __table_args__ = (
+        Index(
+            "ix_bucket_probes_bucket_id_observed_at",
+            "bucket_id",
+            "observed_at",
+        ),
+        Index("ix_bucket_probes_observed_at", "observed_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    bucket_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("buckets.id", ondelete="CASCADE"), nullable=False
+    )
+    observed_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    put_ms: Mapped[int | None] = mapped_column(Integer)
+    head_ms: Mapped[int | None] = mapped_column(Integer)
+    get_ms: Mapped[int | None] = mapped_column(Integer)
+    delete_ms: Mapped[int | None] = mapped_column(Integer)
+
+    bucket: Mapped[Bucket] = relationship(back_populates="probes")
 
 
 class Blob(Base, TimestampMixin):
@@ -144,6 +193,12 @@ class Blob(Base, TimestampMixin):
     accessed_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
+    # Wall-clock of the last successful migration between buckets. The
+    # storage maintenance cron uses this to enforce a minimum residency window
+    # before considering a blob for another move (anti-thrash hysteresis).
+    migrated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     bucket: Mapped[Bucket] = relationship(back_populates="blobs")
     files: Mapped[list["File"]] = relationship(back_populates="blob")
@@ -167,25 +222,42 @@ class Folder(Base, TimestampMixin):
         GUID(), ForeignKey("folders.id", ondelete="CASCADE")
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    cooldown_days: Mapped[int | None] = mapped_column(Integer)
-    # NULL = inherit from parent (root should still set an explicit tier in practice).
-    min_tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Optional power-user preference for which bucket new uploads under this
+    # subtree land in. NULL = inherit from parent; root NULL = "use the hottest
+    # available bucket". The maintenance cron may still demote files out of the
+    # preferred bucket once it fills, but new uploads preferentially go there
+    # whenever capacity allows.
+    preferred_bucket_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(),
+        ForeignKey("buckets.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     parent: Mapped["Folder | None"] = relationship(
         remote_side=[id], back_populates="children"
     )
     children: Mapped[list["Folder"]] = relationship(back_populates="parent")
     files: Mapped[list["File"]] = relationship(back_populates="folder")
+    preferred_bucket: Mapped[Bucket | None] = relationship()
 
 
 class FolderAccess(Base, TimestampMixin):
     __tablename__ = "folder_access"
     __table_args__ = (
-        UniqueConstraint("user_id", "folder_id", name="uq_folder_access_user_folder"),
+        CheckConstraint("permissions > 0", name="ck_folder_access_permissions_positive"),
+        CheckConstraint(
+            f"(permissions & ~{int(Permission.READ | Permission.WRITE | Permission.DELETE | Permission.ENRICH)}) = 0",
+            name="ck_folder_access_permissions_known_bits",
+        ),
+        CheckConstraint(
+            f"(permissions & {int(Permission.READ)}) != 0 OR permissions = 0",
+            name="ck_folder_access_permissions_read_required",
+        ),
+        UniqueConstraint("actor_id", "folder_id", name="uq_folder_access_actor_folder"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(
+    actor_id: Mapped[uuid.UUID] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     folder_id: Mapped[uuid.UUID] = mapped_column(
@@ -197,6 +269,10 @@ class FolderAccess(Base, TimestampMixin):
 class File(Base, TimestampMixin):
     __tablename__ = "files"
     __table_args__ = (
+        CheckConstraint(
+            f"meta_extract_status IN ({','.join(str(int(status)) for status in MetaExtractStatus)})",
+            name="ck_files_meta_extract_status",
+        ),
         UniqueConstraint("folder_id", "name", name="uq_files_folder_name"),
     )
 
@@ -207,7 +283,7 @@ class File(Base, TimestampMixin):
     blob_id: Mapped[uuid.UUID] = mapped_column(
         GUID(), ForeignKey("blobs.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    uploaded_by: Mapped[uuid.UUID] = mapped_column(
+    actor_id: Mapped[uuid.UUID] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -216,23 +292,23 @@ class File(Base, TimestampMixin):
     # is the source of truth for processor outcomes. We keep this here so the
     # filesystem UI can render per-file badges without a per-row event lookup.
     meta_extract_status: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=META_EXTRACT_STATUS_PENDING
+        Integer, nullable=False, default=int(MetaExtractStatus.PENDING)
     )
     meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
 
     folder: Mapped[Folder] = relationship(back_populates="files")
     blob: Mapped[Blob] = relationship(back_populates="files")
-    uploader: Mapped[User] = relationship()
+    actor: Mapped[User] = relationship()
 
     @property
-    def uploaded_by_name(self) -> str | None:
-        return self.uploader.name if self.uploader else None
+    def actor_name(self) -> str | None:
+        return self.actor.name if self.actor else None
 
 
 class MultipartUpload(Base, TimestampMixin):
     __tablename__ = "multipart_uploads"
     __table_args__ = (
-        Index("ix_multipart_uploads_uploaded_by_created_at", "uploaded_by", "created_at"),
+        Index("ix_multipart_uploads_actor_id_created_at", "actor_id", "created_at"),
         Index("ix_multipart_uploads_bucket_key", "bucket_name", "object_key"),
     )
 
@@ -242,8 +318,7 @@ class MultipartUpload(Base, TimestampMixin):
     folder_id: Mapped[uuid.UUID] = mapped_column(
         GUID(), ForeignKey("folders.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    uploaded_by: Mapped[uuid.UUID] = mapped_column(
+    actor_id: Mapped[uuid.UUID] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     storage_bucket_id: Mapped[uuid.UUID] = mapped_column(
@@ -252,7 +327,7 @@ class MultipartUpload(Base, TimestampMixin):
     meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
 
     folder: Mapped[Folder] = relationship()
-    user: Mapped[User] = relationship()
+    actor: Mapped[User] = relationship()
     storage_bucket: Mapped[Bucket] = relationship()
     parts: Mapped[list["MultipartUploadPart"]] = relationship(
         back_populates="upload",
@@ -290,6 +365,10 @@ class MultipartUploadPart(Base, TimestampMixin):
 class AuditEvent(Base, TimestampMixin):
     __tablename__ = "audit_events"
     __table_args__ = (
+        CheckConstraint(
+            f"status IN ({','.join(repr(status.value) for status in (EventStatus.SUCCEEDED, EventStatus.FAILED))})",
+            name="ck_audit_events_status",
+        ),
         Index("ix_audit_events_created_at_id", "created_at", "id"),
         Index("ix_audit_events_operation_created_at", "operation", "created_at"),
         Index("ix_audit_events_status_created_at", "status", "created_at"),
@@ -298,7 +377,7 @@ class AuditEvent(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     operation: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(64), nullable=False)
-    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
     request_id: Mapped[str | None] = mapped_column(String(255), index=True)
@@ -312,10 +391,14 @@ class AuditEvent(Base, TimestampMixin):
 class FileEvent(Base):
     __tablename__ = "file_events"
     __table_args__ = (
+        CheckConstraint(
+            f"status IN ({','.join(repr(status.value) for status in (EventStatus.SUCCEEDED, EventStatus.FAILED))})",
+            name="ck_file_events_status",
+        ),
         Index("ix_file_events_offset", "offset", unique=True),
         Index("ix_file_events_event_type_created_at", "event_type", "created_at"),
         Index("ix_file_events_status_created_at", "status", "created_at"),
-        Index("ix_file_events_actor_user_id_created_at", "actor_user_id", "created_at"),
+        Index("ix_file_events_actor_id_created_at", "actor_id", "created_at"),
         Index("ix_file_events_request_id", "request_id"),
         Index("ix_file_events_file_id_created_at", "file_id", "created_at"),
         Index("ix_file_events_folder_id_created_at", "folder_id", "created_at"),
@@ -344,7 +427,7 @@ class FileEvent(Base):
     status: Mapped[str] = mapped_column(
         String(64), nullable=False, default="succeeded", server_default="succeeded"
     )
-    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="SET NULL")
     )
     request_id: Mapped[str | None] = mapped_column(String(255))
@@ -359,6 +442,10 @@ class FileEvent(Base):
 class MaintenanceEvent(Base):
     __tablename__ = "maintenance_events"
     __table_args__ = (
+        CheckConstraint(
+            f"status IN ({','.join(repr(status.value) for status in (EventStatus.SUCCEEDED, EventStatus.FAILED, EventStatus.SKIPPED))})",
+            name="ck_maintenance_events_status",
+        ),
         Index("ix_maintenance_events_job_created_at", "job", "created_at"),
         Index("ix_maintenance_events_action_created_at", "action", "created_at"),
         Index("ix_maintenance_events_status_created_at", "status", "created_at"),
@@ -398,6 +485,10 @@ class Processor(Base, TimestampMixin):
 
     __tablename__ = "processors"
     __table_args__ = (
+        CheckConstraint(
+            f"source IN ({','.join(repr(source.value) for source in ProcessorSource)})",
+            name="ck_processors_source",
+        ),
         Index("ix_processors_kind", "kind"),
         Index("ix_processors_enabled", "enabled"),
     )
@@ -409,7 +500,7 @@ class Processor(Base, TimestampMixin):
         Boolean, nullable=False, default=True, server_default=text("true")
     )
     source: Mapped[str] = mapped_column(
-        String(16), nullable=False, default=PROCESSOR_SOURCE_ADMIN
+        String(16), nullable=False, default=ProcessorSource.ADMIN.value
     )
     subscribed_event_types: Mapped[list[str]] = mapped_column(
         JSONType, nullable=False, default=list

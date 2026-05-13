@@ -19,7 +19,7 @@ class AuditEventRead(BaseModel):
     id: uuid.UUID
     operation: str
     status: str
-    actor_user_id: uuid.UUID | None
+    actor_id: uuid.UUID | None
     actor: UserRead | None
     request_id: str | None
     metadata: dict
@@ -32,7 +32,7 @@ class AuditEventRead(BaseModel):
             id=event.id,
             operation=event.operation,
             status=event.status,
-            actor_user_id=event.actor_user_id,
+            actor_id=event.actor_id,
             actor=UserRead.model_validate(event.actor) if event.actor else None,
             request_id=event.request_id,
             metadata=event.meta,
@@ -55,7 +55,7 @@ async def list_audit_events(
     db: DbSession,
     operation: str | None = None,
     status: str | None = None,
-    actor_user_id: uuid.UUID | None = None,
+    actor_id: uuid.UUID | None = None,
     request_id: str | None = None,
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
@@ -70,7 +70,7 @@ async def list_audit_events(
         db,
         operation=operation,
         status=status,
-        actor_user_id=actor_user_id,
+        actor_id=actor_id,
         request_id=request_id,
         created_after=created_after,
         created_before=created_before,

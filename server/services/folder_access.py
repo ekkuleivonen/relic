@@ -1,6 +1,7 @@
 import uuid
 from dataclasses import dataclass
 
+import settings as S
 from constants import FOLDER_ACCESS_ALL_PERMISSIONS, FOLDER_ACCESS_PERMISSION_MASK
 from enums import Permission, UserRole
 from domain.exceptions import BadRequestError, PermissionDenied, ResourceNotFound
@@ -11,8 +12,27 @@ from utils.logging import get_logger
 
 from services.audit_events import create_audit_event
 from services.event_context import EventContext
+from services.s3_hotpath_cache import (
+    TtlCacheEntry,
+    engine_cache_key,
+    get_or_set_request,
+    get_ttl,
+    request_cache,
+    set_ttl,
+)
 
 log = get_logger(__name__)
+
+_FOLDER_TREE_CACHE: dict[int, TtlCacheEntry] = {}
+_FOLDER_PATHS_CACHE: dict[int, TtlCacheEntry] = {}
+_EFFECTIVE_PERMISSIONS_CACHE: dict[tuple[int, uuid.UUID, int], TtlCacheEntry] = {}
+
+
+@dataclass(frozen=True)
+class FolderTreeRow:
+    id: uuid.UUID
+    parent_id: uuid.UUID | None
+    name: str
 
 
 @dataclass(frozen=True)
@@ -24,11 +44,27 @@ class FolderAccessRow:
     folder_path: str
 
 
+def clear_hotpath_cache(db: Session | None = None) -> None:
+    if db is None:
+        _FOLDER_TREE_CACHE.clear()
+        _FOLDER_PATHS_CACHE.clear()
+        _EFFECTIVE_PERMISSIONS_CACHE.clear()
+        return
+
+    key = engine_cache_key(db)
+    _FOLDER_TREE_CACHE.pop(key, None)
+    _FOLDER_PATHS_CACHE.pop(key, None)
+    for cache_key in list(_EFFECTIVE_PERMISSIONS_CACHE):
+        if cache_key[0] == key:
+            _EFFECTIVE_PERMISSIONS_CACHE.pop(cache_key, None)
+    db.info.pop("s3_hotpath_cache", None)
+
+
 def list_folder_access(db: Session) -> list[FolderAccessRow]:
     rows = list(
         db.execute(
             select(FolderAccess, User)
-            .join(User, User.id == FolderAccess.user_id)
+            .join(User, User.id == FolderAccess.actor_id)
             .order_by(User.email, FolderAccess.folder_id)
         ).all()
     )
@@ -47,19 +83,19 @@ def list_folder_access(db: Session) -> list[FolderAccessRow]:
 def grant_folder_access(
     db: Session,
     *,
-    user_id: uuid.UUID,
+    actor_id: uuid.UUID,
     folder_id: uuid.UUID,
     permissions: int,
     event_context: EventContext | None = None,
 ) -> FolderAccessRow:
-    """Insert or update an access grant. Idempotent on (user_id, folder_id)."""
+    """Insert or update an access grant. Idempotent on (actor_id, folder_id)."""
     validate_permissions(permissions)
-    user = require_user(db, user_id)
+    user = require_user(db, actor_id)
     folder = require_folder(db, folder_id)
 
     existing = db.scalar(
         select(FolderAccess).where(
-            FolderAccess.user_id == user_id,
+            FolderAccess.actor_id == actor_id,
             FolderAccess.folder_id == folder_id,
         )
     )
@@ -69,7 +105,7 @@ def grant_folder_access(
         action = "updated"
     else:
         access = FolderAccess(
-            user_id=user_id,
+            actor_id=actor_id,
             folder_id=folder_id,
             permissions=int(permissions),
         )
@@ -82,11 +118,11 @@ def grant_folder_access(
         create_audit_event(
             db,
             operation="folder.access.updated" if existing else "folder.access.granted",
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             metadata={
                 "access_id": str(access.id),
-                "user_id": str(access.user_id),
+                "actor_id": str(access.actor_id),
                 "folder_id": str(access.folder_id),
                 "permissions": access.permissions,
                 "folder_path": folder_path,
@@ -94,11 +130,12 @@ def grant_folder_access(
         )
     db.commit()
     db.refresh(access)
+    clear_hotpath_cache(db)
 
     log.info(
         "folder_access_grant",
         action=action,
-        user_id=str(user_id),
+        actor_id=str(actor_id),
         folder_id=str(folder_id),
         permissions=int(permissions),
     )
@@ -118,7 +155,7 @@ def revoke_folder_access(
 
     metadata = {
         "access_id": str(access.id),
-        "user_id": str(access.user_id),
+        "actor_id": str(access.actor_id),
         "folder_id": str(access.folder_id),
         "permissions": access.permissions,
     }
@@ -127,36 +164,29 @@ def revoke_folder_access(
         create_audit_event(
             db,
             operation="folder.access.revoked",
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             metadata=metadata,
         )
     db.commit()
+    clear_hotpath_cache(db)
     log.info(
         "folder_access_revoke",
         access_id=str(access_id),
-        user_id=str(access.user_id),
+        actor_id=str(access.actor_id),
         folder_id=str(access.folder_id),
     )
 
 
-def get_effective_permissions(db: Session, user: User, folder_id: uuid.UUID) -> int:
-    folder = require_folder(db, folder_id)
-    if user.role == UserRole.ADMIN:
-        return FOLDER_ACCESS_ALL_PERMISSIONS
-
-    ancestor_ids = collect_ancestor_folder_ids(db, folder.id)
-    grants = db.scalars(
-        select(FolderAccess).where(
-            FolderAccess.user_id == user.id,
-            FolderAccess.folder_id.in_(ancestor_ids),
-        )
-    ).all()
-
-    permissions = 0
-    for grant in grants:
-        permissions |= grant.permissions
-    return permissions
+def get_effective_permissions(
+    db: Session, user: User, folder_id: uuid.UUID, *, use_cache: bool = True
+) -> int:
+    rows = cached_folder_tree_rows(db)
+    if folder_id not in {row.id for row in rows}:
+        raise ResourceNotFound("Folder not found")
+    return effective_permissions_by_folder(db, user, use_cache=use_cache).get(
+        folder_id, 0
+    )
 
 
 def require_folder_permission(
@@ -184,7 +214,12 @@ def require_folder_permission_strict(
     so unreadable folders never leak existence. Returns 403 (PermissionDenied)
     when the user can READ but lacks the specific `required` bit.
     """
-    permissions = get_effective_permissions(db, user, folder_id)
+    permissions = get_effective_permissions(
+        db,
+        user,
+        folder_id,
+        use_cache=required == Permission.READ,
+    )
     if not permissions & int(Permission.READ):
         raise ResourceNotFound("Folder not found")
     if not permissions & int(required):
@@ -193,16 +228,16 @@ def require_folder_permission_strict(
 
 
 def visible_folder_ids(db: Session, user: User) -> set[uuid.UUID]:
-    folders = db.execute(select(Folder.id, Folder.parent_id)).all()
+    folders = cached_folder_tree_rows(db)
     if user.role == UserRole.ADMIN:
-        return {folder_id for folder_id, _ in folders}
+        return {row.id for row in folders}
 
     children_by_parent: dict[uuid.UUID | None, list[uuid.UUID]] = {}
-    for folder_id, parent_id in folders:
-        children_by_parent.setdefault(parent_id, []).append(folder_id)
+    for row in folders:
+        children_by_parent.setdefault(row.parent_id, []).append(row.id)
 
     direct_grants = db.scalars(
-        select(FolderAccess).where(FolderAccess.user_id == user.id)
+        select(FolderAccess).where(FolderAccess.actor_id == user.id)
     ).all()
     visible: set[uuid.UUID] = set()
     queue = [
@@ -261,18 +296,44 @@ def filter_visible_tree(
 def effective_permissions_by_folder(
     db: Session,
     user: User,
+    *,
+    use_cache: bool = True,
 ) -> dict[uuid.UUID, int]:
-    folders = db.execute(select(Folder.id, Folder.parent_id)).all()
+    user_role = int(user.role)
+    request_key = f"effective_permissions:{user.id}:{user_role}"
+    cache = request_cache(db)
+    if use_cache and request_key in cache:
+        return cache[request_key]
+
+    process_key = (engine_cache_key(db), user.id, user_role)
+    cached = get_ttl(_EFFECTIVE_PERMISSIONS_CACHE, process_key) if use_cache else None
+    if use_cache and cached is not None:
+        cache[request_key] = cached
+        return cached
+
+    folders = cached_folder_tree_rows(db)
     if user.role == UserRole.ADMIN:
-        return {folder_id: FOLDER_ACCESS_ALL_PERMISSIONS for folder_id, _ in folders}
+        permissions = {
+            row.id: FOLDER_ACCESS_ALL_PERMISSIONS
+            for row in folders
+        }
+        if use_cache:
+            set_ttl(
+                _EFFECTIVE_PERMISSIONS_CACHE,
+                process_key,
+                permissions,
+                ttl_seconds=S.S3_HOTPATH_METADATA_CACHE_TTL_SECONDS,
+            )
+            cache[request_key] = permissions
+        return permissions
 
     children_by_parent: dict[uuid.UUID | None, list[uuid.UUID]] = {}
-    for folder_id, parent_id in folders:
-        children_by_parent.setdefault(parent_id, []).append(folder_id)
+    for row in folders:
+        children_by_parent.setdefault(row.parent_id, []).append(row.id)
 
     grants_by_folder: dict[uuid.UUID, int] = {}
     grants = db.scalars(
-        select(FolderAccess).where(FolderAccess.user_id == user.id)
+        select(FolderAccess).where(FolderAccess.actor_id == user.id)
     ).all()
     for grant in grants:
         grants_by_folder[grant.folder_id] = (
@@ -290,12 +351,31 @@ def effective_permissions_by_folder(
     for root_id in children_by_parent.get(None, []):
         walk(root_id, 0)
 
+    if use_cache:
+        set_ttl(
+            _EFFECTIVE_PERMISSIONS_CACHE,
+            process_key,
+            permissions_by_folder,
+            ttl_seconds=S.S3_HOTPATH_METADATA_CACHE_TTL_SECONDS,
+        )
+        cache[request_key] = permissions_by_folder
     return permissions_by_folder
 
 
 def collect_ancestor_folder_ids(db: Session, folder_id: uuid.UUID) -> list[uuid.UUID]:
-    rows = db.execute(select(Folder.id, Folder.parent_id)).all()
+    request_key = f"ancestor_folder_ids:{folder_id}"
+    return get_or_set_request(
+        db,
+        request_key,
+        lambda: derive_ancestor_folder_ids(db, folder_id),
+    )
+
+
+def derive_ancestor_folder_ids(db: Session, folder_id: uuid.UUID) -> list[uuid.UUID]:
+    rows = cached_folder_tree_rows(db)
     parent_by_folder = {row.id: row.parent_id for row in rows}
+    if folder_id not in parent_by_folder:
+        raise ResourceNotFound("Folder not found")
     ancestor_ids = [folder_id]
     cursor = parent_by_folder.get(folder_id)
     while cursor is not None:
@@ -378,12 +458,71 @@ def compute_folder_paths(
     if not folder_ids:
         return {}
 
-    rows = db.execute(select(Folder.id, Folder.parent_id, Folder.name)).all()
+    all_paths = cached_folder_paths(db)
+    if not folder_ids.issubset(all_paths):
+        clear_hotpath_cache(db)
+        all_paths = cached_folder_paths(db)
+    return {folder_id: all_paths[folder_id] for folder_id in folder_ids}
+
+
+def cached_folder_tree_rows(db: Session) -> tuple[FolderTreeRow, ...]:
+    request_key = "folder_tree_rows"
+    cache = request_cache(db)
+    if request_key in cache:
+        return cache[request_key]
+
+    key = engine_cache_key(db)
+    cached = get_ttl(_FOLDER_TREE_CACHE, key)
+    if cached is not None:
+        cache[request_key] = cached
+        return cached
+
+    rows = tuple(
+        FolderTreeRow(id=folder_id, parent_id=parent_id, name=name)
+        for folder_id, parent_id, name in db.execute(
+            select(Folder.id, Folder.parent_id, Folder.name)
+        ).all()
+    )
+    set_ttl(
+        _FOLDER_TREE_CACHE,
+        key,
+        rows,
+        ttl_seconds=S.S3_HOTPATH_METADATA_CACHE_TTL_SECONDS,
+    )
+    cache[request_key] = rows
+    return rows
+
+
+def cached_folder_paths(db: Session) -> dict[uuid.UUID, str]:
+    request_key = "folder_paths"
+    cache = request_cache(db)
+    if request_key in cache:
+        return cache[request_key]
+
+    key = engine_cache_key(db)
+    cached = get_ttl(_FOLDER_PATHS_CACHE, key)
+    if cached is not None:
+        cache[request_key] = cached
+        return cached
+
+    paths = derive_folder_paths(db)
+    set_ttl(
+        _FOLDER_PATHS_CACHE,
+        key,
+        paths,
+        ttl_seconds=S.S3_HOTPATH_METADATA_CACHE_TTL_SECONDS,
+    )
+    cache[request_key] = paths
+    return paths
+
+
+def derive_folder_paths(db: Session) -> dict[uuid.UUID, str]:
+    rows = cached_folder_tree_rows(db)
     parent_of: dict[uuid.UUID, uuid.UUID | None] = {}
     name_of: dict[uuid.UUID, str] = {}
-    for folder_id, parent_id, name in rows:
-        parent_of[folder_id] = parent_id
-        name_of[folder_id] = name
+    for row in rows:
+        parent_of[row.id] = row.parent_id
+        name_of[row.id] = row.name
 
     cache: dict[uuid.UUID, str] = {}
 
@@ -404,7 +543,7 @@ def compute_folder_paths(
         cache[folder_id] = path
         return path
 
-    return {folder_id: path_for(folder_id) for folder_id in folder_ids}
+    return {folder_id: path_for(folder_id) for folder_id in parent_of}
 
 
 def resolve_folder_path(db: Session, folder: Folder) -> str:

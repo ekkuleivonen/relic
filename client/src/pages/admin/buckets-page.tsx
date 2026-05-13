@@ -61,7 +61,6 @@ export function BucketsPage() {
         bucket: values.bucket,
         key_id: values.key_id,
         secret_access_key: values.secret_access_key,
-        tier: values.tier,
         max_size_bytes: values.max_size_bytes,
       },
     })

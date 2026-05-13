@@ -30,9 +30,8 @@ from constants import (
     PROCESSOR_DEFAULT_LIST_LIMIT,
     PROCESSOR_MAX_LIST_LIMIT,
     PROCESSOR_MAX_REWIND_OFFSET,
-    PROCESSOR_SOURCE_ADMIN,
-    PROCESSOR_SOURCE_SEED,
 )
+from enums import EventStatus, ProcessorSource
 from domain.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import (
     FileEvent,
@@ -100,7 +99,7 @@ def create_processor(
     folder_scopes: list[dict] | None = None,
     config: dict | None = None,
     enabled: bool = True,
-    source: str = PROCESSOR_SOURCE_ADMIN,
+    source: str = ProcessorSource.ADMIN.value,
     event_context: EventContext | None = None,
 ) -> Processor:
     cleaned_name = _clean_required(name, "name")
@@ -139,7 +138,7 @@ def create_processor(
         audit_event_service.create_audit_event(
             db,
             operation="processor.created",
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             metadata={
                 "processor_id": str(processor.id),
@@ -168,7 +167,7 @@ def upsert_seed_processor(
     existing = db.scalar(select(Processor).where(Processor.name == name))
     if existing is not None:
         existing.kind = kind
-        existing.source = PROCESSOR_SOURCE_SEED
+        existing.source = ProcessorSource.SEED.value
         if subscribed_event_types is not None:
             existing.subscribed_event_types = list(subscribed_event_types)
         if folder_scopes is not None:
@@ -184,7 +183,7 @@ def upsert_seed_processor(
         folder_scopes=folder_scopes,
         config=config,
         enabled=True,
-        source=PROCESSOR_SOURCE_SEED,
+        source=ProcessorSource.SEED.value,
         event_context=None,
     )
 
@@ -200,7 +199,7 @@ def update_processor(
     event_context: EventContext | None = None,
 ) -> Processor:
     processor = require_processor(db, processor_id)
-    if processor.source == PROCESSOR_SOURCE_SEED and (
+    if processor.source == ProcessorSource.SEED.value and (
         subscribed_event_types is not None
         or folder_scopes is not None
         or config is not None
@@ -253,7 +252,7 @@ def update_processor(
         audit_event_service.create_audit_event(
             db,
             operation=operation,
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             metadata={
                 "processor_id": str(processor.id),
@@ -273,7 +272,7 @@ def delete_processor(
     event_context: EventContext | None = None,
 ) -> None:
     processor = require_processor(db, processor_id)
-    if processor.source == PROCESSOR_SOURCE_SEED:
+    if processor.source == ProcessorSource.SEED.value:
         raise BadRequestError("Seeded processors cannot be deleted")
 
     snapshot = {
@@ -287,7 +286,7 @@ def delete_processor(
         audit_event_service.create_audit_event(
             db,
             operation="processor.deleted",
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             metadata=snapshot,
         )
@@ -540,8 +539,8 @@ def execute_processor_event(
             create_file_event(
                 db,
                 event_type=f"processor.{processor.kind}.completed",
-                status="succeeded",
-                actor_user_id=event.actor_user_id,
+                status=EventStatus.SUCCEEDED.value,
+                actor_id=event.actor_id,
                 request_id=event.request_id,
                 file_id=event.file_id,
                 folder_id=event.folder_id,
@@ -560,8 +559,8 @@ def execute_processor_event(
         create_file_event(
             db,
             event_type=f"processor.{processor.kind}.failed",
-            status="failed",
-            actor_user_id=event.actor_user_id,
+            status=EventStatus.FAILED.value,
+            actor_id=event.actor_id,
             request_id=event.request_id,
             file_id=event.file_id,
             folder_id=event.folder_id,
@@ -622,7 +621,7 @@ def rewind_cursor(
         audit_event_service.create_audit_event(
             db,
             operation="processor.cursor.rewound",
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             metadata={
                 "processor_id": str(processor.id),
@@ -678,7 +677,7 @@ def skip_stuck_event(
         audit_event_service.create_audit_event(
             db,
             operation="processor.cursor.skipped",
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             metadata={
                 "processor_id": str(processor.id),

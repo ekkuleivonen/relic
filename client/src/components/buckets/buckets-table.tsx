@@ -1,7 +1,7 @@
 import { ActivityIcon, PencilIcon, Trash2Icon } from "lucide-react"
 import type { ComponentProps, ReactNode } from "react"
 
-import { BucketTierBadge } from "@/components/buckets/bucket-tier-badge"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -18,6 +18,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
 import type { Bucket } from "@/types/buckets"
 
 type BucketsTableProps = {
@@ -55,31 +56,31 @@ export function BucketsTable({
     )
   }
 
+  const sorted = rankByHotness(buckets)
+
   return (
     <Table>
       <TableHeader>
         <TableRow>
+          <TableHead>Hotness</TableHead>
           <TableHead>Name</TableHead>
-          <TableHead>Tier</TableHead>
           <TableHead>Endpoint</TableHead>
           <TableHead>Region</TableHead>
           <TableHead>Bucket</TableHead>
           <TableHead>Objects</TableHead>
           <TableHead>Usage</TableHead>
-          <TableHead>Put</TableHead>
-          <TableHead>Head</TableHead>
-          <TableHead>Get</TableHead>
-          <TableHead>Delete</TableHead>
+          <TableHead>Avg latency</TableHead>
+          <TableHead>Reachable</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {buckets.map((bucket) => (
+        {sorted.map((bucket, index) => (
           <TableRow key={bucket.id}>
-            <TableCell className="font-medium">{bucket.name}</TableCell>
             <TableCell>
-              <BucketTierBadge tier={bucket.tier} />
+              <HotnessBadge bucket={bucket} rank={index + 1} />
             </TableCell>
+            <TableCell className="font-medium">{bucket.name}</TableCell>
             <TableCell className="max-w-64 truncate">{bucket.endpoint}</TableCell>
             <TableCell>{bucket.region}</TableCell>
             <TableCell className="font-mono text-xs">{bucket.bucket}</TableCell>
@@ -88,22 +89,16 @@ export function BucketsTable({
               <BucketUsage bucket={bucket} />
             </TableCell>
             <TableCell>
-              <LatencyTag latencyMs={bucket.probe_latency_put_ms} />
+              <LatencyTag bucket={bucket} />
             </TableCell>
             <TableCell>
-              <LatencyTag latencyMs={bucket.probe_latency_head_ms} />
-            </TableCell>
-            <TableCell>
-              <LatencyTag latencyMs={bucket.probe_latency_get_ms} />
-            </TableCell>
-            <TableCell>
-              <LatencyTag latencyMs={bucket.probe_latency_delete_ms} />
+              <ReachableTag bucket={bucket} />
             </TableCell>
             <TableCell>
               <div className="flex justify-end gap-1">
                 <ActionButton
                   label="Probe bucket"
-                  tooltip="Run sequential PUT, HEAD, GET, and DELETE probes with a test blob."
+                  tooltip="Run sequential PUT, HEAD, GET, and DELETE probes; the result is appended to the bucket's rolling probe history."
                   disabled={probingId === bucket.id}
                   onClick={() => onProbe(bucket)}
                 >
@@ -133,6 +128,46 @@ export function BucketsTable({
   )
 }
 
+function rankByHotness(buckets: Bucket[]): Bucket[] {
+  return [...buckets].sort((a, b) => {
+    if (a.reachable !== b.reachable) return a.reachable ? -1 : 1
+    if (a.avg_latency_ms === null && b.avg_latency_ms === null) {
+      return a.name.localeCompare(b.name)
+    }
+    if (a.avg_latency_ms === null) return 1
+    if (b.avg_latency_ms === null) return -1
+    if (a.avg_latency_ms !== b.avg_latency_ms) {
+      return a.avg_latency_ms - b.avg_latency_ms
+    }
+    return a.name.localeCompare(b.name)
+  })
+}
+
+function HotnessBadge({ bucket, rank }: { bucket: Bucket; rank: number }) {
+  if (!bucket.reachable) {
+    return (
+      <Badge
+        variant="outline"
+        className="border border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300"
+      >
+        Unreachable
+      </Badge>
+    )
+  }
+  const styles = [
+    "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300",
+    "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+    "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
+  ]
+  const style = styles[Math.min(rank - 1, styles.length - 1)]
+  return (
+    <Badge variant="outline" className={cn("border", style)}>
+      #{rank} hottest
+    </Badge>
+  )
+}
+
 function BucketUsage({ bucket }: { bucket: Bucket }) {
   const percentUsed =
     bucket.max_size_bytes === 0
@@ -149,11 +184,39 @@ function BucketUsage({ bucket }: { bucket: Bucket }) {
   )
 }
 
-function LatencyTag({ latencyMs }: { latencyMs: number | null }) {
+function LatencyTag({ bucket }: { bucket: Bucket }) {
+  const display =
+    bucket.avg_latency_ms === null
+      ? "--"
+      : `${Math.round(bucket.avg_latency_ms)}ms`
   return (
-    <span className="inline-flex min-w-12 items-center justify-center border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-      {latencyMs === null ? "--" : `${latencyMs}ms`}
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex min-w-12 items-center justify-center border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+          {display}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>
+        Rolling average across the last {bucket.probe_sample_count} successful
+        probe{bucket.probe_sample_count === 1 ? "" : "s"}.
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+function ReachableTag({ bucket }: { bucket: Bucket }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "border",
+        bucket.reachable
+          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+          : "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300"
+      )}
+    >
+      {bucket.reachable ? "Yes" : "No"}
+    </Badge>
   )
 }
 

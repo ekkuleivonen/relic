@@ -1,13 +1,14 @@
+import datetime as dt
 import uuid
 
 import factory
-from constants import PROCESSOR_SOURCE_SEED
-from enums import BucketTier, Permission, UserRole
+from enums import EventStatus, Permission, ProcessorSource, UserRole
 from models import (
     AccessKey,
     AuditEvent,
     Blob,
     Bucket,
+    BucketProbe,
     FileEvent,
     Folder,
     FolderAccess,
@@ -28,8 +29,20 @@ class BucketFactory(factory.Factory):
     bucket = "blobs"
     key_id = factory.Sequence(lambda n: f"GK{n:024d}")
     secret_access_key = factory.Sequence(lambda n: f"secret-{n}")
-    tier = BucketTier.HOT
     max_size_bytes = 1_000_000_000
+
+
+class BucketProbeFactory(factory.Factory):
+    class Meta:
+        model = BucketProbe
+
+    bucket_id = None
+    observed_at = factory.LazyFunction(lambda: dt.datetime.now(dt.UTC))
+    success = True
+    put_ms = 10
+    head_ms = 10
+    get_ms = 10
+    delete_ms = 10
 
 
 class BlobFactory(factory.Factory):
@@ -57,7 +70,7 @@ class AccessKeyFactory(factory.Factory):
     class Meta:
         model = AccessKey
 
-    user_id = None
+    actor_id = None
     name = factory.Sequence(lambda n: f"access-key-{n}")
     key_id = factory.Sequence(lambda n: f"RK{n:032X}")
     secret_access_key = factory.Sequence(lambda n: f"secret-{n}")
@@ -71,15 +84,14 @@ class FolderFactory(factory.Factory):
 
     name = factory.Sequence(lambda n: f"folder-{n}")
     parent_id = None
-    cooldown_days = None
-    min_tier = BucketTier.HOT
+    preferred_bucket_id = None
 
 
 class FolderAccessFactory(factory.Factory):
     class Meta:
         model = FolderAccess
 
-    user_id = None
+    actor_id = None
     folder_id = None
     permissions = int(Permission.READ)
 
@@ -89,8 +101,8 @@ class AuditEventFactory(factory.Factory):
         model = AuditEvent
 
     operation = factory.Sequence(lambda n: f"operation-{n}")
-    status = "succeeded"
-    actor_user_id = None
+    status = EventStatus.SUCCEEDED
+    actor_id = None
     request_id = factory.Sequence(lambda n: f"req-{n}")
     meta = factory.LazyFunction(dict)
 
@@ -102,8 +114,8 @@ class FileEventFactory(factory.Factory):
     offset = factory.Sequence(lambda n: n + 1)
     schema_version = 1
     event_type = factory.Sequence(lambda n: f"file.event.{n}")
-    status = "succeeded"
-    actor_user_id = None
+    status = EventStatus.SUCCEEDED
+    actor_id = None
     request_id = factory.Sequence(lambda n: f"req-{n}")
     idempotency_key = None
     file_id = None
@@ -117,7 +129,7 @@ class MaintenanceEventFactory(factory.Factory):
 
     job = factory.Sequence(lambda n: f"maintenance-job-{n}")
     action = factory.Sequence(lambda n: f"maintenance.action.{n}")
-    status = "succeeded"
+    status = EventStatus.SUCCEEDED
     batch_id = factory.Sequence(
         lambda n: uuid.UUID(f"00000000-0000-0000-0000-{n + 1:012d}")
     )
@@ -134,7 +146,7 @@ class ProcessorFactory(factory.Factory):
     name = factory.Sequence(lambda n: f"processor-{n}")
     kind = "meta_extract"
     enabled = True
-    source = PROCESSOR_SOURCE_SEED
+    source = ProcessorSource.SEED
     subscribed_event_types = factory.LazyFunction(
         lambda: ["file.created", "file.updated"]
     )

@@ -76,7 +76,7 @@ async def create_user(
         payload.model_dump(),
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=current_user.id,
+            actor_id=current_user.id,
         ),
     )
 
@@ -109,7 +109,7 @@ async def update_user(
         payload.model_dump(exclude_unset=True),
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=current_user.id,
+            actor_id=current_user.id,
         ),
     )
 
@@ -128,7 +128,7 @@ async def delete_user(
         user_id,
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=current_user.id,
+            actor_id=current_user.id,
         ),
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

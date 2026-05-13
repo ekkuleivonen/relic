@@ -15,6 +15,12 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+IGNORED_AUTOGENERATE_INDEXES = {
+    "ix_files_meta_extension",
+    "ix_files_meta_keywords",
+    "ix_files_meta_mimetype",
+    "ix_files_meta_tags",
+}
 
 
 def get_versions_dir() -> Path:
@@ -43,12 +49,20 @@ def process_revision_directives(context, revision, directives) -> None:
             directive.rev_id = next_serial_revision_id()
 
 
+def include_object(object, name, type_, reflected, compare_to):
+    del object, compare_to
+    if type_ == "index" and reflected and name in IGNORED_AUTOGENERATE_INDEXES:
+        return False
+    return True
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=get_database_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
         process_revision_directives=process_revision_directives,
     )
 
@@ -67,6 +81,7 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            include_object=include_object,
             process_revision_directives=process_revision_directives,
         )
 

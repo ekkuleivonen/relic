@@ -11,8 +11,8 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from constants import PROCESSOR_SOURCE_ADMIN
 from domain.exceptions import BadRequestError, ConflictError, ResourceNotFound
+from enums import ProcessorSource
 from models import (
     AuditEvent,
     Base,
@@ -90,7 +90,7 @@ def test_create_processor_uses_substrate_defaults(db_session):
         "file.renamed",
     ]
     assert processor.enabled is True
-    assert processor.source == PROCESSOR_SOURCE_ADMIN
+    assert processor.source == ProcessorSource.ADMIN
     assert processor.last_committed_offset == 0
 
 
@@ -181,7 +181,7 @@ def test_update_processor_writes_audit_event(db_session):
         db_session,
         processor_id=processor.id,
         enabled=False,
-        event_context=EventContext(actor_user_id=actor.id, request_id="req-1"),
+        event_context=EventContext(actor_id=actor.id, request_id="req-1"),
     )
 
     refreshed = db_session.get(Processor, processor.id)
@@ -634,7 +634,7 @@ def test_rewind_cursor_writes_audit(db_session):
         processor_id=processor.id,
         target_offset=2,
         reason="reprocess after schema fix",
-        event_context=EventContext(actor_user_id=actor.id, request_id="r"),
+        event_context=EventContext(actor_id=actor.id, request_id="r"),
     )
 
     refreshed = db_session.get(Processor, processor.id)
@@ -702,7 +702,7 @@ def test_skip_stuck_event_advances_and_audits(db_session):
         processor_id=processor.id,
         event_id=event.id,
         reason="poison pill",
-        event_context=EventContext(actor_user_id=actor.id, request_id="r"),
+        event_context=EventContext(actor_id=actor.id, request_id="r"),
     )
 
     refreshed = db_session.get(Processor, processor.id)

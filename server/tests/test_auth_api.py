@@ -62,7 +62,7 @@ def test_login_sets_session_cookie_and_returns_user(client, db_session):
         select(AuditEvent).where(AuditEvent.operation == "auth.login.succeeded")
     )
     assert event is not None
-    assert event.actor_user_id is not None
+    assert event.actor_id is not None
     assert event.meta == {"email": "ada@example.com"}
 
 
@@ -80,7 +80,7 @@ def test_failed_login_writes_audit_event(client, db_session):
     )
     assert event is not None
     assert event.status == "failed"
-    assert event.actor_user_id is None
+    assert event.actor_id is None
     assert event.meta == {"email": "ada@example.com"}
 
 
@@ -123,4 +123,4 @@ def test_logout_clears_session(client, db_session):
         select(AuditEvent).where(AuditEvent.operation == "auth.logout")
     )
     assert event is not None
-    assert event.actor_user_id is not None
+    assert event.actor_id is not None

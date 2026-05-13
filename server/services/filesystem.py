@@ -8,10 +8,10 @@ from constants import (
     FILESYSTEM_LIST_SORT_ORDERS,
     FILESYSTEM_MAX_LIST_LIMIT,
 )
-from enums import Permission
+from enums import MetaExtractStatus, Permission
 from domain.exceptions import BadRequestError, ResourceNotFound
-from models import File, Folder, User
-from sqlalchemy import BigInteger, asc, cast, desc, func, nullslast, select
+from models import Blob, File, Folder, User
+from sqlalchemy import BigInteger, asc, case, cast, desc, func, nullslast, select
 from sqlalchemy.orm import Session
 
 from services import folder_access as folder_access_service
@@ -21,6 +21,23 @@ from services import folder_access as folder_access_service
 class FileListPage:
     items: list[File]
     total: int
+
+
+@dataclass(frozen=True)
+class FolderStats:
+    """Recursive rollup over a folder and all of its descendants."""
+
+    folder_id: uuid.UUID
+    file_count: int
+    enriched_file_count: int
+    logical_size_bytes: int
+
+    @property
+    def enrichment_coverage(self) -> float | None:
+        """Fraction of files with COMPLETED meta extraction; ``None`` when empty."""
+        if self.file_count == 0:
+            return None
+        return self.enriched_file_count / self.file_count
 
 
 def get_folder_tree(
@@ -118,6 +135,48 @@ def list_files(
     )
     items = list(db.scalars(page_stmt).all())
     return FileListPage(items=items, total=total)
+
+
+def get_folder_stats(
+    db: Session,
+    current_user: User,
+    *,
+    folder_id: uuid.UUID,
+) -> FolderStats:
+    """Return file count, enriched count and logical size for a folder + subtree.
+
+    "Logical size" sums ``blob.size_bytes`` for every File row in the subtree —
+    so a blob referenced N times counts N times. Use this for "what these files
+    claim to occupy"; physical (deduped) size is a future addition.
+
+    The caller must hold READ on ``folder_id``. Because grants only ever
+    cascade downward, all descendants of a readable folder are also readable,
+    so no per-descendant visibility intersection is needed.
+    """
+    folder_access_service.require_folder_permission(
+        db, current_user, folder_id, Permission.READ
+    )
+
+    scope_ids = collect_descendant_folder_ids(db, folder_id)
+    completed = int(MetaExtractStatus.COMPLETED)
+    enriched_expr = case((File.meta_extract_status == completed, 1), else_=0)
+
+    file_count, enriched_count, logical_size = db.execute(
+        select(
+            func.count(File.id),
+            func.coalesce(func.sum(enriched_expr), 0),
+            func.coalesce(func.sum(Blob.size_bytes), 0),
+        )
+        .join(Blob, Blob.id == File.blob_id)
+        .where(File.folder_id.in_(scope_ids))
+    ).one()
+
+    return FolderStats(
+        folder_id=folder_id,
+        file_count=int(file_count),
+        enriched_file_count=int(enriched_count),
+        logical_size_bytes=int(logical_size),
+    )
 
 
 def get_tree_root(db: Session, root_id: uuid.UUID | None) -> Folder:

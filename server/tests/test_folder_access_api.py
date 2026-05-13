@@ -82,7 +82,7 @@ def test_grant_and_list_resolves_folder_paths(client, db_session, root_folder):
     grant = client.post(
         "/api/folder-access/",
         json={
-            "user_id": str(alice.id),
+            "actor_id": str(alice.id),
             "folder_id": str(applications.id),
             "permissions": int(Permission.READ | Permission.WRITE),
         },
@@ -107,7 +107,7 @@ def test_grant_on_root_renders_path_as_slash(client, db_session, root_folder):
     response = client.post(
         "/api/folder-access/",
         json={
-            "user_id": str(bob.id),
+            "actor_id": str(bob.id),
             "folder_id": str(root_folder.id),
             "permissions": int(Permission.READ),
         },
@@ -122,7 +122,7 @@ def test_grant_is_idempotent_on_user_folder_pair(client, db_session, root_folder
     db_session.add(alice)
     db_session.commit()
     payload = {
-        "user_id": str(alice.id),
+        "actor_id": str(alice.id),
         "folder_id": str(root_folder.id),
         "permissions": int(Permission.READ),
     }
@@ -145,7 +145,7 @@ def test_grant_rejects_unknown_permission_bits(client, db_session, root_folder):
     response = client.post(
         "/api/folder-access/",
         json={
-            "user_id": str(user.id),
+            "actor_id": str(user.id),
             "folder_id": str(root_folder.id),
             "permissions": 64,
         },
@@ -163,7 +163,7 @@ def test_grant_rejects_write_without_read(client, db_session, root_folder):
     response = client.post(
         "/api/folder-access/",
         json={
-            "user_id": str(user.id),
+            "actor_id": str(user.id),
             "folder_id": str(root_folder.id),
             "permissions": int(Permission.WRITE),
         },
@@ -181,7 +181,7 @@ def test_grant_rejects_removed_admin_permission_bit(client, db_session, root_fol
     response = client.post(
         "/api/folder-access/",
         json={
-            "user_id": str(user.id),
+            "actor_id": str(user.id),
             "folder_id": str(root_folder.id),
             "permissions": 16,
         },
@@ -195,7 +195,7 @@ def test_grant_404_when_user_missing(client, db_session, root_folder):
     response = client.post(
         "/api/folder-access/",
         json={
-            "user_id": str(uuid.uuid4()),
+            "actor_id": str(uuid.uuid4()),
             "folder_id": str(root_folder.id),
             "permissions": int(Permission.READ),
         },
@@ -213,7 +213,7 @@ def test_grant_404_when_folder_missing(client, db_session):
     response = client.post(
         "/api/folder-access/",
         json={
-            "user_id": str(user.id),
+            "actor_id": str(user.id),
             "folder_id": str(uuid.uuid4()),
             "permissions": int(Permission.READ),
         },
@@ -230,7 +230,7 @@ def test_revoke_removes_row(client, db_session, root_folder):
     grant = client.post(
         "/api/folder-access/",
         json={
-            "user_id": str(alice.id),
+            "actor_id": str(alice.id),
             "folder_id": str(root_folder.id),
             "permissions": int(Permission.READ),
         },

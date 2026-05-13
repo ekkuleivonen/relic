@@ -8,7 +8,7 @@ from constants import (
     META_EXTRACT_PROCESSOR_KIND,
 )
 from database import get_sessionmaker
-from enums import BucketTier, UserRole
+from enums import UserRole
 from models import Folder, User
 from processors.registry import init_builtin_substrates
 from services import processors as processor_service
@@ -39,8 +39,6 @@ def upsert_root_folder(db) -> Folder:
     root = Folder(
         name="",
         parent_id=None,
-        cooldown_days=None,
-        min_tier=BucketTier.HOT,
     )
     db.add(root)
     return root

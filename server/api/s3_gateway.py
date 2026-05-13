@@ -29,6 +29,12 @@ from services import objects as object_service
 from services import s3_listing
 from services import s3_multipart
 from services import s3_signing
+from services.s3_hotpath_cache import (
+    begin_request,
+    get_list_objects_response,
+    get_or_set_request,
+    set_list_objects_response,
+)
 
 router = APIRouter()
 
@@ -37,6 +43,7 @@ router = APIRouter()
 class SpoolResult:
     body: BinaryIO
     content_hash: bytes
+    content_md5: bytes
     size_bytes: int
 
 
@@ -135,22 +142,61 @@ async def list_objects_v2(bucket: str, request: Request, db: DbSession) -> Respo
     continuation-token, start-after.
     """
     query = request.query_params
+    if "uploads" in query:
+        try:
+            user = load_signed_user(request, db)
+            s3_listing.require_visible_bucket(db, user, bucket)
+            page = s3_multipart.list_multipart_uploads(
+                db,
+                bucket_name=bucket,
+                current_user=user,
+            )
+        except s3_signing.S3SigningError as exc:
+            return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
+        except ResourceNotFound:
+            return s3_error_response("NoSuchBucket", "Bucket not found", status_code=404)
+        except DomainError as exc:
+            return domain_error_response(exc)
+
+        return Response(
+            content=render_list_multipart_uploads(bucket, page),
+            status_code=200,
+            media_type="application/xml",
+        )
+
     if query.get("list-type") != "2":
         return s3_error_response(
             "InvalidRequest",
-            "Only ListObjectsV2 is supported for bucket listings",
+            "Only ListObjectsV2 and ListMultipartUploads are supported for bucket listings",
             status_code=400,
         )
 
     try:
         user = load_signed_user(request, db)
+        max_keys = parse_max_keys(query.get("max-keys"))
+        cache_key = list_objects_response_cache_key(
+            user=user,
+            bucket=bucket,
+            prefix=query.get("prefix") or "",
+            delimiter=query.get("delimiter") or None,
+            max_keys=max_keys,
+            continuation_token=query.get("continuation-token") or None,
+            start_after=query.get("start-after") or None,
+        )
+        cached_body = get_list_objects_response(cache_key)
+        if cached_body is not None:
+            return Response(
+                content=cached_body,
+                status_code=200,
+                media_type="application/xml",
+            )
         page = s3_listing.list_objects_v2(
             db,
             user,
             bucket_name=bucket,
             prefix=query.get("prefix") or "",
             delimiter=query.get("delimiter") or None,
-            max_keys=parse_max_keys(query.get("max-keys")),
+            max_keys=max_keys,
             continuation_token=query.get("continuation-token") or None,
             start_after=query.get("start-after") or None,
         )
@@ -161,8 +207,14 @@ async def list_objects_v2(bucket: str, request: Request, db: DbSession) -> Respo
     except DomainError as exc:
         return domain_error_response(exc)
 
+    body = render_list_objects_v2(page)
+    set_list_objects_response(
+        cache_key,
+        body,
+        ttl_seconds=S.S3_LIST_OBJECTS_CACHE_TTL_SECONDS,
+    )
     return Response(
-        content=render_list_objects_v2(page),
+        content=body,
         status_code=200,
         media_type="application/xml",
     )
@@ -174,14 +226,48 @@ async def list_objects_v2(bucket: str, request: Request, db: DbSession) -> Respo
 
 
 def load_signed_user(request: Request, db: DbSession) -> User:
-    verified = s3_signing.verify_request(request, db)
-    user = db.get(User, verified.user_id)
+    if not getattr(request.state, "s3_hotpath_cache_started", False):
+        begin_request(db)
+        request.state.s3_hotpath_cache_started = True
+
+    verified = get_or_set_request(
+        db,
+        "verified_request",
+        lambda: s3_signing.verify_request(request, db),
+    )
+    user = get_or_set_request(
+        db,
+        f"signed_user:{verified.user_id}",
+        lambda: db.get(User, verified.user_id),
+    )
     if user is None:
         raise s3_signing.S3SigningError(
             "InvalidAccessKeyId",
             "The signed user no longer exists",
         )
     return user
+
+
+def list_objects_response_cache_key(
+    *,
+    user: User,
+    bucket: str,
+    prefix: str,
+    delimiter: str | None,
+    max_keys: int,
+    continuation_token: str | None,
+    start_after: str | None,
+) -> tuple:
+    return (
+        str(user.id),
+        int(user.role),
+        bucket,
+        prefix,
+        delimiter or "",
+        max_keys,
+        continuation_token or "",
+        start_after or "",
+    )
 
 
 def parse_max_keys(value: str | None) -> int:
@@ -249,6 +335,27 @@ def render_list_objects_v2(page: s3_listing.ListObjectsV2Page) -> str:
     return body
 
 
+def render_list_multipart_uploads(
+    bucket: str, page: s3_multipart.MultipartUploadListPage
+) -> str:
+    uploads = "".join(
+        "<Upload>"
+        f"<Key>{escape(upload.object_key)}</Key>"
+        f"<UploadId>{escape(str(upload.id))}</UploadId>"
+        "<StorageClass>STANDARD</StorageClass>"
+        f"<Initiated>{format_s3_timestamp(upload.created_at)}</Initiated>"
+        "</Upload>"
+        for upload in page.uploads
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<ListMultipartUploadsResult>"
+        f"<Bucket>{escape(bucket)}</Bucket>"
+        f"{uploads}"
+        "</ListMultipartUploadsResult>"
+    )
+
+
 @router.post("/{bucket}/{key:path}")
 async def multipart_post(
     bucket: str, key: str, request: Request, db: DbSession
@@ -266,7 +373,7 @@ async def multipart_post(
                 current_user=user,
                 event_context=context_from_headers(
                     request.headers,
-                    actor_user_id=user.id,
+                    actor_id=user.id,
                 ),
             )
             return Response(
@@ -287,7 +394,7 @@ async def multipart_post(
             current_user=user,
             event_context=context_from_headers(
                 request.headers,
-                actor_user_id=user.id,
+                actor_id=user.id,
             ),
         )
     except s3_signing.S3SigningError as exc:
@@ -422,6 +529,7 @@ async def put_object(
                 part_number=parse_part_number(request.query_params.get("partNumber")),
                 body=spooled.body,
                 content_hash=spooled.content_hash,
+                content_md5=spooled.content_md5,
                 size_bytes=spooled.size_bytes,
                 current_user=user,
             )
@@ -454,7 +562,7 @@ async def put_object(
             allow_overwrite=request.headers.get("x-relic-if-none-match") != "*",
             event_context=context_from_headers(
                 request.headers,
-                actor_user_id=user.id,
+                actor_id=user.id,
             ),
         )
     except s3_signing.S3SigningError as exc:
@@ -490,7 +598,7 @@ def handle_copy_object(
         current_user=user,
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=user.id,
+            actor_id=user.id,
         ),
     )
     last_modified = result.file.updated_at.strftime("%Y-%m-%dT%H:%M:%S.000Z")
@@ -528,6 +636,10 @@ def parse_copy_source(value: str) -> tuple[str, str]:
 
 async def spool_request_body(request: Request) -> SpoolResult:
     digest = hashlib.sha256()
+    try:
+        md5_digest = hashlib.md5(usedforsecurity=False)
+    except TypeError:
+        md5_digest = hashlib.md5()
     size_bytes = 0
     body = tempfile.SpooledTemporaryFile(max_size=S.UPLOAD_SPOOL_MAX_MEMORY_BYTES)
 
@@ -536,12 +648,14 @@ async def spool_request_body(request: Request) -> SpoolResult:
             continue
         size_bytes += len(chunk)
         digest.update(chunk)
+        md5_digest.update(chunk)
         body.write(chunk)
 
     body.seek(0)
     return SpoolResult(
         body=body,
         content_hash=digest.digest(),
+        content_md5=md5_digest.digest(),
         size_bytes=size_bytes,
     )
 
@@ -589,6 +703,11 @@ async def head_object(
 ) -> Response:
     """
     HEAD /{bucket}/{key} -> HeadObject. Same shape as GET, no body.
+
+    HEAD bumps Blob.accessed_at because lakehouse catalog clients HEAD parquet
+    files before deciding to download them — frequent HEADs are signal that
+    the object should stay (or move) hot. The bump is debounced inside
+    object_service.touch_blob_access so we don't beat the row to death.
     """
     try:
         user = load_signed_user(request, db)
@@ -598,6 +717,8 @@ async def head_object(
             key=key,
             current_user=user,
         )
+        if object_service.touch_blob_access(db, result.blob):
+            db.commit()
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
     except DomainError as exc:
@@ -615,6 +736,20 @@ async def get_object(
     """
     try:
         user = load_signed_user(request, db)
+        upload_id_value = request.query_params.get("uploadId")
+        if upload_id_value is not None:
+            page = s3_multipart.list_multipart_parts(
+                db,
+                upload_id=parse_upload_id(upload_id_value),
+                bucket_name=bucket,
+                key=key,
+                current_user=user,
+            )
+            return Response(
+                content=render_list_multipart_parts(bucket, key, page),
+                status_code=200,
+                media_type="application/xml",
+            )
         object_bytes = object_service.get_object_bytes(
             db,
             bucket_name=bucket,
@@ -624,6 +759,8 @@ async def get_object(
         )
         result = object_bytes.result
         boto_response = object_bytes.boto_response
+        if object_service.touch_blob_access(db, result.blob):
+            db.commit()
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
     except DomainError as exc:
@@ -642,6 +779,31 @@ async def get_object(
         status_code=status_code,
         headers=headers,
         media_type=headers.get("Content-Type") or "application/octet-stream",
+    )
+
+
+def render_list_multipart_parts(
+    bucket: str,
+    key: str,
+    page: s3_multipart.MultipartPartListPage,
+) -> str:
+    parts = "".join(
+        "<Part>"
+        f"<PartNumber>{part.part_number}</PartNumber>"
+        f"<LastModified>{format_s3_timestamp(part.updated_at)}</LastModified>"
+        f"<ETag>&quot;{escape(part.etag)}&quot;</ETag>"
+        f"<Size>{part.size_bytes}</Size>"
+        "</Part>"
+        for part in page.parts
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        "<ListPartsResult>"
+        f"<Bucket>{escape(bucket)}</Bucket>"
+        f"<Key>{escape(key)}</Key>"
+        f"<UploadId>{escape(str(page.upload.id))}</UploadId>"
+        f"{parts}"
+        "</ListPartsResult>"
     )
 
 
@@ -701,7 +863,7 @@ async def delete_object(
             current_user=user,
             event_context=context_from_headers(
                 request.headers,
-                actor_user_id=user.id,
+                actor_id=user.id,
             ),
         )
     except s3_signing.S3SigningError as exc:

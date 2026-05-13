@@ -35,17 +35,20 @@ import { useFolderDnd } from "@/hooks/use-folder-dnd"
 import {
   FOLDER_FILES_PAGE_SIZE,
   useFolderFiles,
+  useFolderStats,
   useFolderTree,
 } from "@/hooks/use-filesystem"
 import { useUpdateFolder } from "@/hooks/use-folders"
 import { useNativeFileDrop } from "@/hooks/use-native-file-drop"
 import { extractApiError } from "@/lib/api"
+import { formatBytes } from "@/lib/format"
 import { PERM, can } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import type {
   FileSystemEntry,
   FileSystemFile,
   FolderContentsSortState,
+  FolderStats,
   FolderTreeNode,
   PaginatedFilesResponse,
 } from "@/types/filesystem"
@@ -90,6 +93,7 @@ function FilesystemPageInner() {
     dir: sort.dir,
     limit: FOLDER_FILES_PAGE_SIZE,
   })
+  const folderStats = useFolderStats(selectedFolder?.id)
 
   React.useEffect(() => {
     const page = folderFiles.data
@@ -215,6 +219,10 @@ function FilesystemPageInner() {
                             {" · "}
                             {filesTotal.toLocaleString()}{" "}
                             {filesTotal === 1 ? "file" : "files"}
+                            <FolderRecursiveSummary
+                              stats={folderStats.data}
+                              isLoading={folderStats.isLoading}
+                            />
                           </>
                         )}
                       </div>
@@ -468,6 +476,37 @@ function FilesystemBreadcrumbs({
         ))}
       </BreadcrumbList>
     </Breadcrumb>
+  )
+}
+
+function FolderRecursiveSummary({
+  stats,
+  isLoading,
+}: {
+  stats: FolderStats | undefined
+  isLoading: boolean
+}) {
+  if (isLoading) {
+    return (
+      <>
+        {" · "}
+        <Skeleton className="inline-block h-3 w-20 align-middle" />
+      </>
+    )
+  }
+  if (!stats || stats.file_count === 0) {
+    return null
+  }
+  const coveragePct =
+    stats.enrichment_coverage !== null
+      ? Math.round(stats.enrichment_coverage * 100)
+      : null
+  return (
+    <span title="Totals across this folder and all subfolders">
+      {" · "}
+      {formatBytes(stats.logical_size_bytes)}
+      {coveragePct !== null ? ` · ${coveragePct}% enriched` : ""}
+    </span>
   )
 }
 

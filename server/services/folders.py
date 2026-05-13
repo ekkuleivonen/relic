@@ -13,6 +13,7 @@ from utils.logging import get_logger
 from services import folder_access as folder_access_service
 from services.event_context import EventContext
 from services.file_events import create_file_event
+from services.s3_hotpath_cache import clear_list_objects_response_cache
 
 log = get_logger(__name__)
 
@@ -43,8 +44,6 @@ def create_folder(
     folder = Folder(
         parent_id=parent.id,
         name=name,
-        cooldown_days=None,
-        min_tier=None,
     )
     db.add(folder)
     try:
@@ -54,7 +53,7 @@ def create_folder(
             create_file_event(
                 db,
                 event_type="folder.created",
-                actor_user_id=event_context.actor_user_id,
+                actor_id=event_context.actor_id,
                 request_id=event_context.request_id,
                 folder_id=folder.id,
                 payload={
@@ -70,6 +69,8 @@ def create_folder(
         raise ConflictError("A folder with that name already exists here.") from exc
 
     db.refresh(folder)
+    folder_access_service.clear_hotpath_cache(db)
+    clear_list_objects_response_cache()
     log.info(
         "folder_create",
         folder_id=str(folder.id),
@@ -87,13 +88,11 @@ def update_folder(
     folder_id: uuid.UUID,
     name: str | None = None,
     parent_id: uuid.UUID | None = None,
-    min_tier: int | None = None,
-    cooldown_days: int | None = None,
-    set_min_tier: bool = False,
-    set_cooldown_days: bool = False,
+    preferred_bucket_id: uuid.UUID | None = None,
+    set_preferred_bucket_id: bool = False,
     event_context: EventContext | None = None,
 ) -> FolderResult:
-    """Rename, move, and/or change storage policy (policy fields are admin-only)."""
+    """Rename, move, and/or change storage preference (preference is admin-only)."""
     folder = folder_access_service.require_folder(db, folder_id)
     if folder.parent_id is None:
         if name is not None or parent_id is not None:
@@ -103,16 +102,14 @@ def update_folder(
         db, user, folder.id, Permission.WRITE
     )
 
-    if set_min_tier or set_cooldown_days:
-        if user.role != UserRole.ADMIN:
-            raise PermissionDenied(
-                "Only administrators can change folder storage policy."
-            )
+    if set_preferred_bucket_id and user.role != UserRole.ADMIN:
+        raise PermissionDenied(
+            "Only administrators can change folder storage preferences."
+        )
 
     old_name = folder.name
     old_parent_id = folder.parent_id
-    old_min_tier = folder.min_tier
-    old_cooldown_days = folder.cooldown_days
+    old_preferred_bucket_id = folder.preferred_bucket_id
     changed = False
 
     if name is not None:
@@ -135,16 +132,13 @@ def update_folder(
         folder.parent_id = new_parent.id
         changed = True
 
-    if set_min_tier:
-        if folder.parent_id is None and min_tier is None:
-            raise BadRequestError(
-                "The root folder must set an explicit minimum storage tier."
-            )
-        folder.min_tier = min_tier
-        changed = True
+    if set_preferred_bucket_id:
+        if preferred_bucket_id is not None:
+            from models import Bucket
 
-    if set_cooldown_days:
-        folder.cooldown_days = cooldown_days
+            if db.get(Bucket, preferred_bucket_id) is None:
+                raise BadRequestError("Preferred bucket does not exist")
+        folder.preferred_bucket_id = preferred_bucket_id
         changed = True
 
     if not changed:
@@ -157,7 +151,7 @@ def update_folder(
             create_file_event(
                 db,
                 event_type=event_type,
-                actor_user_id=event_context.actor_user_id,
+                actor_id=event_context.actor_id,
                 request_id=event_context.request_id,
                 folder_id=folder.id,
                 payload={
@@ -166,10 +160,16 @@ def update_folder(
                     "to_parent_id": str(folder.parent_id) if folder.parent_id else None,
                     "from_name": old_name,
                     "to_name": folder.name,
-                    "old_min_tier": old_min_tier,
-                    "new_min_tier": folder.min_tier,
-                    "old_cooldown_days": old_cooldown_days,
-                    "new_cooldown_days": folder.cooldown_days,
+                    "old_preferred_bucket_id": (
+                        str(old_preferred_bucket_id)
+                        if old_preferred_bucket_id
+                        else None
+                    ),
+                    "new_preferred_bucket_id": (
+                        str(folder.preferred_bucket_id)
+                        if folder.preferred_bucket_id
+                        else None
+                    ),
                     "path": folder_access_service.resolve_folder_path(db, folder),
                 },
             )
@@ -179,13 +179,16 @@ def update_folder(
         raise ConflictError("A folder with that name already exists here.") from exc
 
     db.refresh(folder)
+    folder_access_service.clear_hotpath_cache(db)
+    clear_list_objects_response_cache()
     log.info(
         "folder_update",
         folder_id=str(folder.id),
         name=name if name is not None else None,
         parent_id=str(parent_id) if parent_id is not None else None,
-        min_tier=min_tier if set_min_tier else None,
-        cooldown_days=cooldown_days if set_cooldown_days else None,
+        preferred_bucket_id=(
+            str(preferred_bucket_id) if set_preferred_bucket_id else None
+        ),
         user_id=str(user.id),
     )
     return _build_result(db, user, folder)
@@ -247,7 +250,7 @@ def delete_folder(
             create_file_event(
                 db,
                 event_type="file.deleted",
-                actor_user_id=event_context.actor_user_id,
+                actor_id=event_context.actor_id,
                 request_id=event_context.request_id,
                 file_id=file.id,
                 folder_id=file.folder_id,
@@ -261,7 +264,7 @@ def delete_folder(
         create_file_event(
             db,
             event_type="folder.deleted",
-            actor_user_id=event_context.actor_user_id,
+            actor_id=event_context.actor_id,
             request_id=event_context.request_id,
             folder_id=folder_id,
             payload={
@@ -272,6 +275,8 @@ def delete_folder(
             },
         )
     db.commit()
+    folder_access_service.clear_hotpath_cache(db)
+    clear_list_objects_response_cache()
     log.info(
         "folder_delete",
         folder_id=str(folder.id),
@@ -314,8 +319,7 @@ def duplicate_folder(
     cloned_root = Folder(
         parent_id=destination.id,
         name=name,
-        cooldown_days=source.cooldown_days,
-        min_tier=source.min_tier,
+        preferred_bucket_id=source.preferred_bucket_id,
     )
     db.add(cloned_root)
 
@@ -335,7 +339,7 @@ def duplicate_folder(
             new_file = File(
                 folder_id=target_id,
                 blob_id=file.blob_id,
-                uploaded_by=file.uploaded_by,
+                actor_id=file.actor_id,
                 name=file.name,
                 meta_extract_status=file.meta_extract_status,
                 meta=dict(file.meta),
@@ -360,8 +364,7 @@ def duplicate_folder(
                 clone = Folder(
                     parent_id=target.id,
                     name=child.name,
-                    cooldown_days=child.cooldown_days,
-                    min_tier=child.min_tier,
+                    preferred_bucket_id=child.preferred_bucket_id,
                 )
                 db.add(clone)
                 db.flush()
@@ -381,7 +384,7 @@ def duplicate_folder(
                 create_file_event(
                     db,
                     event_type="folder.created",
-                    actor_user_id=event_context.actor_user_id,
+                    actor_id=event_context.actor_id,
                     request_id=event_context.request_id,
                     folder_id=cloned_folder.id,
                     payload={
@@ -398,7 +401,7 @@ def duplicate_folder(
                 create_file_event(
                     db,
                     event_type="file.copied",
-                    actor_user_id=event_context.actor_user_id,
+                    actor_id=event_context.actor_id,
                     request_id=event_context.request_id,
                     file_id=new_file.id,
                     folder_id=new_file.folder_id,
@@ -417,6 +420,8 @@ def duplicate_folder(
         raise ConflictError("A folder with that name already exists here.") from exc
 
     db.refresh(cloned_root)
+    folder_access_service.clear_hotpath_cache(db)
+    clear_list_objects_response_cache()
     log.info(
         "folder_duplicate",
         source_id=str(source.id),

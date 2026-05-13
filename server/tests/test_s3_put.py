@@ -1,11 +1,11 @@
 import hashlib
 import re
+import uuid as uuid_module
 
 import pytest
 from api.app import app
-from constants import META_EXTRACT_STATUS_PENDING
 from database import get_db
-from enums import BucketTier, Permission, UserRole
+from enums import MetaExtractStatus, Permission, UserRole
 from fastapi.testclient import TestClient
 from domain.files.meta import build_file_meta
 from domain.exceptions import ConflictError, ResourceNotFound
@@ -24,7 +24,12 @@ from services.placement import choose_bucket, clear_bucket_usage_cache, get_buck
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from tests.factories.models import BlobFactory, BucketFactory, UserFactory
+from tests.factories.models import (
+    BlobFactory,
+    BucketFactory,
+    BucketProbeFactory,
+    UserFactory,
+)
 
 
 @pytest.fixture()
@@ -59,8 +64,6 @@ def root_folder(db_session):
     root = Folder(
         name="",
         parent_id=None,
-        cooldown_days=None,
-        min_tier=BucketTier.HOT,
     )
     db_session.add(root)
     db_session.commit()
@@ -72,8 +75,6 @@ def bucket_folder(db_session, root_folder):
     folder = Folder(
         name="photos",
         parent_id=root_folder.id,
-        cooldown_days=None,
-        min_tier=BucketTier.HOT,
     )
     db_session.add(folder)
     db_session.commit()
@@ -88,11 +89,19 @@ def add_bucket(db_session, **overrides) -> Bucket:
     return bucket
 
 
-def mark_healthy(bucket: Bucket, latency: int = 10) -> None:
-    bucket.probe_latency_put_ms = latency
-    bucket.probe_latency_head_ms = latency
-    bucket.probe_latency_get_ms = latency
-    bucket.probe_latency_delete_ms = latency
+def mark_healthy(bucket: Bucket, latency: int = 10, db_session=None) -> None:
+    """Insert a successful probe sample so hotness ranking picks the bucket up."""
+    if db_session is None:
+        raise RuntimeError("db_session is required to record a probe sample")
+    db_session.add(
+        BucketProbeFactory.build(
+            bucket_id=bucket.id,
+            put_ms=latency,
+            head_ms=latency,
+            get_ms=latency,
+            delete_ms=latency,
+        )
+    )
 
 
 def read_body(body):
@@ -111,12 +120,12 @@ def test_choose_bucket_filters_capacity_and_prefers_latency(db_session):
     slow = add_bucket(db_session, name="slow")
     fast = add_bucket(db_session, name="fast")
     db_session.add(BlobFactory.build(bucket_id=full.id, size_bytes=9))
-    mark_healthy(full, 1)
-    mark_healthy(slow, 50)
-    mark_healthy(fast, 5)
+    mark_healthy(full, 1, db_session=db_session)
+    mark_healthy(slow, 50, db_session=db_session)
+    mark_healthy(fast, 5, db_session=db_session)
     db_session.commit()
 
-    chosen = choose_bucket(db_session, tier=BucketTier.HOT, size_bytes=2)
+    chosen = choose_bucket(db_session, size_bytes=2)
 
     assert chosen.id == fast.id
 
@@ -128,18 +137,47 @@ def test_choose_bucket_raises_when_no_bucket_has_capacity(db_session):
         max_size_bytes=3,
     )
     db_session.add(BlobFactory.build(bucket_id=bucket.id, size_bytes=3))
-    mark_healthy(bucket)
+    mark_healthy(bucket, db_session=db_session)
     db_session.commit()
 
     with pytest.raises(ConflictError):
-        choose_bucket(db_session, tier=BucketTier.HOT, size_bytes=1)
+        choose_bucket(db_session, size_bytes=1)
+
+
+def test_choose_bucket_honors_preferred_bucket_when_it_fits(db_session):
+    fast = add_bucket(db_session, name="fast")
+    preferred = add_bucket(db_session, name="preferred")
+    mark_healthy(fast, 1, db_session=db_session)
+    mark_healthy(preferred, 100, db_session=db_session)
+    db_session.commit()
+
+    chosen = choose_bucket(
+        db_session, size_bytes=1, preferred_bucket_id=preferred.id
+    )
+
+    assert chosen.id == preferred.id
+
+
+def test_choose_bucket_falls_back_when_preferred_is_full(db_session):
+    fallback = add_bucket(db_session, name="fallback")
+    preferred = add_bucket(db_session, name="preferred", max_size_bytes=2)
+    db_session.add(BlobFactory.build(bucket_id=preferred.id, size_bytes=2))
+    mark_healthy(fallback, 100, db_session=db_session)
+    mark_healthy(preferred, 1, db_session=db_session)
+    db_session.commit()
+
+    chosen = choose_bucket(
+        db_session, size_bytes=1, preferred_bucket_id=preferred.id
+    )
+
+    assert chosen.id == fallback.id
 
 
 def test_put_object_uploads_new_blob_and_creates_file(
     db_session, bucket_folder, monkeypatch
 ):
     physical_bucket = add_bucket(db_session, name="hot")
-    mark_healthy(physical_bucket)
+    mark_healthy(physical_bucket, db_session=db_session)
     db_session.commit()
     body = b"cat photo"
     uploaded = []
@@ -203,34 +241,40 @@ def test_put_object_uploads_new_blob_and_creates_file(
     assert file is not None
     assert file.name == "cat.jpg"
     assert file.blob_id == blob.id
-    assert file.uploaded_by == user.id
-    assert file.meta_extract_status == META_EXTRACT_STATUS_PENDING
+    assert file.actor_id == user.id
+    assert file.meta_extract_status == MetaExtractStatus.PENDING
     assert file.meta["kvs"]["album"] == "spring"
     assert file.meta["original_filename"] == "cat.jpg"
 
 
-def test_put_object_resolves_min_tier_for_inherited_folder(
+def test_put_object_passes_inherited_preferred_bucket_to_choose_bucket(
     db_session, root_folder, monkeypatch
 ):
-    physical_cold = add_bucket(db_session, name="cold", tier=BucketTier.COLD)
-    mark_healthy(physical_cold)
+    physical_cold = add_bucket(db_session, name="cold")
+    mark_healthy(physical_cold, db_session=db_session)
+    root_folder.preferred_bucket_id = physical_cold.id
     bucket_folder = Folder(
         name="archive",
         parent_id=root_folder.id,
-        cooldown_days=None,
-        min_tier=int(BucketTier.COLD),
     )
     db_session.add(bucket_folder)
     db_session.commit()
 
-    captured: list[BucketTier] = []
+    captured: list[uuid_module.UUID | None] = []
 
-    def fake_choose(db, tier, size_bytes):
-        captured.append(tier)
+    def fake_choose(db, *, size_bytes, preferred_bucket_id=None, **_kwargs):
+        captured.append(preferred_bucket_id)
         return physical_cold
 
     monkeypatch.setattr("services.objects.choose_bucket", fake_choose)
-    monkeypatch.setattr("services.objects.upload_blob", lambda **kwargs: None)
+
+    class FakeS3Client:
+        def put_object(self, Bucket, Key, Body):
+            return None
+
+    monkeypatch.setattr(
+        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+    )
 
     user = UserFactory.build(email="user@relic.local", role=UserRole.ADMIN)
     db_session.add(user)
@@ -246,12 +290,12 @@ def test_put_object_resolves_min_tier_for_inherited_folder(
         current_user=user,
     )
 
-    assert captured == [BucketTier.COLD]
+    assert captured == [physical_cold.id]
 
 
 def test_put_object_dedupes_existing_blob(db_session, bucket_folder, monkeypatch):
     physical_bucket = add_bucket(db_session, name="hot")
-    mark_healthy(physical_bucket)
+    mark_healthy(physical_bucket, db_session=db_session)
     body = b"same bytes"
     blob = BlobFactory(
         bucket_id=physical_bucket.id,
@@ -293,7 +337,7 @@ def test_put_object_overwrites_existing_file_name(
     db_session, root_folder, bucket_folder, monkeypatch
 ):
     physical_bucket = add_bucket(db_session, name="hot")
-    mark_healthy(physical_bucket)
+    mark_healthy(physical_bucket, db_session=db_session)
     old_blob = BlobFactory(bucket_id=physical_bucket.id, refcount=1)
     owner = UserFactory.build(email="owner@relic.local", role=UserRole.ADMIN)
     db_session.add(owner)
@@ -302,7 +346,7 @@ def test_put_object_overwrites_existing_file_name(
     existing_file = File(
         folder_id=bucket_folder.id,
         blob_id=old_blob.id,
-        uploaded_by=owner.id,
+        actor_id=owner.id,
         name="cat.jpg",
         meta=build_file_meta(
             file_name="cat.jpg", size=old_blob.size_bytes, user_meta={}
@@ -328,7 +372,7 @@ def test_put_object_overwrites_existing_file_name(
         body=body,
         ingest_meta={"album": "summer"},
         current_user=owner,
-        event_context=EventContext(actor_user_id=owner.id, request_id="req-update"),
+        event_context=EventContext(actor_id=owner.id, request_id="req-update"),
     )
 
     assert len(uploaded) == 1
@@ -365,7 +409,7 @@ def test_put_object_with_admin_user_bypasses_folder_access(
     db_session, bucket_folder, monkeypatch
 ):
     physical_bucket = add_bucket(db_session, name="hot")
-    mark_healthy(physical_bucket)
+    mark_healthy(physical_bucket, db_session=db_session)
     admin = UserFactory.build(email="admin@relic.local", role=UserRole.ADMIN)
     db_session.add(admin)
     db_session.commit()
@@ -394,13 +438,13 @@ def test_put_object_with_user_allows_inherited_write(
     db_session, bucket_folder, monkeypatch
 ):
     physical_bucket = add_bucket(db_session, name="hot")
-    mark_healthy(physical_bucket)
+    mark_healthy(physical_bucket, db_session=db_session)
     user = UserFactory.build(email="user@relic.local")
     db_session.add(user)
     db_session.flush()
     db_session.add(
         FolderAccess(
-            user_id=user.id,
+            actor_id=user.id,
             folder_id=bucket_folder.id,
             permissions=int(Permission.READ | Permission.WRITE),
         )

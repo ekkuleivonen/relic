@@ -69,7 +69,7 @@ async def login(
     audit_event_service.record_audit_event(
         db,
         operation="auth.login.succeeded",
-        actor_user_id=user.id,
+        actor_id=user.id,
         metadata={"email": user.email},
     )
     return SessionRead(user=SessionUserRead.model_validate(user))
@@ -91,7 +91,7 @@ async def logout(
     audit_event_service.record_audit_event(
         db,
         operation="auth.logout",
-        actor_user_id=user.id if user else None,
+        actor_id=user.id if user else None,
     )
     response.status_code = status.HTTP_204_NO_CONTENT
     return response

@@ -2,9 +2,8 @@ import uuid
 
 import pytest
 from api.app import app
-from constants import META_EXTRACT_STATUS_COMPLETED
 from database import get_db
-from enums import BucketTier, Permission, UserRole
+from enums import MetaExtractStatus, Permission, UserRole
 from fastapi.testclient import TestClient
 from domain.files.meta import build_file_meta
 from models import (
@@ -104,7 +103,7 @@ def add_folder(db_session, parent: Folder, name: str) -> Folder:
 def grant(db_session, user: User, folder: Folder, permissions: int) -> None:
     db_session.add(
         FolderAccess(
-            user_id=user.id,
+            actor_id=user.id,
             folder_id=folder.id,
             permissions=permissions,
         )
@@ -112,13 +111,21 @@ def grant(db_session, user: User, folder: Folder, permissions: int) -> None:
     db_session.commit()
 
 
-def add_file(db_session, folder: Folder, name: str, blob: Blob, user: User) -> File:
+def add_file(
+    db_session,
+    folder: Folder,
+    name: str,
+    blob: Blob,
+    user: User,
+    *,
+    status: MetaExtractStatus = MetaExtractStatus.COMPLETED,
+) -> File:
     file = File(
         folder_id=folder.id,
         blob_id=blob.id,
-        uploaded_by=user.id,
+        actor_id=user.id,
         name=name,
-        meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
+        meta_extract_status=status,
         meta=build_file_meta(file_name=name, size=blob.size_bytes, user_meta={}),
     )
     db_session.add(file)
@@ -388,99 +395,83 @@ def test_move_conflicts_on_name_collision_at_destination(
 
 
 # ---------------------------------------------------------------------------
-# STORAGE POLICY (admin PATCH min_tier / cooldown_days)
+# PREFERRED BUCKET (admin PATCH preferred_bucket_id)
 # ---------------------------------------------------------------------------
 
 
-def test_non_admin_cannot_patch_storage_policy(client, db_session, user, root_folder):
+def test_non_admin_cannot_patch_preferred_bucket(
+    client, db_session, user, root_folder
+):
     grant(db_session, user, root_folder, int(Permission.READ | Permission.WRITE))
     photos = add_folder(db_session, root_folder, "photos")
+    bucket = BucketFactory.build()
+    db_session.add(bucket)
+    db_session.commit()
 
     response = client.patch(
         f"/api/folders/{photos.id}",
-        json={"min_tier": 2},
+        json={"preferred_bucket_id": str(bucket.id)},
     )
 
     assert response.status_code == 403
 
 
-def test_admin_can_patch_folder_storage_policy(admin_client, db_session, root_folder):
-    photos = add_folder(db_session, root_folder, "photos")
-
-    response = admin_client.patch(
-        f"/api/folders/{photos.id}",
-        json={"min_tier": 3, "cooldown_days": 30},
-    )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["min_tier"] == 3
-    assert body["cooldown_days"] == 30
-    assert body["effective_min_tier"] == 3
-    assert body["effective_cooldown_days"] == 30
-    db_session.refresh(photos)
-    assert photos.min_tier == 3
-    assert photos.cooldown_days == 30
-
-
-def test_admin_can_patch_root_storage_policy(admin_client, db_session, root_folder):
-    response = admin_client.patch(
-        f"/api/folders/{root_folder.id}",
-        json={"min_tier": 2, "cooldown_days": 14},
-    )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["min_tier"] == 2
-    assert body["cooldown_days"] == 14
-    assert body["effective_min_tier"] == 2
-    assert body["effective_cooldown_days"] == 14
-
-
-def test_admin_can_clear_cooldown_via_patch(admin_client, db_session, root_folder):
-    photos = add_folder(db_session, root_folder, "photos")
-    root_folder.cooldown_days = 30
-    photos.cooldown_days = 7
-    db_session.commit()
-
-    response = admin_client.patch(
-        f"/api/folders/{photos.id}",
-        json={"cooldown_days": None},
-    )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["cooldown_days"] is None
-    assert body["effective_cooldown_days"] == 30
-    db_session.refresh(photos)
-    assert photos.cooldown_days is None
-
-
-def test_admin_cannot_set_root_min_tier_to_inherit(
+def test_admin_can_set_folder_preferred_bucket(
     admin_client, db_session, root_folder
 ):
-    response = admin_client.patch(
-        f"/api/folders/{root_folder.id}",
-        json={"min_tier": None},
-    )
-    assert response.status_code == 400
-
-
-def test_admin_can_set_child_min_tier_to_inherit(admin_client, db_session, root_folder):
-    root_folder.min_tier = int(BucketTier.WARM)
     photos = add_folder(db_session, root_folder, "photos")
-    photos.min_tier = int(BucketTier.COLD)
+    bucket = BucketFactory.build()
+    db_session.add(bucket)
     db_session.commit()
 
     response = admin_client.patch(
         f"/api/folders/{photos.id}",
-        json={"min_tier": None},
+        json={"preferred_bucket_id": str(bucket.id)},
     )
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["min_tier"] is None
-    assert body["effective_min_tier"] == int(BucketTier.WARM)
+    assert body["preferred_bucket_id"] == str(bucket.id)
+    assert body["effective_preferred_bucket_id"] == str(bucket.id)
+    db_session.refresh(photos)
+    assert photos.preferred_bucket_id == bucket.id
+
+
+def test_admin_can_clear_preferred_bucket_to_inherit(
+    admin_client, db_session, root_folder
+):
+    bucket = BucketFactory.build()
+    db_session.add(bucket)
+    db_session.commit()
+    root_folder.preferred_bucket_id = bucket.id
+    photos = add_folder(db_session, root_folder, "photos")
+    photos.preferred_bucket_id = bucket.id
+    db_session.commit()
+
+    response = admin_client.patch(
+        f"/api/folders/{photos.id}",
+        json={"preferred_bucket_id": None},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["preferred_bucket_id"] is None
+    assert body["effective_preferred_bucket_id"] == str(bucket.id)
+    db_session.refresh(photos)
+    assert photos.preferred_bucket_id is None
+
+
+def test_admin_patch_unknown_preferred_bucket_returns_400(
+    admin_client, db_session, root_folder
+):
+    photos = add_folder(db_session, root_folder, "photos")
+
+    response = admin_client.patch(
+        f"/api/folders/{photos.id}",
+        json={"preferred_bucket_id": str(uuid.uuid4())},
+    )
+
+    assert response.status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -697,3 +688,134 @@ def test_duplicate_conflicts_on_existing_name_at_destination(
     )
 
     assert response.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# STATS (GET /folders/{id}/stats)
+# ---------------------------------------------------------------------------
+
+
+def _add_blob(db_session, *, size_bytes: int) -> Blob:
+    bucket = BucketFactory.build()
+    db_session.add(bucket)
+    db_session.flush()
+    blob = BlobFactory.build(bucket_id=bucket.id, size_bytes=size_bytes, refcount=0)
+    db_session.add(blob)
+    db_session.commit()
+    return blob
+
+
+def test_folder_stats_aggregates_size_and_enrichment_recursively(
+    client, db_session, user, root_folder
+):
+    grant(db_session, user, root_folder, int(Permission.READ))
+    photos = add_folder(db_session, root_folder, "photos")
+    raw = add_folder(db_session, photos, "raw")
+    add_folder(db_session, root_folder, "empty")
+
+    blob_a = _add_blob(db_session, size_bytes=1_000)
+    blob_b = _add_blob(db_session, size_bytes=2_500)
+    blob_c = _add_blob(db_session, size_bytes=500)
+
+    # 3 enriched files (1000 + 2500 + 500 = 4000) + 1 pending (500 again ⇒ 4500 total).
+    add_file(db_session, photos, "image.jpg", blob_a, user)
+    add_file(db_session, photos, "scan.png", blob_b, user)
+    add_file(db_session, raw, "raw.nef", blob_c, user)
+    add_file(
+        db_session, raw, "draft.nef", blob_c, user, status=MetaExtractStatus.PENDING
+    )
+
+    response = client.get(f"/api/folders/{photos.id}/stats")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body == {
+        "folder_id": str(photos.id),
+        "file_count": 4,
+        "enriched_file_count": 3,
+        "logical_size_bytes": 4_500,
+        "enrichment_coverage": 0.75,
+    }
+
+
+def test_folder_stats_excludes_files_outside_subtree(
+    client, db_session, user, root_folder
+):
+    grant(db_session, user, root_folder, int(Permission.READ))
+    photos = add_folder(db_session, root_folder, "photos")
+    other = add_folder(db_session, root_folder, "other")
+
+    in_blob = _add_blob(db_session, size_bytes=1_234)
+    out_blob = _add_blob(db_session, size_bytes=999_999)
+    add_file(db_session, photos, "in.bin", in_blob, user)
+    add_file(db_session, other, "out.bin", out_blob, user)
+
+    response = client.get(f"/api/folders/{photos.id}/stats")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["file_count"] == 1
+    assert body["logical_size_bytes"] == 1_234
+
+
+def test_folder_stats_returns_zeros_for_empty_subtree(
+    client, db_session, user, root_folder
+):
+    grant(db_session, user, root_folder, int(Permission.READ))
+    empty = add_folder(db_session, root_folder, "empty")
+
+    response = client.get(f"/api/folders/{empty.id}/stats")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {
+        "folder_id": str(empty.id),
+        "file_count": 0,
+        "enriched_file_count": 0,
+        "logical_size_bytes": 0,
+        "enrichment_coverage": None,
+    }
+
+
+def test_folder_stats_returns_404_when_user_cannot_read(
+    client, db_session, root_folder
+):
+    photos = add_folder(db_session, root_folder, "photos")
+
+    response = client.get(f"/api/folders/{photos.id}/stats")
+
+    assert response.status_code == 404
+
+
+def test_folder_stats_returns_404_for_unknown_folder(client):
+    response = client.get(f"/api/folders/{uuid.uuid4()}/stats")
+
+    assert response.status_code == 404
+
+
+def test_folder_stats_counts_only_completed_as_enriched(
+    client, db_session, user, root_folder
+):
+    grant(db_session, user, root_folder, int(Permission.READ))
+    folder = add_folder(db_session, root_folder, "mix")
+    blob = _add_blob(db_session, size_bytes=10)
+
+    add_file(db_session, folder, "done.txt", blob, user, status=MetaExtractStatus.COMPLETED)
+    add_file(db_session, folder, "pending.txt", blob, user, status=MetaExtractStatus.PENDING)
+    add_file(
+        db_session,
+        folder,
+        "in_progress.txt",
+        blob,
+        user,
+        status=MetaExtractStatus.IN_PROGRESS,
+    )
+    add_file(db_session, folder, "failed.txt", blob, user, status=MetaExtractStatus.FAILED)
+
+    response = client.get(f"/api/folders/{folder.id}/stats")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["file_count"] == 4
+    assert body["enriched_file_count"] == 1
+    assert body["enrichment_coverage"] == 0.25

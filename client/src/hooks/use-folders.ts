@@ -14,8 +14,7 @@ type UpdateFolderInput = {
   id: string
   name?: string
   parent_id?: string
-  min_tier?: number | null
-  cooldown_days?: number | null
+  preferred_bucket_id?: string | null
 }
 
 type DeleteFolderInput = {
@@ -65,11 +64,8 @@ export function useUpdateFolder() {
       if (rest.parent_id !== undefined) {
         body.parent_id = rest.parent_id
       }
-      if (rest.min_tier !== undefined) {
-        body.min_tier = rest.min_tier
-      }
-      if (rest.cooldown_days !== undefined) {
-        body.cooldown_days = rest.cooldown_days
+      if (rest.preferred_bucket_id !== undefined) {
+        body.preferred_bucket_id = rest.preferred_bucket_id
       }
       return apiRequest<Folder>(`/folders/${id}`, {
         method: "PATCH",

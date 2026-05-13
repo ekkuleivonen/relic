@@ -7,7 +7,7 @@ export type FolderActionsContextValue = {
   openRename: (folder: FolderTreeNode) => void
   openDuplicate: (folder: FolderTreeNode) => void
   openDelete: (folder: FolderTreeNode, onDeleted?: () => void) => void
-  openStoragePolicy: (folder: FolderTreeNode) => void
+  openPreferredBucket: (folder: FolderTreeNode) => void
 }
 
 export const FolderActionsContext =

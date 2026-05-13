@@ -179,7 +179,7 @@ def test_skip_stuck_event_via_route(client, db_session):
     audit = db_session.scalars(
         select(AuditEvent).where(AuditEvent.operation == "processor.cursor.skipped")
     ).one()
-    assert audit.actor_user_id is not None
+    assert audit.actor_id is not None
 
 
 def test_delete_processor_blocked_for_seeded(client, db_session):

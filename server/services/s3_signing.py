@@ -398,7 +398,9 @@ def verify_authorization_header_request(request: Request, db: Session) -> Verifi
         )
 
     try:
-        row = access_key_service.get_active_access_key_by_key_id(db, key_id)
+        credentials = access_key_service.get_active_access_key_credentials_by_key_id(
+            db, key_id
+        )
     except ResourceNotFound as exc:
         raise S3SigningError("InvalidAccessKeyId", "Unknown access key") from exc
 
@@ -413,7 +415,7 @@ def verify_authorization_header_request(request: Request, db: Session) -> Verifi
         payload_hash=payload_hash,
     )
     expected = sign_string(
-        secret=row.access_key.secret_access_key,
+        secret=credentials.secret_access_key,
         date_stamp=date_stamp,
         region=region,
         string_to_sign=build_string_to_sign(
@@ -425,12 +427,12 @@ def verify_authorization_header_request(request: Request, db: Session) -> Verifi
     if not hmac.compare_digest(expected, auth["Signature"]):
         raise S3SigningError("SignatureDoesNotMatch", "The request signature is invalid")
 
-    access_key_service.mark_access_key_used(db, row.access_key)
+    access_key_service.mark_access_key_used_by_id(db, credentials.access_key_id)
     return VerifiedRequest(
-        user_id=row.user.id,
+        user_id=credentials.user_id,
         key_id=key_id,
         signed_headers=signed_headers,
-        access_key_id=row.access_key.id,
+        access_key_id=credentials.access_key_id,
     )
 
 

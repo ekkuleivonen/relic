@@ -56,7 +56,7 @@ def test_list_file_events_returns_highest_offsets_first(client, db_session, admi
     older = FileEventFactory.build(
         offset=1,
         event_type="file.created",
-        actor_user_id=admin.id,
+        actor_id=admin.id,
         request_id="req-old",
         file_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
         payload={"name": "old.txt"},
@@ -64,7 +64,7 @@ def test_list_file_events_returns_highest_offsets_first(client, db_session, admi
     newer = FileEventFactory.build(
         offset=2,
         event_type="file.deleted",
-        actor_user_id=admin.id,
+        actor_id=admin.id,
         request_id="req-new",
         file_id=uuid.UUID("00000000-0000-0000-0000-000000000002"),
         payload={"name": "new.txt"},
@@ -90,19 +90,19 @@ def test_list_file_events_filters_and_paginates(client, db_session, admin):
             FileEventFactory.build(
                 offset=1,
                 event_type="file.created",
-                actor_user_id=admin.id,
+                actor_id=admin.id,
                 request_id="req-created-1",
             ),
             FileEventFactory.build(
                 offset=2,
                 event_type="file.deleted",
-                actor_user_id=admin.id,
+                actor_id=admin.id,
                 request_id="req-deleted-1",
             ),
             FileEventFactory.build(
                 offset=3,
                 event_type="file.created",
-                actor_user_id=admin.id,
+                actor_id=admin.id,
                 request_id="req-created-2",
             ),
         ]
@@ -175,14 +175,14 @@ def test_create_file_event_assigns_monotonic_sqlite_offset(db_session, admin):
     event_one = create_file_event(
         db_session,
         event_type="file.created",
-        actor_user_id=admin.id,
+        actor_id=admin.id,
         request_id="req-1",
         payload={"name": "a.txt"},
     )
     event_two = create_file_event(
         db_session,
         event_type="file.deleted",
-        actor_user_id=admin.id,
+        actor_id=admin.id,
         request_id="req-2",
         payload={"name": "b.txt"},
     )

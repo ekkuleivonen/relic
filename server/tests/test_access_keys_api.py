@@ -55,7 +55,7 @@ def test_create_access_key_returns_secret_once(client, db_session):
 
     response = client.post(
         "/api/access-keys/",
-        json={"user_id": str(alice.id), "name": "duckdb ingest"},
+        json={"actor_id": str(alice.id), "name": "duckdb ingest"},
     )
 
     assert response.status_code == 200
@@ -88,8 +88,8 @@ def test_list_access_keys_embeds_users(client, db_session):
     db_session.commit()
     db_session.add_all(
         [
-            AccessKeyFactory.build(user_id=bob.id, name="bob key"),
-            AccessKeyFactory.build(user_id=alice.id, name="alice key"),
+            AccessKeyFactory.build(actor_id=bob.id, name="bob key"),
+            AccessKeyFactory.build(actor_id=alice.id, name="alice key"),
         ]
     )
     db_session.commit()
@@ -109,7 +109,7 @@ def test_revoke_access_key_is_idempotent(client, db_session):
     alice = UserFactory.build(name="Alice", email="alice@relic.local")
     db_session.add(alice)
     db_session.commit()
-    access_key = AccessKeyFactory.build(user_id=alice.id)
+    access_key = AccessKeyFactory.build(actor_id=alice.id)
     db_session.add(access_key)
     db_session.commit()
 
@@ -126,7 +126,7 @@ def test_access_key_user_must_exist(client):
     response = client.post(
         "/api/access-keys/",
         json={
-            "user_id": "00000000-0000-0000-0000-000000000000",
+            "actor_id": "00000000-0000-0000-0000-000000000000",
             "name": "missing",
         },
     )

@@ -8,16 +8,16 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 import settings as S
-from constants import HEALTH_STATUS_FAILED, HEALTH_STATUS_OK
+from enums import HealthStatus
 from models import Bucket, Processor
-from services.placement import bucket_is_healthy
+from services.placement import bucket_is_reachable
 from infra.arq import arq_redis_settings
 
 def health_response() -> dict[str, Any]:
     return {
-        "status": HEALTH_STATUS_OK,
+        "status": HealthStatus.OK.value,
         "checks": {
-            "api": {"status": HEALTH_STATUS_OK},
+            "api": {"status": HealthStatus.OK.value},
         },
     }
 
@@ -31,9 +31,9 @@ async def readiness_response(db: Session) -> dict[str, Any]:
         "configuration": check_configuration(),
     }
     status = (
-        HEALTH_STATUS_OK
-        if all(check["status"] == HEALTH_STATUS_OK for check in checks.values())
-        else HEALTH_STATUS_FAILED
+        HealthStatus.OK.value
+        if all(check["status"] == HealthStatus.OK.value for check in checks.values())
+        else HealthStatus.FAILED.value
     )
     return {"status": status, "checks": checks}
 
@@ -43,7 +43,7 @@ def check_database(db: Session) -> dict[str, Any]:
         db.execute(text("SELECT 1")).scalar_one()
     except Exception as exc:
         return failed_check(exc)
-    return {"status": HEALTH_STATUS_OK}
+    return {"status": HealthStatus.OK.value}
 
 
 async def check_redis_queues() -> dict[str, Any]:
@@ -68,7 +68,7 @@ async def check_redis_queues() -> dict[str, Any]:
     finally:
         await close_redis(redis)
 
-    return {"status": HEALTH_STATUS_OK, "queues": queues}
+    return {"status": HealthStatus.OK.value, "queues": queues}
 
 
 async def queue_snapshot(redis: ArqRedis, queue_name: str) -> dict[str, Any]:
@@ -102,7 +102,7 @@ def check_processors(db: Session) -> dict[str, Any]:
     except Exception as exc:
         return failed_check(exc)
     return {
-        "status": HEALTH_STATUS_OK,
+        "status": HealthStatus.OK.value,
         "enabled": int(enabled or 0),
         "total": int(total or 0),
     }
@@ -117,10 +117,10 @@ def check_object_stores(db: Session) -> dict[str, Any]:
     unhealthy = [
         {"id": str(bucket.id), "name": bucket.name}
         for bucket in buckets
-        if not bucket_is_healthy(bucket)
+        if not bucket_is_reachable(db, bucket)
     ]
     return {
-        "status": HEALTH_STATUS_FAILED if unhealthy else HEALTH_STATUS_OK,
+        "status": HealthStatus.FAILED.value if unhealthy else HealthStatus.OK.value,
         "configured": len(buckets),
         "healthy": len(buckets) - len(unhealthy),
         "unhealthy": unhealthy,
@@ -139,14 +139,14 @@ def check_configuration() -> dict[str, Any]:
         warnings.append("RELIC_ADMIN_PASSWORD is using the local development default")
 
     return {
-        "status": HEALTH_STATUS_OK,
+        "status": HealthStatus.OK.value,
         "warnings": warnings,
     }
 
 
 def failed_check(exc: Exception) -> dict[str, Any]:
     return {
-        "status": HEALTH_STATUS_FAILED,
+        "status": HealthStatus.FAILED.value,
         "error_class": exc.__class__.__name__,
         "error_message": str(exc),
     }

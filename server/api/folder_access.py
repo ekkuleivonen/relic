@@ -16,15 +16,15 @@ router = APIRouter()
 """
 Folder access management. Admin-only.
 
-A FolderAccess row grants a user permissions on a folder; permissions
-recurse to descendant folders. There is one row per (user, folder).
+A FolderAccess row grants an actor permissions on a folder; permissions
+recurse to descendant folders. There is one row per (actor, folder).
 """
 
 
 class FolderAccessGrant(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    user_id: uuid.UUID
+    actor_id: uuid.UUID
     folder_id: uuid.UUID
     permissions: int = Field(gt=0)
 
@@ -72,17 +72,17 @@ async def create_folder_access(
 ) -> FolderAccessRead:
     """
     POST /folder-access -> grant a user permissions on a folder.
-    Body: { user_id, folder_id, permissions }
-    Idempotent: an existing row for the same (user, folder) is updated.
+    Body: { actor_id, folder_id, permissions }
+    Idempotent: an existing row for the same (actor, folder) is updated.
     """
     row = folder_access_service.grant_folder_access(
         db,
-        user_id=payload.user_id,
+        actor_id=payload.actor_id,
         folder_id=payload.folder_id,
         permissions=payload.permissions,
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=current_user.id,
+            actor_id=current_user.id,
         ),
     )
     return FolderAccessRead.from_row(row)
@@ -104,7 +104,7 @@ async def delete_folder_access(
         access_id,
         event_context=context_from_headers(
             request.headers,
-            actor_user_id=current_user.id,
+            actor_id=current_user.id,
         ),
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

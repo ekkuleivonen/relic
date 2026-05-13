@@ -5,11 +5,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from api.app import app
-from constants import HEALTH_STATUS_FAILED, HEALTH_STATUS_OK
+from enums import HealthStatus
 from database import get_db
 from models import Base
 from services import health as health_service
-from tests.factories.models import BucketFactory, ProcessorFactory
+from tests.factories.models import BucketFactory, BucketProbeFactory, ProcessorFactory
 
 
 @pytest.fixture()
@@ -42,7 +42,7 @@ def client(db_session):
 def stub_redis(monkeypatch):
     async def check_redis_queues():
         return {
-            "status": HEALTH_STATUS_OK,
+            "status": HealthStatus.OK,
             "queues": {
                 "relic:processing": {"depth": 0, "oldest_pending_age_seconds": None},
                 "relic:maintenance": {"depth": 0, "oldest_pending_age_seconds": None},
@@ -63,14 +63,11 @@ def test_healthz_reports_api_ok(client):
 
 
 def test_readyz_reports_dependency_status(client, db_session):
-    bucket = BucketFactory.build(
-        probe_latency_put_ms=1,
-        probe_latency_head_ms=1,
-        probe_latency_get_ms=1,
-        probe_latency_delete_ms=1,
-    )
+    bucket = BucketFactory.build()
     processor = ProcessorFactory.build(name="meta_extract")
     db_session.add_all([bucket, processor])
+    db_session.flush()
+    db_session.add(BucketProbeFactory.build(bucket_id=bucket.id))
     db_session.commit()
 
     response = client.get("/readyz")
@@ -113,7 +110,7 @@ def test_readyz_returns_unavailable_for_unhealthy_object_store(client, db_sessio
 def test_readyz_returns_unavailable_for_redis_failure(client, monkeypatch):
     async def check_redis_queues():
         return {
-            "status": HEALTH_STATUS_FAILED,
+            "status": HealthStatus.FAILED,
             "error_class": "ConnectionError",
             "error_message": "redis down",
         }

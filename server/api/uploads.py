@@ -127,6 +127,9 @@ async def presign_download(
         db, payload.file_id, current_user, Permission.READ
     )
     bucket, key = object_service.build_bucket_and_key_for_file(db, file)
+    blob = file.blob
+    if blob is not None and object_service.touch_blob_access(db, blob):
+        db.commit()
     signed = s3_signing.sign_get_url(
         bucket=bucket,
         key=key,

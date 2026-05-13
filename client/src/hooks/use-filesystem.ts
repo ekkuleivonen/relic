@@ -4,6 +4,7 @@ import { apiRequest } from "@/lib/api"
 import type {
   FolderContentsSortDir,
   FolderContentsSortKey,
+  FolderStats,
   FolderTreeNode,
   PaginatedFilesResponse,
 } from "@/types/filesystem"
@@ -57,6 +58,15 @@ export function useFolderFiles(
       apiRequest<PaginatedFilesResponse>(
         `/files/?folder_id=${folderId}&limit=${limit}&offset=${args.offset}&sort=${sort}&order=${args.dir}`,
       ),
+    enabled: folderId !== undefined,
+  })
+}
+
+export function useFolderStats(folderId: string | undefined) {
+  return useQuery({
+    queryKey: [...filesystemQueryKey, "stats", folderId],
+    queryFn: () =>
+      apiRequest<FolderStats>(`/folders/${folderId}/stats`),
     enabled: folderId !== undefined,
   })
 }

@@ -55,7 +55,7 @@ def test_list_audit_events_returns_recent_audit_events_first(client, db_session,
     now = dt.datetime.now(dt.UTC)
     older = AuditEventFactory.build(
         operation="GET",
-        actor_user_id=admin.id,
+        actor_id=admin.id,
         request_id="req-old",
         meta={"bucket": "photos", "key": "old.jpg", "file_id": "file-1"},
         created_at=now - dt.timedelta(minutes=1),
@@ -63,7 +63,7 @@ def test_list_audit_events_returns_recent_audit_events_first(client, db_session,
     )
     newer = AuditEventFactory.build(
         operation="folder.move",
-        actor_user_id=admin.id,
+        actor_id=admin.id,
         request_id="req-new",
         meta={"destination_folder_id": "folder-2", "folder_id": "folder-1"},
         created_at=now,
@@ -93,17 +93,17 @@ def test_list_audit_events_filters_and_paginates(client, db_session, admin):
         [
             AuditEventFactory.build(
                 operation="GET",
-                actor_user_id=admin.id,
+                actor_id=admin.id,
                 request_id="req-get-1",
             ),
             AuditEventFactory.build(
                 operation="PUT",
-                actor_user_id=admin.id,
+                actor_id=admin.id,
                 request_id="req-put-1",
             ),
             AuditEventFactory.build(
                 operation="GET",
-                actor_user_id=admin.id,
+                actor_id=admin.id,
                 request_id="req-api-1",
             ),
         ]
@@ -132,8 +132,8 @@ def test_list_audit_events_rejects_invalid_status(client):
 def test_clear_audit_events_removes_all_audit_events(client, db_session, admin):
     db_session.add_all(
         [
-            AuditEventFactory.build(actor_user_id=admin.id, request_id="req-1"),
-            AuditEventFactory.build(actor_user_id=admin.id, request_id="req-2"),
+            AuditEventFactory.build(actor_id=admin.id, request_id="req-1"),
+            AuditEventFactory.build(actor_id=admin.id, request_id="req-2"),
         ]
     )
     db_session.commit()
