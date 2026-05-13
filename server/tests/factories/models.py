@@ -90,9 +90,6 @@ class AuditEventFactory(factory.Factory):
     status = "succeeded"
     actor_user_id = None
     request_id = factory.Sequence(lambda n: f"req-{n}")
-    file_ids = factory.LazyFunction(list)
-    folder_ids = factory.LazyFunction(list)
-    blob_ids = factory.LazyFunction(list)
     meta = factory.LazyFunction(dict)
 
 

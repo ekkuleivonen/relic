@@ -58,8 +58,7 @@ def test_list_audit_events_returns_recent_audit_events_first(client, db_session,
         operation="GET",
         actor_user_id=admin.id,
         request_id="req-old",
-        file_ids=["file-1"],
-        meta={"bucket": "photos", "key": "old.jpg"},
+        meta={"bucket": "photos", "key": "old.jpg", "file_id": "file-1"},
         created_at=now - dt.timedelta(minutes=1),
         updated_at=now - dt.timedelta(minutes=1),
     )
@@ -67,8 +66,7 @@ def test_list_audit_events_returns_recent_audit_events_first(client, db_session,
         operation="folder.move",
         actor_user_id=admin.id,
         request_id="req-new",
-        folder_ids=["folder-1"],
-        meta={"destination_folder_id": "folder-2"},
+        meta={"destination_folder_id": "folder-2", "folder_id": "folder-1"},
         created_at=now,
         updated_at=now,
     )
@@ -84,7 +82,10 @@ def test_list_audit_events_returns_recent_audit_events_first(client, db_session,
     assert body["offset"] == 0
     assert [item["request_id"] for item in body["items"]] == ["req-new", "req-old"]
     assert body["items"][0]["actor"]["email"] == "admin@relic.local"
-    assert body["items"][0]["metadata"] == {"destination_folder_id": "folder-2"}
+    assert body["items"][0]["metadata"] == {
+        "destination_folder_id": "folder-2",
+        "folder_id": "folder-1",
+    }
     assert "source" not in body["items"][0]
 
 

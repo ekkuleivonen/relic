@@ -28,7 +28,7 @@ At a high level, Relic separates logical files from physical blobs:
 - Native file drop uploads into the selected folder.
 - Breadcrumb navigation, folder tree sidebar, sortable folder contents, and
   paginated file listings.
-- File detail pages with metadata, tags, keywords, key/value fields, parse
+- File detail pages with metadata, tags, keywords, key/value fields, metadata extraction
   status, uploader, timestamps, and quick links into search.
 
 ### Search and Metadata
@@ -89,44 +89,111 @@ user-provided values where they overlap.
 
 ### Event Log and Processors
 
-Relic uses two event tables today and a processor registry, with one more
-event table planned. They are deliberately separated by audience and write
-path:
+Relic runs its background work on three concurrency tiers, separated by
+audience and write path:
 
-- `audit_events` (live) — actor-driven audit records for identity, access,
-  bucket, folder admin changes, and processor cursor changes such as
-  `processor.cursor.skipped`, `processor.cursor.rewound`, `processor.created`,
-  `processor.updated`, and `processor.deleted`. Written in the same database
-  transaction as the canonical mutation. Captures operation, status, actor,
-  request ID, related file/folder/blob IDs, and operation-specific metadata.
-  Surfaces in an admin audit log UI with filters for operation, status,
-  request ID, actor, and time range, plus expandable per-event detail and an
-  admin-only clear action for local/operational resets.
-- `file_events` (live) — durable content activity log and outbox for
-  `file.*`, `folder.*`, and `processor.<substrate>.*` events. File and
-  folder mutations write this table in the same transaction as the canonical
-  change. The dispatcher reads it through per-processor cursors; admins can
-  browse the full log from the File Events page.
-- `processors` (live) — registry table holding identity, config, enabled
-  state, and the `last_committed_offset` cursor for every warm-path
-  subscriber (internal substrates today, external sinks later). The seeded
-  `meta_extract` row consumes file activity events and emits
-  `processor.meta_extract.completed` / `processor.meta_extract.failed`
-  outcomes back into `file_events`. The Processors admin page surfaces
-  cursor lag, lets admins pause/resume runs, and exposes auditable
-  rewind/skip-stuck-event actions.
-- `maintenance_events` (planned, see `ROADMAP.md`) — internal-only log of
-  cold-path resource outcomes such as blob purges and migrations. Never
-  delivered to external sinks.
+- **Hot path** — the synchronous S3 gateway and JSON API. Mutates canonical
+  tables, emits events in the same transaction, returns. Does not own any
+  async work; it only produces the triggers other tiers consume.
+- **Warm path** (`relic:processing` queue) — runs event-driven processor
+  substrates. The seeded `meta_extract` substrate enriches `File.meta`
+  today; future substrates (preview, thumbnail, external sinks) land as
+  siblings.
+- **Cold path** (`relic:maintenance` queue) — runs scheduled batches such as
+  purge dereferenced blobs, bucket probes, blob rebalance, and event
+  retention trim. Invisible to external consumers.
 
-High-volume object reads (S3 `GET`, `HEAD`, signed-URL fetches) do not write
-event rows; their performance is observable through Prometheus once the
-metrics endpoint lands.
+The two queues are separate worker pools so a slow rebalance can never block
+fast metadata extraction.
 
-Retention across all event tables is controlled by `EVENT_RETENTION_DAYS`. The
-maintenance worker trims rows older than that age during its regular cron
-tick. `processors` is registry data and is not subject to retention; cursor
-rewinds re-read whatever is still in `file_events` after the trim runs.
+#### Event tables
+
+- `audit_events` (live) — actor-driven log for identity, access, bucket,
+  folder admin changes, and processor cursor changes (`processor.created`,
+  `processor.updated`, `processor.deleted`, `processor.enabled`,
+  `processor.disabled`, `processor.cursor.rewound`,
+  `processor.cursor.skipped`). Written in the same DB transaction as the
+  canonical mutation. Envelope is intentionally narrow:
+  `(id, created_at, updated_at, operation, status, actor_user_id,
+  request_id, meta)` — resource ids that an event refers to live inside
+  `meta`. The admin audit log UI filters by operation, status, request ID,
+  actor, and time range with per-row metadata detail.
+- `file_events` (live) — durable content activity log and the warm-path
+  outbox. Carries `file.*`, `folder.*`, and `processor.<substrate>.*`
+  events. File and folder mutations write this table in the same
+  transaction as the canonical change; the per-row monotonic `offset` is the
+  replay primitive. Admins can browse the full log on the File Events page.
+- `processors` (live) — registry holding identity, config, enabled state,
+  and the `last_committed_offset` cursor for every warm-path subscriber
+  (internal substrates today, external sinks planned). The Processors admin
+  page surfaces cursor lag, lets admins pause/resume runs, and exposes
+  auditable rewind and skip-stuck-event actions.
+- `maintenance_events` (planned — see `ROADMAP.md`) — internal-only log of
+  cold-path resource outcomes such as blob purges, migrations, and bucket
+  probes. Never delivered to external sinks.
+
+High-volume object reads (`GET`, `HEAD`, signed-URL fetches) deliberately do
+not write event rows; their performance lives in Prometheus aggregates only.
+
+Retention across all event tables is controlled by `EVENT_RETENTION_DAYS`.
+The maintenance worker trims rows older than that age during its regular
+cron tick. The trim refuses to delete `file_events` rows past
+`min(processors.last_committed_offset)` across enabled processors, so a
+paused or rewound processor can never lose events out from under it.
+`processors` is registry data and is not subject to retention.
+
+#### Warm-path dispatcher
+
+Warm processors do not subscribe to API hooks; they subscribe to
+`file_events` through their own cursor on the `processors` table. The
+dispatcher is pull-based:
+
+1. Listens on the Postgres `file_event_emitted` channel via `LISTEN/NOTIFY`
+   for wake-up, plus a safety-net tick every `DISPATCHER_SAFETY_INTERVAL_SECONDS`.
+2. For each enabled processor, selects the oldest `file_events` row past
+   `last_committed_offset` whose `event_type` is in
+   `subscribed_event_types`. Unsubscribed events never reach a worker.
+3. Enqueues one warm-queue job with `_job_id = f"{processor_id}:{event_id}"`,
+   relying on arq's built-in dedup so a re-tick is safe.
+4. Does not advance the cursor on enqueue. The worker advances it only
+   after the handler returns successfully, inside the same DB transaction as
+   any canonical mutation the handler made.
+
+The contract every warm processor inherits:
+
+- **Cursor-on-success.** A failing event halts its processor's cursor until
+  an admin intervenes. The escape hatch is a `processor.cursor.skipped`
+  audit row written when an admin advances the cursor past a poison-pill
+  event. Every skip is auditable; there is no silent forward-jump.
+- **Head-of-line blocking is accepted.** The trade-off for a simple,
+  durable, replayable cursor model.
+- **Idempotency over `event_id`.** Handlers must produce the same observable
+  result on a second run for the same event ID. `meta_extract` overwrites
+  `File.meta` deterministically; external sinks must use a downstream
+  idempotency key.
+- **Per-processor concurrency = 1.** Enforced by `LIMIT 1` per processor in
+  the dispatcher, by `_job_id` dedup in arq, and by `SELECT ... FOR UPDATE`
+  on the processor row inside the worker. The processing worker also pins
+  `max_jobs = 1` as defense-in-depth. Parallelism comes from running more
+  worker pods, not more concurrent jobs per worker.
+- **Processor outcome events.** Workers emit
+  `processor.<substrate>.completed` or `processor.<substrate>.failed` to
+  `file_events` so external consumers can react to "metadata is now ready"
+  the same way internal subscribers do.
+
+#### Processor substrates
+
+A substrate is the warm-path handler for one `processors.kind`. Today there
+is one shipping substrate:
+
+- `meta_extract` — reads bytes from object storage (capped per toolchain via
+  `*_META_EXTRACT_MAX_BYTES`), runs the matching toolchain (image, PDF,
+  CSV, JSON, parquet, audio, video, office-doc, archive, HTML, text), and
+  writes the result to `File.meta`.
+
+New substrates plug in by registering a `kind`, a pydantic config model,
+and a handler. First-party substrates are upserted from `server/seed.py`;
+admin-managed substrates (future external sinks) are created from the API.
 
 ### API and S3 Gateway
 
@@ -281,8 +348,10 @@ Important environment variables include:
 - `RELIC_SIGNING_TTL_SECONDS`, `RELIC_SIGNING_REGION`,
   `RELIC_SIGNING_KEY_ID`, `RELIC_SIGNING_SECRET`, `RELIC_SIGNING_KEYS`, and
   `RELIC_SIGNING_CURRENT_KEY_ID` for presigned S3 gateway URLs.
-- `meta_extract` per-toolchain byte caps such as `IMAGE_PARSE_MAX_BYTES`,
-  `PDF_PARSE_MAX_BYTES`, `TEXT_PARSE_MAX_BYTES`, and related per-format limits.
+- `meta_extract` per-toolchain byte caps such as `IMAGE_META_EXTRACT_MAX_BYTES`,
+  `PDF_META_EXTRACT_MAX_BYTES`, `TEXT_META_EXTRACT_MAX_BYTES`, and related
+  per-format limits. Files larger than the cap are parsed from the truncated
+  prefix.
 - `PROCESSING_QUEUE_NAME` and `MAINTENANCE_QUEUE_NAME` for the two ARQ worker
   queues.
 - `DISPATCHER_BATCH_SIZE`, `DISPATCHER_SAFETY_INTERVAL_SECONDS`, and
@@ -296,9 +365,13 @@ Important environment variables include:
 
 ## Product Status
 
-Relic is an early product implementation with substantial core behavior in
-place. The web app, JSON API, metadata extraction, storage placement, the
-event-driven warm-path dispatcher, and object gateway paths are actively
-developed. Health endpoints are still placeholders, the
-`maintenance_events` log is tracked in `ROADMAP.md`, and full S3
-bucket/listing compatibility is not complete yet.
+Relic is an early product with substantial core behavior in place. The web
+app, JSON API, object gateway, content-hash deduplication, tiered storage
+placement, `audit_events`, `file_events`, the `processors` registry, the
+`LISTEN/NOTIFY` warm-path dispatcher, and the seeded `meta_extract`
+substrate are all live and developed against. Still tracked in
+`ROADMAP.md`: the `maintenance_events` cold-path log, external activity
+sinks (webhook, SQS, Kafka, object-store), Prometheus metrics endpoint,
+production `/healthz` / `/readyz`, broader S3 gateway coverage
+(`ListObjectsV2`, multipart upload, etc.), import-from-bucket flows,
+quotas, retention, and versioning.

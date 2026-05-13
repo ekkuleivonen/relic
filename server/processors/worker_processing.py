@@ -45,6 +45,18 @@ async def run_processor_event(
 
 
 class WorkerSettings:
+    """arq worker that runs warm-path processor jobs.
+
+    ``max_jobs = 1`` is intentional: per-processor concurrency is the contract,
+    and the dispatcher already enforces it by only emitting one in-flight job
+    per processor (``LIMIT 1`` per tick + ``_job_id`` dedup + ``SELECT FOR
+    UPDATE`` on the processor row inside the worker). Setting arq concurrency
+    to 1 closes the gap defensively so a future change to the dispatcher
+    cannot accidentally violate concurrency. Scale by running more worker
+    pods/containers, not more coroutines per worker.
+    """
+
     functions = [run_processor_event]
     redis_settings = redis_settings()
     queue_name = S.PROCESSING_QUEUE_NAME
+    max_jobs = 1

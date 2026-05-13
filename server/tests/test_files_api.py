@@ -1,13 +1,20 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
 from file_meta import build_file_meta
-from models import Base, Blob, File, Folder, FolderAccess, PARSE_STATUS_COMPLETED
+from models import (
+    Base,
+    Blob,
+    File,
+    Folder,
+    FolderAccess,
+    META_EXTRACT_STATUS_COMPLETED,
+)
 from schema_plan import BucketTier, Permission
 from services.auth import create_session_token
 from tests.factories.models import BucketFactory, UserFactory
@@ -120,7 +127,7 @@ def make_file(db_session, *, folder, blob, name, user, meta=None):
         blob_id=blob.id,
         uploaded_by=user.id,
         name=name,
-        parse_status=PARSE_STATUS_COMPLETED,
+        meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
         meta=meta,
     )
     db_session.add(file)
@@ -269,7 +276,7 @@ def test_rename_file_in_place(
     assert response.status_code == 200, response.text
     db_session.refresh(file)
     assert file.name == "feline.jpg"
-    assert file.parse_status == 1
+    assert file.meta_extract_status == 1
     assert file.meta["original_filename"] == "cat.jpg"
 
 

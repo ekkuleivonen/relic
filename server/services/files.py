@@ -11,9 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from managers.exceptions import BadRequestError
-from models import File, PARSE_STATUS_PENDING, User
+from models import File, META_EXTRACT_STATUS_PENDING, User
 from schema_plan import Permission
-from services.audit_events import AuditEventContext
+from services.event_context import EventContext
 from services.file_events import create_file_event
 from services import folder_access as folder_access_service
 from services import objects as object_service
@@ -43,7 +43,7 @@ def move_file(
     destination_folder_id: uuid.UUID,
     name: str | None,
     current_user: User,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> File:
     file = object_service.get_file_for_user(
         db, file_id, current_user, Permission.DELETE
@@ -72,7 +72,7 @@ def move_file(
     file.folder_id = destination.id
     file.name = new_name
     if name is not None:
-        file.parse_status = PARSE_STATUS_PENDING
+        file.meta_extract_status = META_EXTRACT_STATUS_PENDING
     db.flush()
     if event_context is not None:
         create_file_event(
@@ -101,7 +101,7 @@ def rename_file(
     file_id: uuid.UUID,
     name: str,
     current_user: User,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> File:
     file = object_service.get_file_for_user(
         db, file_id, current_user, Permission.WRITE
@@ -118,7 +118,7 @@ def rename_file(
     object_service.ensure_file_name_available(db, file.folder_id, name)
 
     file.name = name
-    file.parse_status = PARSE_STATUS_PENDING
+    file.meta_extract_status = META_EXTRACT_STATUS_PENDING
     db.flush()
     if event_context is not None:
         create_file_event(

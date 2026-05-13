@@ -25,10 +25,10 @@ from utils.crypto import decrypt_string, encrypt_string
 JSONType = JSON().with_variant(JSONB, "postgresql")
 GUID = Uuid
 
-PARSE_STATUS_PENDING = 1
-PARSE_STATUS_IN_PROGRESS = 2
-PARSE_STATUS_COMPLETED = 3
-PARSE_STATUS_FAILED = 4
+META_EXTRACT_STATUS_PENDING = 1
+META_EXTRACT_STATUS_IN_PROGRESS = 2
+META_EXTRACT_STATUS_COMPLETED = 3
+META_EXTRACT_STATUS_FAILED = 4
 
 
 class Base(DeclarativeBase):
@@ -206,7 +206,13 @@ class File(Base, TimestampMixin):
         GUID(), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    parse_status: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Status of the latest meta_extract substrate run on this file. The column
+    # is denormalized — file_events.processor.meta_extract.{completed,failed}
+    # is the source of truth for processor outcomes. We keep this here so the
+    # filesystem UI can render per-file badges without a per-row event lookup.
+    meta_extract_status: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=META_EXTRACT_STATUS_PENDING
+    )
     meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
 
     folder: Mapped[Folder] = relationship(back_populates="files")
@@ -233,13 +239,6 @@ class AuditEvent(Base, TimestampMixin):
         GUID(), ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
     request_id: Mapped[str | None] = mapped_column(String(255), index=True)
-    # file_ids are legacy, can be dropped soonish
-    file_ids: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
-    folder_ids: Mapped[list[str]] = mapped_column(
-        JSONType, nullable=False, default=list
-    )
-    # blob_ids are legacy, can be dropped soonish i guess?
-    blob_ids: Mapped[list[str]] = mapped_column(JSONType, nullable=False, default=list)
     meta: Mapped[dict] = mapped_column(
         "metadata", JSONType, nullable=False, default=dict
     )

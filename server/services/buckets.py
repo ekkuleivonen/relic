@@ -11,12 +11,12 @@ from sqlalchemy.orm import Session
 from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import Blob, Bucket
 from services.audit_events import (
-    AuditEventContext,
     create_audit_event,
     elapsed_ms,
     latency_metadata,
     timer_start,
 )
+from services.event_context import EventContext
 from services.placement import (
     BucketUsage,
     clear_bucket_usage_cache,
@@ -56,7 +56,7 @@ def get_bucket_read(db: Session, bucket_id: uuid.UUID) -> dict[str, Any]:
 
 
 def create_bucket(
-    db: Session, values: dict[str, Any], *, event_context: AuditEventContext | None = None
+    db: Session, values: dict[str, Any], *, event_context: EventContext | None = None
 ) -> Bucket:
     started_at = timer_start()
     db_started = timer_start()
@@ -84,7 +84,7 @@ def create_bucket(
 
 
 def create_bucket_read(
-    db: Session, values: dict[str, Any], *, event_context: AuditEventContext | None = None
+    db: Session, values: dict[str, Any], *, event_context: EventContext | None = None
 ) -> dict[str, Any]:
     bucket = create_bucket(db, values, event_context=event_context)
     return bucket_read(bucket, derive_bucket_usages(db, [bucket.id])[bucket.id])
@@ -95,7 +95,7 @@ def update_bucket(
     bucket_id: uuid.UUID,
     values: dict[str, Any],
     *,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> Bucket:
     started_at = timer_start()
     db_started = timer_start()
@@ -131,14 +131,14 @@ def update_bucket_read(
     bucket_id: uuid.UUID,
     values: dict[str, Any],
     *,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> dict[str, Any]:
     bucket = update_bucket(db, bucket_id, values, event_context=event_context)
     return bucket_read(bucket, derive_bucket_usages(db, [bucket.id])[bucket.id])
 
 
 def delete_bucket(
-    db: Session, bucket_id: uuid.UUID, *, event_context: AuditEventContext | None = None
+    db: Session, bucket_id: uuid.UUID, *, event_context: EventContext | None = None
 ) -> None:
     started_at = timer_start()
     db_started = timer_start()

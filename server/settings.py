@@ -95,72 +95,65 @@ UPLOAD_SPOOL_MAX_MEMORY_BYTES: int = env.int(
 )
 
 # =============================================================================
-# Processor Queues (arq)
+# meta_extract toolchain byte caps
 # =============================================================================
+# Per-toolchain hard caps on bytes fetched from object storage during the
+# warm-path meta_extract substrate run. Each toolchain reads up to its cap via
+# a single S3 Range GET; files larger than the cap are parsed from the
+# truncated prefix (and the substrate logs ``*_meta_extract_truncated``).
 
-# Max bytes fetched from object storage per image when building file meta (S3 Range GET).
-IMAGE_PARSE_MAX_BYTES: int = env.int(
-    "IMAGE_PARSE_MAX_BYTES",
+IMAGE_META_EXTRACT_MAX_BYTES: int = env.int(
+    "IMAGE_META_EXTRACT_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-# Max bytes fetched per tabular file (CSV / future Parquet) for file meta.
-TABULAR_PARSE_MAX_BYTES: int = env.int(
-    "TABULAR_PARSE_MAX_BYTES",
+TABULAR_META_EXTRACT_MAX_BYTES: int = env.int(
+    "TABULAR_META_EXTRACT_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-# Max bytes fetched per Parquet file for footer metadata.
-PARQUET_PARSE_MAX_BYTES: int = env.int(
-    "PARQUET_PARSE_MAX_BYTES",
+PARQUET_META_EXTRACT_MAX_BYTES: int = env.int(
+    "PARQUET_META_EXTRACT_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-# Max bytes fetched per structured text file (JSON / JSONL) for file meta.
-JSON_PARSE_MAX_BYTES: int = env.int(
-    "JSON_PARSE_MAX_BYTES",
+JSON_META_EXTRACT_MAX_BYTES: int = env.int(
+    "JSON_META_EXTRACT_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-# Max bytes fetched per PDF file for file meta.
-PDF_PARSE_MAX_BYTES: int = env.int(
-    "PDF_PARSE_MAX_BYTES",
+PDF_META_EXTRACT_MAX_BYTES: int = env.int(
+    "PDF_META_EXTRACT_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-# Max bytes fetched per readable text file for file meta.
-TEXT_PARSE_MAX_BYTES: int = env.int(
-    "TEXT_PARSE_MAX_BYTES",
+TEXT_META_EXTRACT_MAX_BYTES: int = env.int(
+    "TEXT_META_EXTRACT_MAX_BYTES",
     default=16 * 1024 * 1024,
 )
 
-# Max bytes fetched per audio file for file meta.
-AUDIO_PARSE_MAX_BYTES: int = env.int(
-    "AUDIO_PARSE_MAX_BYTES",
+AUDIO_META_EXTRACT_MAX_BYTES: int = env.int(
+    "AUDIO_META_EXTRACT_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-# Max bytes fetched per video file for file meta.
-VIDEO_PARSE_MAX_BYTES: int = env.int(
-    "VIDEO_PARSE_MAX_BYTES",
+VIDEO_META_EXTRACT_MAX_BYTES: int = env.int(
+    "VIDEO_META_EXTRACT_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-# Max bytes fetched per archive file for file meta.
-ARCHIVE_PARSE_MAX_BYTES: int = env.int(
-    "ARCHIVE_PARSE_MAX_BYTES",
+ARCHIVE_META_EXTRACT_MAX_BYTES: int = env.int(
+    "ARCHIVE_META_EXTRACT_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-# Max bytes fetched per office document file for file meta.
-OFFICE_DOC_PARSE_MAX_BYTES: int = env.int(
-    "OFFICE_DOC_PARSE_MAX_BYTES",
+OFFICE_DOC_META_EXTRACT_MAX_BYTES: int = env.int(
+    "OFFICE_DOC_META_EXTRACT_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-# Max bytes fetched per HTML file for file meta.
-HTML_PARSE_MAX_BYTES: int = env.int(
-    "HTML_PARSE_MAX_BYTES",
+HTML_META_EXTRACT_MAX_BYTES: int = env.int(
+    "HTML_META_EXTRACT_MAX_BYTES",
     default=16 * 1024 * 1024,
 )
 

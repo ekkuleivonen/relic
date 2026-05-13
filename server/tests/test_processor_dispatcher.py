@@ -135,3 +135,75 @@ def test_dispatch_pending_skips_disabled_processor(session_factory, monkeypatch)
 
     assert enqueued == 0
     assert redis.enqueued == []
+
+
+def test_dispatch_pending_filters_by_subscribed_event_types(
+    session_factory, monkeypatch
+):
+    """A processor only sees events whose type is in its subscription.
+
+    Unsubscribed events do not advance the cursor and never reach the worker.
+    Lag reported as ``pending_count`` therefore stays consistent with the
+    cursor model: a burst of unsubscribed events is genuinely no-op work.
+    """
+
+    with session_factory() as db:
+        processor = ProcessorFactory.build(
+            name="meta_extract", subscribed_event_types=["file.created"]
+        )
+        db.add(processor)
+        db.flush()
+        create_file_event(
+            db, event_type="file.deleted", file_id=uuid.uuid4(), payload={}
+        )
+        create_file_event(
+            db, event_type="file.deleted", file_id=uuid.uuid4(), payload={}
+        )
+        subscribed = create_file_event(
+            db, event_type="file.created", file_id=uuid.uuid4(), payload={}
+        )
+        db.commit()
+        processor_id = processor.id
+        expected_event_id = subscribed.id
+
+    monkeypatch.setattr(dispatcher_module, "get_sessionmaker", lambda: session_factory)
+
+    redis = FakeArqRedis()
+    enqueued = asyncio.run(dispatcher_module.dispatch_pending(redis))
+
+    assert enqueued == 1
+    job = redis.enqueued[0]
+    assert job.kwargs["_job_id"] == f"{processor_id}:{expected_event_id}"
+
+
+def test_dispatch_pending_fan_out_across_processors(session_factory, monkeypatch):
+    """Two processors with disjoint subscriptions each get their own next event."""
+
+    with session_factory() as db:
+        creator = ProcessorFactory.build(
+            name="meta_extract", subscribed_event_types=["file.created"]
+        )
+        deleter = ProcessorFactory.build(
+            name="webhook_deletes", subscribed_event_types=["file.deleted"]
+        )
+        db.add_all([creator, deleter])
+        db.flush()
+        created = create_file_event(
+            db, event_type="file.created", file_id=uuid.uuid4(), payload={}
+        )
+        deleted = create_file_event(
+            db, event_type="file.deleted", file_id=uuid.uuid4(), payload={}
+        )
+        db.commit()
+        expected = {
+            f"{creator.id}:{created.id}",
+            f"{deleter.id}:{deleted.id}",
+        }
+
+    monkeypatch.setattr(dispatcher_module, "get_sessionmaker", lambda: session_factory)
+
+    redis = FakeArqRedis()
+    enqueued = asyncio.run(dispatcher_module.dispatch_pending(redis))
+
+    assert enqueued == 2
+    assert {job.kwargs["_job_id"] for job in redis.enqueued} == expected

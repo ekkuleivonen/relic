@@ -7,7 +7,14 @@ from sqlalchemy.pool import StaticPool
 from api.app import app
 from database import get_db
 from file_meta import build_file_meta
-from models import Base, File, Folder, FolderAccess, PARSE_STATUS_COMPLETED, User
+from models import (
+    Base,
+    File,
+    Folder,
+    FolderAccess,
+    META_EXTRACT_STATUS_COMPLETED,
+    User,
+)
 from schema_plan import BucketTier, Permission, UserRole
 from services.auth import create_session_token
 from tests.factories.models import BlobFactory, BucketFactory, UserFactory
@@ -251,7 +258,7 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
                 blob_id=blob.id,
                 uploaded_by=user.id,
                 name="image.jpg",
-                parse_status=PARSE_STATUS_COMPLETED,
+                meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
                 meta=build_file_meta(
                     file_name="image.jpg",
                     size=1024,
@@ -264,7 +271,7 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
                 blob_id=blob.id,
                 uploaded_by=user.id,
                 name="notes.txt",
-                parse_status=PARSE_STATUS_COMPLETED,
+                meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
                 meta=build_file_meta(
                     file_name="notes.txt",
                     size=12,
@@ -317,7 +324,7 @@ def test_recursive_list_files_excludes_unreadable_descendants(
                 blob_id=blob.id,
                 uploaded_by=user.id,
                 name="image.jpg",
-                parse_status=PARSE_STATUS_COMPLETED,
+                meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
                 meta=build_file_meta(file_name="image.jpg", size=1024, user_meta={}),
             ),
             File(
@@ -325,7 +332,7 @@ def test_recursive_list_files_excludes_unreadable_descendants(
                 blob_id=blob.id,
                 uploaded_by=user.id,
                 name="raw.nef",
-                parse_status=PARSE_STATUS_COMPLETED,
+                meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
                 meta=build_file_meta(file_name="raw.nef", size=2048, user_meta={}),
             ),
             File(
@@ -333,7 +340,7 @@ def test_recursive_list_files_excludes_unreadable_descendants(
                 blob_id=blob.id,
                 uploaded_by=user.id,
                 name="notes.txt",
-                parse_status=PARSE_STATUS_COMPLETED,
+                meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
                 meta=build_file_meta(file_name="notes.txt", size=12, user_meta={}),
             ),
         ]
@@ -365,7 +372,7 @@ def test_list_files_pagination(client, db_session, user, root_folder):
                 blob_id=blob.id,
                 uploaded_by=user.id,
                 name=name,
-                parse_status=PARSE_STATUS_COMPLETED,
+                meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
                 meta=build_file_meta(file_name=name, size=100, user_meta={}),
             )
         )

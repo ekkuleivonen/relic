@@ -17,7 +17,7 @@ from managers.exceptions import (
     ResourceNotFound,
 )
 from models import User
-from services import file_events as file_event_service
+from services.event_context import context_from_headers
 from services import objects as object_service
 from services import s3_signing
 
@@ -141,7 +141,7 @@ async def put_object(
             ingest_meta=extract_user_metadata(request),
             current_user=user,
             allow_overwrite=request.headers.get("x-relic-if-none-match") != "*",
-            event_context=file_event_service.context_from_headers(
+            event_context=context_from_headers(
                 request.headers,
                 actor_user_id=user.id,
             ),
@@ -177,7 +177,7 @@ def handle_copy_object(
         ingest_meta=extract_user_metadata(request),
         metadata_directive=metadata_directive,
         current_user=user,
-        event_context=file_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers,
             actor_user_id=user.id,
         ),
@@ -396,7 +396,7 @@ async def delete_object(
             bucket_name=bucket,
             key=key,
             current_user=user,
-            event_context=file_event_service.context_from_headers(
+            event_context=context_from_headers(
                 request.headers,
                 actor_user_id=user.id,
             ),

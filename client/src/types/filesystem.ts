@@ -51,7 +51,7 @@ export type FileSystemFile = {
   uploaded_by: string
   uploaded_by_name: string | null
   name: string
-  parse_status: number
+  meta_extract_status: number
   meta: FileMeta
   created_at: string
   updated_at: string

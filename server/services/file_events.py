@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 from sqlalchemy import Select, delete, func, select, text
 from sqlalchemy.orm import Session, selectinload
-from starlette.datastructures import Headers
 
 from managers.exceptions import BadRequestError
 from models import FileEvent, Processor
@@ -13,12 +12,6 @@ DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 SUPPORTED_STATUSES = frozenset({"succeeded", "failed"})
 FILE_EVENT_CHANNEL = "file_event_emitted"
-
-
-@dataclass(frozen=True)
-class FileEventContext:
-    actor_user_id: uuid.UUID | None = None
-    request_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -87,21 +80,6 @@ def clear_file_events(db: Session) -> int:
     result = db.execute(delete(FileEvent))
     db.commit()
     return result.rowcount or 0
-
-
-def context_from_headers(
-    headers: Headers,
-    *,
-    actor_user_id: uuid.UUID | None = None,
-) -> FileEventContext:
-    return FileEventContext(
-        actor_user_id=actor_user_id,
-        request_id=request_id_from_headers(headers),
-    )
-
-
-def request_id_from_headers(headers: Headers) -> str | None:
-    return headers.get("x-request-id") or headers.get("x-correlation-id")
 
 
 def list_file_events(

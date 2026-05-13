@@ -266,7 +266,7 @@ function FileDetailContent({
       <div className="grid gap-4 md:grid-cols-3">
         <StatCard
           label="Status"
-          value={formatParseStatus(file.parse_status)}
+          value={formatMetaExtractStatus(file.meta_extract_status)}
         />
         <StatCard label="Size" value={formatBytes(file.meta.size)} />
         <StatCard label="Type" value={file.meta.mimetype || "Unknown"} />
@@ -675,12 +675,12 @@ function formatDetailValue(value: unknown) {
   return JSON.stringify(value)
 }
 
-function formatParseStatus(status: number) {
+function formatMetaExtractStatus(status: number) {
   switch (status) {
     case 1:
       return "Pending"
     case 2:
-      return "Parsing"
+      return "Extracting"
     case 3:
       return "Ready"
     case 4:

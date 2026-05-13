@@ -15,8 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.dependencies import AdminUser
 from database import DbSession
 from models import Processor
-from services import audit_events as audit_event_service
 from services import processors as processor_service
+from services.event_context import context_from_headers
 
 router = APIRouter()
 
@@ -174,7 +174,7 @@ async def create_processor_route(
         enabled=payload.enabled,
         subscribed_event_types=payload.subscribed_event_types,
         config=payload.config,
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers, actor_user_id=current_user.id
         ),
     )
@@ -196,7 +196,7 @@ async def update_processor_route(
         enabled=payload.enabled,
         subscribed_event_types=payload.subscribed_event_types,
         config=payload.config,
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers, actor_user_id=current_user.id
         ),
     )
@@ -211,7 +211,7 @@ async def delete_processor_route(
     processor_service.delete_processor(
         db,
         processor_id=processor_id,
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers, actor_user_id=current_user.id
         ),
     )
@@ -231,7 +231,7 @@ async def rewind_processor_route(
         processor_id=processor_id,
         target_offset=payload.target_offset,
         reason=payload.reason,
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers, actor_user_id=current_user.id
         ),
     )
@@ -252,7 +252,7 @@ async def skip_stuck_event_route(
         processor_id=processor_id,
         event_id=payload.event_id,
         reason=payload.reason,
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers, actor_user_id=current_user.id
         ),
     )

@@ -7,6 +7,7 @@ and the reference implementation for the substrate contract.
 
 from sqlalchemy.orm import Session
 
+from managers.exceptions import ResourceNotFound
 from processors.meta_extract import base
 from processors.registry import ProcessorContext, register
 from utils.logging import get_logger
@@ -48,7 +49,21 @@ def handle(db: Session, ctx: ProcessorContext) -> None:
             )
             return
 
-    base.parse_file(db, event.file_id)
+    try:
+        base.parse_file(db, event.file_id)
+    except ResourceNotFound:
+        # File (or its blob/bucket) vanished between event emit and handler run
+        # (concurrent delete, recursive folder delete, etc.). Treat as a clean
+        # skip so the cursor advances; the file is gone and there is nothing
+        # to enrich.
+        log.info(
+            "meta_extract_skipped_resource_missing",
+            processor=ctx.processor_name,
+            event_id=str(event.id),
+            file_id=str(event.file_id),
+            event_type=event.event_type,
+        )
+        return
 
 
 def register_substrate() -> None:

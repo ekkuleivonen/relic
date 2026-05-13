@@ -7,7 +7,7 @@ from api.dependencies import AdminUser
 from database import DbSession
 from schema_plan import BucketTier
 from services import buckets as bucket_service
-from services import audit_events as audit_event_service
+from services.event_context import context_from_headers
 
 router = APIRouter()
 
@@ -89,7 +89,7 @@ async def create_bucket(
     return bucket_service.create_bucket_read(
         db,
         payload.model_dump(),
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers,
             actor_user_id=current_user.id,
         ),
@@ -120,7 +120,7 @@ async def update_bucket(
         db,
         bucket_id,
         payload.model_dump(exclude_unset=True),
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers,
             actor_user_id=current_user.id,
         ),
@@ -139,7 +139,7 @@ async def delete_bucket(
     bucket_service.delete_bucket(
         db,
         bucket_id,
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers,
             actor_user_id=current_user.id,
         ),

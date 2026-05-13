@@ -9,7 +9,14 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
-from models import Base, Blob, Bucket, File, Folder, FolderAccess, PARSE_STATUS_PENDING
+from models import (
+    Base,
+    Blob,
+    File,
+    Folder,
+    FolderAccess,
+    META_EXTRACT_STATUS_PENDING,
+)
 from schema_plan import BucketTier, Permission
 from services.auth import create_session_token
 from tests.factories.models import BucketFactory, UserFactory
@@ -152,7 +159,7 @@ def test_presigned_put_creates_file_and_blob(
     assert file.folder_id == photos_folder.id
     assert file.blob_id == blob.id
     assert file.uploaded_by == user.id
-    assert file.parse_status == PARSE_STATUS_PENDING
+    assert file.meta_extract_status == META_EXTRACT_STATUS_PENDING
     assert file.meta["kvs"]["album"] == "spring"
     assert file.meta["original_filename"] == "cat.jpg"
     assert blob.size_bytes == len(b"cat photo")

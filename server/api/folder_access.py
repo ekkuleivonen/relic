@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.dependencies import AdminUser
 from api.users import UserRead
 from database import DbSession
-from services import audit_events as audit_event_service
+from services.event_context import context_from_headers
 from services import folder_access as folder_access_service
 from services.folder_access import FolderAccessRow
 
@@ -80,7 +80,7 @@ async def create_folder_access(
         user_id=payload.user_id,
         folder_id=payload.folder_id,
         permissions=payload.permissions,
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers,
             actor_user_id=current_user.id,
         ),
@@ -102,7 +102,7 @@ async def delete_folder_access(
     folder_access_service.revoke_folder_access(
         db,
         access_id,
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers,
             actor_user_id=current_user.id,
         ),

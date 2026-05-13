@@ -1,6 +1,5 @@
 import hashlib
 import re
-import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,10 +11,19 @@ from api.app import app
 from database import get_db
 from file_meta import build_file_meta
 from managers.exceptions import ConflictError, ResourceNotFound
-from models import Base, Blob, Bucket, File, FileEvent, Folder, FolderAccess, PARSE_STATUS_PENDING
+from models import (
+    Base,
+    Blob,
+    Bucket,
+    File,
+    FileEvent,
+    Folder,
+    FolderAccess,
+    META_EXTRACT_STATUS_PENDING,
+)
 from schema_plan import BucketTier, Permission, UserRole
 from services import objects as object_service
-from services.audit_events import AuditEventContext
+from services.event_context import EventContext
 from services.placement import choose_bucket, clear_bucket_usage_cache, get_bucket_usage
 from tests.factories.models import BlobFactory, BucketFactory, UserFactory
 
@@ -193,7 +201,7 @@ def test_put_object_uploads_new_blob_and_creates_file(
     assert file.name == "cat.jpg"
     assert file.blob_id == blob.id
     assert file.uploaded_by == user.id
-    assert file.parse_status == PARSE_STATUS_PENDING
+    assert file.meta_extract_status == META_EXTRACT_STATUS_PENDING
     assert file.meta["kvs"]["album"] == "spring"
     assert file.meta["original_filename"] == "cat.jpg"
 
@@ -313,7 +321,7 @@ def test_put_object_overwrites_existing_file_name(
         body=body,
         ingest_meta={"album": "summer"},
         current_user=owner,
-        event_context=AuditEventContext(actor_user_id=owner.id, request_id="req-update"),
+        event_context=EventContext(actor_user_id=owner.id, request_id="req-update"),
     )
 
     assert len(uploaded) == 1

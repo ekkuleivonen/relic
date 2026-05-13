@@ -9,9 +9,6 @@ export type AuditEventRecord = {
   actor_user_id: string | null
   actor: User | null
   request_id: string | null
-  file_ids: string[]
-  folder_ids: string[]
-  blob_ids: string[]
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string

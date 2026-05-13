@@ -9,7 +9,15 @@ from sqlalchemy.pool import StaticPool
 from api.app import app
 from database import get_db
 from file_meta import build_file_meta
-from models import Base, Blob, File, Folder, FolderAccess, PARSE_STATUS_COMPLETED, User
+from models import (
+    Base,
+    Blob,
+    File,
+    Folder,
+    FolderAccess,
+    META_EXTRACT_STATUS_COMPLETED,
+    User,
+)
 from schema_plan import BucketTier, Permission, UserRole
 from services.auth import create_session_token
 from tests.factories.models import (
@@ -111,7 +119,7 @@ def add_file(db_session, folder: Folder, name: str, blob: Blob, user: User) -> F
         blob_id=blob.id,
         uploaded_by=user.id,
         name=name,
-        parse_status=PARSE_STATUS_COMPLETED,
+        meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
         meta=build_file_meta(file_name=name, size=blob.size_bytes, user_meta={}),
     )
     db_session.add(file)

@@ -11,9 +11,9 @@ from models import (
     Blob,
     Bucket,
     File,
-    PARSE_STATUS_COMPLETED,
-    PARSE_STATUS_FAILED,
-    PARSE_STATUS_IN_PROGRESS,
+    META_EXTRACT_STATUS_COMPLETED,
+    META_EXTRACT_STATUS_FAILED,
+    META_EXTRACT_STATUS_IN_PROGRESS,
 )
 from services import objects as object_service
 from utils.logging import get_logger
@@ -26,7 +26,7 @@ PREFIX_BYTES = 4096
 def parse_file(db: Session, file_id: uuid.UUID) -> File:
     parser_meta: dict | None = None
     file = require_file(db, file_id)
-    file.parse_status = PARSE_STATUS_IN_PROGRESS
+    file.meta_extract_status = META_EXTRACT_STATUS_IN_PROGRESS
     db.flush()
 
     try:
@@ -46,12 +46,12 @@ def parse_file(db: Session, file_id: uuid.UUID) -> File:
 
         validate_parser_meta(parser_meta=parser_meta)
         file.meta = parser_meta
-        file.parse_status = PARSE_STATUS_COMPLETED
+        file.meta_extract_status = META_EXTRACT_STATUS_COMPLETED
         db.flush()
         db.refresh(file)
         return file
     except Exception:
-        file.parse_status = PARSE_STATUS_FAILED
+        file.meta_extract_status = META_EXTRACT_STATUS_FAILED
         db.flush()
         raise
 
@@ -127,7 +127,7 @@ def maybe_run_toolchain(
         if mime_type.startswith("image/"):
             from processors.meta_extract.toolchains.image import parse_image
 
-            cap = settings.IMAGE_PARSE_MAX_BYTES
+            cap = settings.IMAGE_META_EXTRACT_MAX_BYTES
             content = read_blob_bytes_capped(
                 bucket=bucket,
                 bucket_key=blob.bucket_key,
@@ -136,7 +136,7 @@ def maybe_run_toolchain(
             )
             if len(content) < blob.size_bytes:
                 log.info(
-                    "image_parse_truncated",
+                    "image_meta_extract_truncated",
                     file_id=str(file_id),
                     read_bytes=len(content),
                     blob_size=blob.size_bytes,
@@ -149,7 +149,7 @@ def maybe_run_toolchain(
         elif mime_type == "text/csv":
             from processors.meta_extract.toolchains.csv import parse_csv
 
-            cap = settings.TABULAR_PARSE_MAX_BYTES
+            cap = settings.TABULAR_META_EXTRACT_MAX_BYTES
             content = read_blob_bytes_capped(
                 bucket=bucket,
                 bucket_key=blob.bucket_key,
@@ -158,7 +158,7 @@ def maybe_run_toolchain(
             )
             if len(content) < blob.size_bytes:
                 log.info(
-                    "tabular_parse_truncated",
+                    "tabular_meta_extract_truncated",
                     file_id=str(file_id),
                     read_bytes=len(content),
                     blob_size=blob.size_bytes,
@@ -172,7 +172,7 @@ def maybe_run_toolchain(
         elif is_json_file(mime_type=mime_type, parser_meta=parser_meta):
             from processors.meta_extract.toolchains.json import parse_json
 
-            cap = settings.JSON_PARSE_MAX_BYTES
+            cap = settings.JSON_META_EXTRACT_MAX_BYTES
             content = read_blob_bytes_capped(
                 bucket=bucket,
                 bucket_key=blob.bucket_key,
@@ -181,7 +181,7 @@ def maybe_run_toolchain(
             )
             if len(content) < blob.size_bytes:
                 log.info(
-                    "json_parse_truncated",
+                    "json_meta_extract_truncated",
                     file_id=str(file_id),
                     read_bytes=len(content),
                     blob_size=blob.size_bytes,
@@ -195,7 +195,7 @@ def maybe_run_toolchain(
         elif mime_type == "application/pdf":
             from processors.meta_extract.toolchains.pdf import parse_pdf
 
-            cap = settings.PDF_PARSE_MAX_BYTES
+            cap = settings.PDF_META_EXTRACT_MAX_BYTES
             content = read_blob_bytes_capped(
                 bucket=bucket,
                 bucket_key=blob.bucket_key,
@@ -204,7 +204,7 @@ def maybe_run_toolchain(
             )
             if len(content) < blob.size_bytes:
                 log.info(
-                    "pdf_parse_truncated",
+                    "pdf_meta_extract_truncated",
                     file_id=str(file_id),
                     read_bytes=len(content),
                     blob_size=blob.size_bytes,
@@ -218,7 +218,7 @@ def maybe_run_toolchain(
         elif is_parquet_file(mime_type=mime_type, parser_meta=parser_meta):
             from processors.meta_extract.toolchains.parquet import parse_parquet
 
-            cap = settings.PARQUET_PARSE_MAX_BYTES
+            cap = settings.PARQUET_META_EXTRACT_MAX_BYTES
             content = read_blob_bytes_capped(
                 bucket=bucket,
                 bucket_key=blob.bucket_key,
@@ -227,7 +227,7 @@ def maybe_run_toolchain(
             )
             if len(content) < blob.size_bytes:
                 log.info(
-                    "parquet_parse_truncated",
+                    "parquet_meta_extract_truncated",
                     file_id=str(file_id),
                     read_bytes=len(content),
                     blob_size=blob.size_bytes,
@@ -241,7 +241,7 @@ def maybe_run_toolchain(
         elif is_audio_file(mime_type=mime_type, parser_meta=parser_meta):
             from processors.meta_extract.toolchains.audio import parse_audio
 
-            cap = settings.AUDIO_PARSE_MAX_BYTES
+            cap = settings.AUDIO_META_EXTRACT_MAX_BYTES
             content = read_blob_bytes_capped(
                 bucket=bucket,
                 bucket_key=blob.bucket_key,
@@ -250,7 +250,7 @@ def maybe_run_toolchain(
             )
             if len(content) < blob.size_bytes:
                 log.info(
-                    "audio_parse_truncated",
+                    "audio_meta_extract_truncated",
                     file_id=str(file_id),
                     read_bytes=len(content),
                     blob_size=blob.size_bytes,
@@ -264,7 +264,7 @@ def maybe_run_toolchain(
         elif is_video_file(mime_type=mime_type, parser_meta=parser_meta):
             from processors.meta_extract.toolchains.video import parse_video
 
-            cap = settings.VIDEO_PARSE_MAX_BYTES
+            cap = settings.VIDEO_META_EXTRACT_MAX_BYTES
             content = read_blob_bytes_capped(
                 bucket=bucket,
                 bucket_key=blob.bucket_key,
@@ -273,7 +273,7 @@ def maybe_run_toolchain(
             )
             if len(content) < blob.size_bytes:
                 log.info(
-                    "video_parse_truncated",
+                    "video_meta_extract_truncated",
                     file_id=str(file_id),
                     read_bytes=len(content),
                     blob_size=blob.size_bytes,
@@ -287,7 +287,7 @@ def maybe_run_toolchain(
         elif is_office_doc_file(mime_type=mime_type, parser_meta=parser_meta):
             from processors.meta_extract.toolchains.office_doc import parse_office_doc
 
-            cap = settings.OFFICE_DOC_PARSE_MAX_BYTES
+            cap = settings.OFFICE_DOC_META_EXTRACT_MAX_BYTES
             content = read_blob_bytes_capped(
                 bucket=bucket,
                 bucket_key=blob.bucket_key,
@@ -296,7 +296,7 @@ def maybe_run_toolchain(
             )
             if len(content) < blob.size_bytes:
                 log.info(
-                    "office_doc_parse_truncated",
+                    "office_doc_meta_extract_truncated",
                     file_id=str(file_id),
                     read_bytes=len(content),
                     blob_size=blob.size_bytes,
@@ -310,7 +310,7 @@ def maybe_run_toolchain(
         elif is_html_file(mime_type=mime_type, parser_meta=parser_meta):
             from processors.meta_extract.toolchains.html import parse_html
 
-            cap = settings.HTML_PARSE_MAX_BYTES
+            cap = settings.HTML_META_EXTRACT_MAX_BYTES
             content = read_blob_bytes_capped(
                 bucket=bucket,
                 bucket_key=blob.bucket_key,
@@ -319,7 +319,7 @@ def maybe_run_toolchain(
             )
             if len(content) < blob.size_bytes:
                 log.info(
-                    "html_parse_truncated",
+                    "html_meta_extract_truncated",
                     file_id=str(file_id),
                     read_bytes=len(content),
                     blob_size=blob.size_bytes,
@@ -333,7 +333,7 @@ def maybe_run_toolchain(
         elif is_archive_file(mime_type=mime_type, parser_meta=parser_meta):
             from processors.meta_extract.toolchains.archive import parse_archive
 
-            cap = settings.ARCHIVE_PARSE_MAX_BYTES
+            cap = settings.ARCHIVE_META_EXTRACT_MAX_BYTES
             content = read_blob_bytes_capped(
                 bucket=bucket,
                 bucket_key=blob.bucket_key,
@@ -342,7 +342,7 @@ def maybe_run_toolchain(
             )
             if len(content) < blob.size_bytes:
                 log.info(
-                    "archive_parse_truncated",
+                    "archive_meta_extract_truncated",
                     file_id=str(file_id),
                     read_bytes=len(content),
                     blob_size=blob.size_bytes,
@@ -356,7 +356,7 @@ def maybe_run_toolchain(
         elif is_text_file(mime_type=mime_type, parser_meta=parser_meta):
             from processors.meta_extract.toolchains.text import parse_text
 
-            cap = settings.TEXT_PARSE_MAX_BYTES
+            cap = settings.TEXT_META_EXTRACT_MAX_BYTES
             content = read_blob_bytes_capped(
                 bucket=bucket,
                 bucket_key=blob.bucket_key,
@@ -365,7 +365,7 @@ def maybe_run_toolchain(
             )
             if len(content) < blob.size_bytes:
                 log.info(
-                    "text_parse_truncated",
+                    "text_meta_extract_truncated",
                     file_id=str(file_id),
                     read_bytes=len(content),
                     blob_size=blob.size_bytes,
@@ -378,7 +378,7 @@ def maybe_run_toolchain(
             parser_meta.update(merged)
     except NotImplementedError as exc:
         log.warning(
-            "parser_toolchain_not_implemented",
+            "meta_extract_toolchain_not_implemented",
             file_id=str(file_id),
             mime_type=mime_type,
             error=str(exc),

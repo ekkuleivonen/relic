@@ -3,7 +3,6 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from starlette.datastructures import Headers
 from sqlalchemy import Select, delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -13,12 +12,6 @@ from models import AuditEvent
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 200
 SUPPORTED_STATUSES = frozenset({"succeeded", "failed"})
-
-
-@dataclass(frozen=True)
-class AuditEventContext:
-    actor_user_id: uuid.UUID | None = None
-    request_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -58,19 +51,20 @@ def create_audit_event(
     status: str = "succeeded",
     actor_user_id: uuid.UUID | None = None,
     request_id: str | None = None,
-    file_ids: list[uuid.UUID | str] | None = None,
-    folder_ids: list[uuid.UUID | str] | None = None,
-    blob_ids: list[uuid.UUID | str] | None = None,
     metadata: dict | None = None,
 ) -> AuditEvent:
+    """Write an audit row inside the caller's transaction.
+
+    Audit rows are actor + identity + admin records. Resource-side IDs live
+    in ``metadata`` so the table envelope stays narrow — file/folder/blob
+    surfacing on event rows is the job of ``file_events`` and
+    ``maintenance_events``.
+    """
     event = AuditEvent(
         operation=_clean_required(operation, "operation"),
         status=_clean_status(status),
         actor_user_id=actor_user_id,
         request_id=_clean_optional(request_id),
-        file_ids=_string_ids(file_ids),
-        folder_ids=_string_ids(folder_ids),
-        blob_ids=_string_ids(blob_ids),
         meta=dict(metadata or {}),
     )
     db.add(event)
@@ -85,9 +79,6 @@ def record_audit_event(
     status: str = "succeeded",
     actor_user_id: uuid.UUID | None = None,
     request_id: str | None = None,
-    file_ids: list[uuid.UUID | str] | None = None,
-    folder_ids: list[uuid.UUID | str] | None = None,
-    blob_ids: list[uuid.UUID | str] | None = None,
     metadata: dict | None = None,
 ) -> AuditEvent:
     event = create_audit_event(
@@ -96,9 +87,6 @@ def record_audit_event(
         status=status,
         actor_user_id=actor_user_id,
         request_id=request_id,
-        file_ids=file_ids,
-        folder_ids=folder_ids,
-        blob_ids=blob_ids,
         metadata=metadata,
     )
     db.commit()
@@ -123,21 +111,6 @@ def trim_audit_events_older_than(
     result = db.execute(delete(AuditEvent).where(AuditEvent.created_at < cutoff))
     db.commit()
     return result.rowcount or 0
-
-
-def context_from_headers(
-    headers: Headers,
-    *,
-    actor_user_id: uuid.UUID | None = None,
-) -> AuditEventContext:
-    return AuditEventContext(
-        actor_user_id=actor_user_id,
-        request_id=request_id_from_headers(headers),
-    )
-
-
-def request_id_from_headers(headers: Headers) -> str | None:
-    return headers.get("x-request-id") or headers.get("x-correlation-id")
 
 
 def list_audit_events(
@@ -223,7 +196,3 @@ def _clean_status(value: str) -> str:
     if cleaned not in SUPPORTED_STATUSES:
         raise BadRequestError(f"status must be one of {sorted(SUPPORTED_STATUSES)}")
     return cleaned
-
-
-def _string_ids(values: list[uuid.UUID | str] | None) -> list[str]:
-    return [str(value) for value in values or []]

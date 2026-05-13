@@ -3,7 +3,7 @@
 import io
 
 import pytest
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from file_meta import FileMeta, build_file_meta
 from processors.meta_extract.toolchains.image import (

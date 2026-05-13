@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.dependencies import AdminUser
 from database import DbSession
 from schema_plan import UserRole
-from services import audit_events as audit_event_service
+from services.event_context import context_from_headers
 from services import users as user_service
 
 router = APIRouter()
@@ -74,7 +74,7 @@ async def create_user(
     return user_service.create_user(
         db,
         payload.model_dump(),
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers,
             actor_user_id=current_user.id,
         ),
@@ -116,7 +116,7 @@ async def update_user(
         db,
         user_id,
         payload.model_dump(exclude_unset=True),
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers,
             actor_user_id=current_user.id,
         ),
@@ -135,7 +135,7 @@ async def delete_user(
     user_service.delete_user(
         db,
         user_id,
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers,
             actor_user_id=current_user.id,
         ),

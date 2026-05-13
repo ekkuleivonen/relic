@@ -8,7 +8,7 @@ from api.dependencies import CurrentUser
 from database import DbSession
 from services import files as files_service
 from services import filesystem as filesystem_service
-from services import file_events as file_event_service
+from services.event_context import context_from_headers
 from services import search as search_service
 
 router = APIRouter()
@@ -30,7 +30,7 @@ class FileRead(BaseModel):
     uploaded_by: uuid.UUID
     uploaded_by_name: str | None
     name: str
-    parse_status: int
+    meta_extract_status: int
     meta: dict
     created_at: dt.datetime
     updated_at: dt.datetime
@@ -331,7 +331,7 @@ async def rename_file(
         file_id=file_id,
         name=payload.name,
         current_user=current_user,
-        event_context=file_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers,
             actor_user_id=current_user.id,
         ),
@@ -356,7 +356,7 @@ async def move_file(
         destination_folder_id=payload.destination_folder_id,
         name=payload.name,
         current_user=current_user,
-        event_context=file_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers,
             actor_user_id=current_user.id,
         ),

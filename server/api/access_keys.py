@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.dependencies import AdminUser
 from api.users import UserRead
 from database import DbSession
-from services import audit_events as audit_event_service
+from services.event_context import context_from_headers
 from services import access_keys as access_key_service
 from services.access_keys import AccessKeyRow, CreatedAccessKey
 
@@ -97,7 +97,7 @@ async def create_access_key(
         db,
         user_id=payload.user_id,
         name=payload.name,
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers,
             actor_user_id=current_user.id,
         ),
@@ -125,7 +125,7 @@ async def revoke_access_key(
     row = access_key_service.revoke_access_key(
         db,
         key_id,
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers,
             actor_user_id=current_user.id,
         ),
@@ -144,7 +144,7 @@ async def delete_access_key(
     access_key_service.delete_access_key(
         db,
         key_id,
-        event_context=audit_event_service.context_from_headers(
+        event_context=context_from_headers(
             request.headers,
             actor_user_id=current_user.id,
         ),

@@ -15,7 +15,7 @@ from models import (
     File,
     Folder,
     FolderAccess,
-    PARSE_STATUS_COMPLETED,
+    META_EXTRACT_STATUS_COMPLETED,
     User,
 )
 from schema_plan import BucketTier, Permission, UserRole
@@ -191,7 +191,7 @@ def make_file(
         blob_id=blob.id,
         uploaded_by=user.id,
         name=name,
-        parse_status=PARSE_STATUS_COMPLETED,
+        meta_extract_status=META_EXTRACT_STATUS_COMPLETED,
         meta=meta,
     )
     db_session.add(file)

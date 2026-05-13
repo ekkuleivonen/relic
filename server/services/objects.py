@@ -13,10 +13,11 @@ from sqlalchemy.orm import Session
 
 from file_meta import build_file_meta, validate_file_meta_dict
 from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
-from models import Blob, Bucket, File, Folder, PARSE_STATUS_PENDING, User
+from models import Blob, Bucket, File, Folder, META_EXTRACT_STATUS_PENDING, User
 from schema_plan import BucketTier, Permission
 from services import folder_access as folder_access_service
-from services.audit_events import AuditEventContext, elapsed_ms, timer_start
+from services.audit_events import elapsed_ms, timer_start
+from services.event_context import EventContext
 from services.file_events import create_file_event
 from services.folder_storage_policy import effective_min_tier
 from services.placement import adjust_bucket_usage_cache, choose_bucket
@@ -80,7 +81,7 @@ def put_object(
     content_hash: bytes | None = None,
     size_bytes: int | None = None,
     allow_overwrite: bool = True,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> PutObjectResult:
     folder, file_name = resolve_object_path(
         db,
@@ -136,7 +137,7 @@ def put_object(
             blob_id=blob.id,
             uploaded_by=current_user.id,
             name=file_name,
-            parse_status=PARSE_STATUS_PENDING,
+            meta_extract_status=META_EXTRACT_STATUS_PENDING,
             meta=build_file_meta(
                 file_name=file_name,
                 size=object_size,
@@ -150,7 +151,7 @@ def put_object(
         old_blob = db.get(Blob, previous_blob_id)
         file.blob_id = blob.id
         file.uploaded_by = current_user.id
-        file.parse_status = PARSE_STATUS_PENDING
+        file.meta_extract_status = META_EXTRACT_STATUS_PENDING
         file.meta = build_file_meta(
             file_name=file_name,
             size=object_size,
@@ -195,7 +196,7 @@ def resolve_object_path(
     bucket_name: str,
     key: str,
     current_user: User | None = None,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> tuple[Folder, str]:
     normalized_key = normalize_key(key)
     parts = [part for part in PurePosixPath(normalized_key).parts if part not in ("", ".")]
@@ -237,7 +238,7 @@ def get_or_create_child_folder(
     parent: Folder,
     name: str,
     current_user: User | None = None,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> Folder:
     child = db.scalar(
         select(Folder).where(Folder.parent_id == parent.id, Folder.name == name)
@@ -371,7 +372,7 @@ def delete_object(
     bucket_name: str,
     key: str,
     current_user: User | None = None,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> DeleteObjectResult:
     """
     Delete a File by bucket+key and decrement the Blob refcount.
@@ -464,7 +465,7 @@ def copy_object(
     ingest_meta: dict,
     metadata_directive: str = METADATA_DIRECTIVE_COPY,
     current_user: User,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> CopyObjectResult:
     """
     S3 CopyObject - metadata-only copy. The new File points at the same Blob;
@@ -532,7 +533,7 @@ def copy_object(
         blob_id=blob.id,
         uploaded_by=current_user.id,
         name=dest_file_name,
-        parse_status=PARSE_STATUS_PENDING,
+        meta_extract_status=META_EXTRACT_STATUS_PENDING,
         meta=copied_meta,
     )
     db.add(new_file)

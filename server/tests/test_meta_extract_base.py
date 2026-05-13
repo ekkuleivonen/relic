@@ -1,4 +1,4 @@
-"""Tests for metadata extraction dispatch helpers."""
+"""Tests for the meta_extract substrate base helpers."""
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -6,7 +6,13 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from file_meta import build_file_meta
-from models import AuditEvent, Base, File, PARSE_STATUS_COMPLETED, PARSE_STATUS_FAILED
+from models import (
+    AuditEvent,
+    Base,
+    File,
+    META_EXTRACT_STATUS_COMPLETED,
+    META_EXTRACT_STATUS_FAILED,
+)
 from processors.meta_extract.base import detect_mime_type, is_parquet_file, parse_file
 from schema_plan import BucketTier
 from tests.factories.models import BlobFactory, BucketFactory, FolderFactory, UserFactory
@@ -76,7 +82,7 @@ def test_parse_csv_file_accepts_legacy_meta_missing_summary(
 
     parsed = parse_file(db_session, file.id)
 
-    assert parsed.parse_status == PARSE_STATUS_COMPLETED
+    assert parsed.meta_extract_status == META_EXTRACT_STATUS_COMPLETED
     assert parsed.meta["summary"] == "CSV table with 2 rows and 2 columns"
     assert parsed.meta["kvs"]["row_count"] == 2
     assert db_session.scalars(select(AuditEvent)).all() == []
@@ -112,5 +118,5 @@ def test_parse_failure_marks_file_failed_without_audit_event(
         parse_file(db_session, file.id)
 
     db_session.refresh(file)
-    assert file.parse_status == PARSE_STATUS_FAILED
+    assert file.meta_extract_status == META_EXTRACT_STATUS_FAILED
     assert db_session.scalars(select(AuditEvent)).all() == []

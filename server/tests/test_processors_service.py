@@ -4,7 +4,6 @@ Covers CRUD, dispatch surfacing, the worker execute pipeline, and operator
 actions. All tests run against an in-memory SQLite database.
 """
 
-import datetime as dt
 import uuid
 
 import pytest
@@ -22,7 +21,7 @@ from models import (
 )
 from processors.registry import init_builtin_substrates
 from services import processors as processor_service
-from services.audit_events import AuditEventContext
+from services.event_context import EventContext
 from services.file_events import create_file_event
 from tests.factories.models import (
     FileEventFactory,
@@ -148,7 +147,7 @@ def test_update_processor_writes_audit_event(db_session):
         db_session,
         processor_id=processor.id,
         enabled=False,
-        event_context=AuditEventContext(actor_user_id=actor.id, request_id="req-1"),
+        event_context=EventContext(actor_user_id=actor.id, request_id="req-1"),
     )
 
     refreshed = db_session.get(Processor, processor.id)
@@ -408,9 +407,18 @@ def test_execute_processor_event_skips_when_already_processed(
     assert parse_calls == []
 
 
-def test_execute_processor_event_advances_through_unsubscribed_events(
+def test_execute_processor_event_refuses_non_subscribed(
     session_factory, monkeypatch
 ):
+    """Workers refuse non-subscribed events instead of jumping the cursor.
+
+    The dispatcher already filters on ``subscribed_event_types``, so reaching
+    the worker with an event the processor wouldn't run can only happen if a
+    stale enqueue races a subscription edit. We do not silently advance over
+    work the new subscription wants — we no-op and let the next dispatcher
+    tick refresh from the DB.
+    """
+
     monkeypatch.setattr(
         "processors.meta_extract.base.parse_file", lambda db, file_id: None
     )
@@ -424,7 +432,7 @@ def test_execute_processor_event_advances_through_unsubscribed_events(
         event = _make_event(bootstrap_db, event_type="file.deleted")
         processor_id = processor.id
         event_id = event.id
-        event_offset = event.offset
+        starting_cursor = processor.last_committed_offset
         bootstrap_db.commit()
 
     result = processor_service.execute_processor_event(
@@ -433,8 +441,11 @@ def test_execute_processor_event_advances_through_unsubscribed_events(
         event_id=event_id,
     )
 
-    assert result.status == "skipped_not_subscribed"
-    assert result.advanced_to_offset == event_offset
+    assert result.status == "skipped_missing_event"
+    assert result.advanced_to_offset is None
+    with session_factory() as verify_db:
+        refreshed = verify_db.get(Processor, processor_id)
+        assert refreshed.last_committed_offset == starting_cursor
 
 
 def test_rewind_cursor_writes_audit(db_session):
@@ -450,7 +461,7 @@ def test_rewind_cursor_writes_audit(db_session):
         processor_id=processor.id,
         target_offset=2,
         reason="reprocess after schema fix",
-        event_context=AuditEventContext(actor_user_id=actor.id, request_id="r"),
+        event_context=EventContext(actor_user_id=actor.id, request_id="r"),
     )
 
     refreshed = db_session.get(Processor, processor.id)
@@ -518,23 +529,25 @@ def test_skip_stuck_event_advances_and_audits(db_session):
         processor_id=processor.id,
         event_id=event.id,
         reason="poison pill",
-        event_context=AuditEventContext(actor_user_id=actor.id, request_id="r"),
+        event_context=EventContext(actor_user_id=actor.id, request_id="r"),
     )
 
     refreshed = db_session.get(Processor, processor.id)
     assert refreshed.last_committed_offset == event.offset
 
-    skipped_event = db_session.scalars(
-        select(FileEvent).where(
-            FileEvent.event_type == "processor.meta_extract.skipped"
-        )
-    ).one()
-    assert skipped_event.payload["reason"] == "poison pill"
+    # Skips are an admin intervention, not part of the content stream — they
+    # only land in audit_events. External consumers must not see a synthetic
+    # outcome event for an event the processor never actually ran.
+    outcomes = db_session.scalars(
+        select(FileEvent).where(FileEvent.event_type.like("processor.%"))
+    ).all()
+    assert outcomes == []
 
     audit = db_session.scalars(
         select(AuditEvent).where(AuditEvent.operation == "processor.cursor.skipped")
     ).one()
     assert audit.meta["skipped_event_id"] == str(event.id)
+    assert audit.meta["reason"] == "poison pill"
 
 
 def test_skip_stuck_event_rejects_already_processed(db_session):

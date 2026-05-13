@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from managers.exceptions import ResourceNotFound
 from models import AccessKey, User
-from services.audit_events import AuditEventContext, create_audit_event
+from services.audit_events import create_audit_event
+from services.event_context import EventContext
 from services.users import get_user
 from utils.logging import get_logger
 
@@ -42,7 +43,7 @@ def create_access_key(
     *,
     user_id: uuid.UUID,
     name: str,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> CreatedAccessKey:
     user = get_user(db, user_id)
     key_id = generate_key_id()
@@ -95,7 +96,7 @@ def get_access_key_by_key_id(db: Session, key_id: str) -> AccessKeyRow:
 
 
 def revoke_access_key(
-    db: Session, key_id: str, *, event_context: AuditEventContext | None = None
+    db: Session, key_id: str, *, event_context: EventContext | None = None
 ) -> AccessKeyRow:
     row = get_access_key_by_key_id(db, key_id)
     if row.access_key.revoked_at is None:
@@ -126,7 +127,7 @@ def revoke_access_key(
 
 
 def delete_access_key(
-    db: Session, key_id: str, *, event_context: AuditEventContext | None = None
+    db: Session, key_id: str, *, event_context: EventContext | None = None
 ) -> None:
     row = get_access_key_by_key_id(db, key_id)
     metadata = {

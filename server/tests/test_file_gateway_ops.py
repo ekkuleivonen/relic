@@ -460,7 +460,6 @@ def test_presigned_head_does_not_emit_audit_event(
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     upload_file(client, photos_folder, filename="cat.jpg", content=b"cat photo")
-    file = db_session.scalar(select(File).where(File.name == "cat.jpg"))
     signed = s3_signing.sign_request_url(
         method="HEAD",
         bucket="photos",

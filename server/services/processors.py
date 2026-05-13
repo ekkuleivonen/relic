@@ -40,7 +40,7 @@ from processors.registry import (
     validate_subscribed_event_types,
 )
 from services import audit_events as audit_event_service
-from services.audit_events import AuditEventContext
+from services.event_context import EventContext
 from services.file_events import create_file_event
 from utils.logging import get_logger
 
@@ -79,7 +79,7 @@ class PendingDispatchJob:
 class ExecutionResult:
     """What the worker handler reports back for logging/metrics."""
 
-    status: str  # 'ok' | 'failed' | 'skipped_disabled' | 'skipped_already_processed' | 'skipped_not_subscribed' | 'skipped_missing_event'
+    status: str  # 'ok' | 'failed' | 'skipped_disabled' | 'skipped_missing_processor' | 'skipped_already_processed' | 'skipped_missing_event'
     advanced_to_offset: int | None
     duration_ms: int
 
@@ -98,7 +98,7 @@ def create_processor(
     config: dict | None = None,
     enabled: bool = True,
     source: str = PROCESSOR_SOURCE_ADMIN,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> Processor:
     cleaned_name = _clean_required(name, "name")
     cleaned_kind = _clean_required(kind, "kind")
@@ -186,7 +186,7 @@ def update_processor(
     enabled: bool | None = None,
     subscribed_event_types: list[str] | None = None,
     config: dict | None = None,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> Processor:
     processor = require_processor(db, processor_id)
     if processor.source == PROCESSOR_SOURCE_SEED and (
@@ -249,7 +249,7 @@ def delete_processor(
     db: Session,
     *,
     processor_id: uuid.UUID,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> None:
     processor = require_processor(db, processor_id)
     if processor.source == PROCESSOR_SOURCE_SEED:
@@ -357,8 +357,14 @@ def collect_pending_jobs(
 ) -> list[PendingDispatchJob]:
     """One pass over enabled processors.
 
-    Return at most one event per processor so a processor has a single in-flight
-    job and the cursor can only advance contiguously.
+    Returns at most one event per processor: the oldest event past the cursor
+    whose ``event_type`` is in the processor's subscription. Unsubscribed
+    events are invisible to the cursor — the worker only sees events it would
+    actually handle. This keeps lag metrics meaningful and avoids wasted
+    worker round-trips for events the processor would skip anyway.
+
+    ``batch_size`` is currently a soft cap on the number of jobs returned per
+    tick (≤ one per enabled processor), kept for future fan-out batches.
     """
     if batch_size < 1:
         raise BadRequestError("batch_size must be >= 1")
@@ -376,29 +382,35 @@ def collect_pending_jobs(
             continue
         row = db.execute(
             select(FileEvent.id, FileEvent.offset, FileEvent.event_type)
-            .where(FileEvent.offset > processor.last_committed_offset)
+            .where(
+                FileEvent.offset > processor.last_committed_offset,
+                FileEvent.event_type.in_(processor.subscribed_event_types),
+            )
             .order_by(FileEvent.offset.asc())
             .limit(1)
         ).one_or_none()
-        if row is not None:
-            event_id, event_offset, event_type = row
-            if processor.last_failed_event_id == event_id:
-                log.info(
-                    "processor_dispatch_suppressed_failed_event",
-                    processor_id=str(processor.id),
-                    processor_name=processor.name,
-                    event_id=str(event_id),
-                    offset=int(event_offset),
-                )
-                continue
-            jobs.append(
-                PendingDispatchJob(
-                    processor_id=processor.id,
-                    event_id=event_id,
-                    event_offset=int(event_offset),
-                    event_type=event_type,
-                )
+        if row is None:
+            continue
+        event_id, event_offset, event_type = row
+        if processor.last_failed_event_id == event_id:
+            log.info(
+                "processor_dispatch_suppressed_failed_event",
+                processor_id=str(processor.id),
+                processor_name=processor.name,
+                event_id=str(event_id),
+                offset=int(event_offset),
             )
+            continue
+        jobs.append(
+            PendingDispatchJob(
+                processor_id=processor.id,
+                event_id=event_id,
+                event_offset=int(event_offset),
+                event_type=event_type,
+            )
+        )
+        if len(jobs) >= batch_size:
+            break
     return jobs
 
 
@@ -428,7 +440,12 @@ def execute_processor_event(
             select(Processor).where(Processor.id == processor_id).with_for_update()
         )
         if processor is None:
-            return _result("skipped_disabled", None, started_at)
+            log.warning(
+                "processor_missing",
+                processor_id=str(processor_id),
+                event_id=str(event_id),
+            )
+            return _result("skipped_missing_processor", None, started_at)
         if not processor.enabled:
             log.info(
                 "processor_skipped_disabled",
@@ -449,17 +466,20 @@ def execute_processor_event(
         if event.offset <= processor.last_committed_offset:
             return _result("skipped_already_processed", None, started_at)
 
+        # Subscription is enforced by the dispatcher (collect_pending_jobs).
+        # If a non-subscribed event still reaches here (admin retried a
+        # stale enqueue, subscription was edited between dispatch and run,
+        # etc.) we refuse to silently jump the cursor — that would skip work
+        # the new subscription wants. Treat it as a missing event so the
+        # cursor stays put and the next tick refreshes from the DB.
         if event.event_type not in processor.subscribed_event_types:
-            log.info(
+            log.warning(
                 "processor_event_not_subscribed",
                 processor_id=str(processor_id),
                 event_id=str(event_id),
                 event_type=event.event_type,
             )
-            processor.last_committed_offset = event.offset
-            processor.last_committed_at = now()
-            db.commit()
-            return _result("skipped_not_subscribed", event.offset, started_at)
+            return _result("skipped_missing_event", None, started_at)
 
         substrate = get_substrate(processor.kind)
         ctx = ProcessorContext(
@@ -553,7 +573,7 @@ def rewind_cursor(
     processor_id: uuid.UUID,
     target_offset: int,
     reason: str,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> Processor:
     """Move the cursor backward to *target_offset*.
 
@@ -602,7 +622,7 @@ def skip_stuck_event(
     processor_id: uuid.UUID,
     event_id: uuid.UUID,
     reason: str,
-    event_context: AuditEventContext | None = None,
+    event_context: EventContext | None = None,
 ) -> Processor:
     """Advance the cursor past *event_id* without running its handler.
 
@@ -631,23 +651,6 @@ def skip_stuck_event(
     processor.last_committed_offset = event.offset
     processor.last_committed_at = dt.datetime.now(dt.UTC)
     _clear_failure_state(processor)
-    create_file_event(
-        db,
-        event_type=f"processor.{processor.kind}.skipped",
-        status="failed",
-        actor_user_id=event_context.actor_user_id if event_context else None,
-        request_id=event_context.request_id if event_context else None,
-        file_id=event.file_id,
-        folder_id=event.folder_id,
-        payload={
-            "processor": processor.name,
-            "kind": processor.kind,
-            "source_event_id": str(event.id),
-            "source_event_offset": event.offset,
-            "source_event_type": event.event_type,
-            "reason": cleaned_reason,
-        },
-    )
     db.flush()
 
     if event_context is not None:

@@ -21,9 +21,6 @@ class AuditEventRead(BaseModel):
     actor_user_id: uuid.UUID | None
     actor: UserRead | None
     request_id: str | None
-    file_ids: list[str]
-    folder_ids: list[str]
-    blob_ids: list[str]
     metadata: dict
     created_at: dt.datetime
     updated_at: dt.datetime
@@ -37,9 +34,6 @@ class AuditEventRead(BaseModel):
             actor_user_id=event.actor_user_id,
             actor=UserRead.model_validate(event.actor) if event.actor else None,
             request_id=event.request_id,
-            file_ids=event.file_ids,
-            folder_ids=event.folder_ids,
-            blob_ids=event.blob_ids,
             metadata=event.meta,
             created_at=event.created_at,
             updated_at=event.updated_at,
