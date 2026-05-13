@@ -81,15 +81,6 @@ async def create_user(
     )
 
 
-@router.get("/me")
-async def get_me(request: Request) -> Response:
-    """
-    GET /users/me -> the authenticated user's own record.
-    Convenience endpoint; returns same shape as GET /users/{id}.
-    """
-    raise NotImplementedError
-
-
 @router.get("/{user_id}")
 async def get_user(user_id: uuid.UUID, request: Request, db: DbSession) -> UserRead:
     """
@@ -130,7 +121,7 @@ async def delete_user(
     """
     DELETE /users/{id} -> hard delete. Admin-only.
     Cascades: revoke all access keys, drop folder access rows.
-    Files owned/uploaded by user are NOT deleted; ownership becomes null.
+    Users with uploaded files cannot be deleted.
     """
     user_service.delete_user(
         db,

@@ -47,6 +47,7 @@ const EVENT_TYPE_OPTIONS = [
   "file.updated",
   "file.metadata.updated",
   "file.moved",
+  "file.renamed",
   "file.copied",
   "file.deleted",
   "folder.created",

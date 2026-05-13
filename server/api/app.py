@@ -9,7 +9,6 @@ from services import health as health_service
 from .access_keys import router as access_keys_router
 from .audit_events import router as audit_events_router
 from .auth import router as auth_router
-from .blobs import router as blobs_router
 from .buckets import router as buckets_router
 from .dependencies import require_admin, require_user
 from .exception_handlers import register_exception_handlers
@@ -87,12 +86,6 @@ app.include_router(
     prefix=f"{API_PREFIX}/uploads",
     tags=["uploads"],
     dependencies=[Depends(require_user)],
-)
-app.include_router(
-    blobs_router,
-    prefix=f"{API_PREFIX}/blobs",
-    tags=["blobs"],
-    dependencies=[Depends(require_admin)],
 )
 app.include_router(
     audit_events_router,

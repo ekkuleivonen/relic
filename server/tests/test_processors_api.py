@@ -90,7 +90,7 @@ def test_create_processor_returns_lag(client, db_session):
     assert body["pending_count"] == 0
     assert body["head_offset"] == 0
     assert sorted(body["subscribed_event_types"]) == sorted(
-        ["file.created", "file.updated", "file.copied", "file.moved"]
+        ["file.created", "file.updated", "file.copied", "file.renamed"]
     )
     assert body["folder_scopes"] == []
 

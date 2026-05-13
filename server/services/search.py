@@ -109,11 +109,11 @@ class FacetValue:
 
 @dataclass(frozen=True)
 class Facets:
-    """Drillsight facet counts. Each axis is computed against the result set
+    """Facet counts. Each axis is computed against the result set
     with that axis's own filter cleared so the user can switch facet values
     without the panel collapsing to one entry.
 
-    ``kvs_keys`` counts how many files in the (drillsight) match set carry
+    ``kvs_keys`` counts how many files in the matching result set carry
     each ``meta.kvs`` key. It powers the kvs filter editor's key picker so
     users see only keys that actually exist in their corpus."""
 

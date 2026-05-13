@@ -195,7 +195,7 @@ def resolve_object_path(
     *,
     bucket_name: str,
     key: str,
-    current_user: User | None = None,
+    current_user: User,
     event_context: EventContext | None = None,
 ) -> tuple[Folder, str]:
     normalized_key = normalize_key(key)
@@ -237,7 +237,7 @@ def get_or_create_child_folder(
     *,
     parent: Folder,
     name: str,
-    current_user: User | None = None,
+    current_user: User,
     event_context: EventContext | None = None,
 ) -> Folder:
     child = db.scalar(
@@ -246,20 +246,19 @@ def get_or_create_child_folder(
     if child:
         return child
 
-    if current_user is not None:
-        folder_access_service.require_folder_permission_strict(
-            db,
-            current_user,
-            parent.id,
-            Permission.WRITE,
-        )
+    folder_access_service.require_folder_permission_strict(
+        db,
+        current_user,
+        parent.id,
+        Permission.WRITE,
+    )
 
-        child = Folder(
-            parent_id=parent.id,
-            name=name,
-            cooldown_days=None,
-            min_tier=None,
-        )
+    child = Folder(
+        parent_id=parent.id,
+        name=name,
+        cooldown_days=None,
+        min_tier=None,
+    )
     db.add(child)
     db.flush()
     if event_context is not None:

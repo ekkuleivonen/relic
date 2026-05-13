@@ -35,7 +35,7 @@ import {
 
 type KvsFilterEditorProps = {
   onAdd: (filter: KvsFilter) => void
-  /** kvs keys that exist in the (drillsight) result set, with file counts.
+  /** kvs keys that exist in the matching result set, with file counts.
    * Used to populate the key picker so the user picks from real data
    * instead of guessing. The user can still enter a custom key. */
   availableKeys: FacetValue[]

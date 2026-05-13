@@ -20,7 +20,7 @@ DEFAULT_SUBSCRIBED_EVENT_TYPES = (
     "file.created",
     "file.updated",
     "file.copied",
-    "file.moved",
+    "file.renamed",
 )
 
 VALID_EVENT_TYPES = DEFAULT_SUBSCRIBED_EVENT_TYPES
@@ -36,18 +36,6 @@ def handle(db: Session, ctx: ProcessorContext) -> None:
             event_type=event.event_type,
         )
         return
-
-    if event.event_type == "file.moved":
-        from_name = (event.payload or {}).get("from_name")
-        to_name = (event.payload or {}).get("to_name")
-        if from_name == to_name:
-            log.info(
-                "meta_extract_skipped_move_no_rename",
-                processor=ctx.processor_name,
-                event_id=str(event.id),
-                file_id=str(event.file_id),
-            )
-            return
 
     try:
         base.parse_file(db, event.file_id)

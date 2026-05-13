@@ -342,7 +342,7 @@ function FolderRow({ entry }: FolderRowProps) {
 }
 
 type FileRowProps = {
-  entry: Extract<FileSystemEntry, { kind: "blob" }>
+  entry: Extract<FileSystemEntry, { kind: "file" }>
 }
 
 function FileRow({ entry }: FileRowProps) {
@@ -448,7 +448,7 @@ function FileRow({ entry }: FileRowProps) {
             draggable.isDragging && "cursor-grabbing"
           )}
         >
-          <RowIcon kind="blob" />
+          <RowIcon kind="file" />
         </TableCell>
         <TableCell className="font-medium">
           {editing ? (
@@ -521,7 +521,7 @@ function FileRow({ entry }: FileRowProps) {
   )
 }
 
-function RowIcon({ kind }: { kind: "folder" | "blob" }) {
+function RowIcon({ kind }: { kind: "folder" | "file" }) {
   const Icon = kind === "folder" ? FolderIcon : FileIcon
   return (
     <div className="flex size-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
@@ -530,14 +530,14 @@ function RowIcon({ kind }: { kind: "folder" | "blob" }) {
   )
 }
 
-/** Subfolders are sorted locally; file blobs keep API order (server-side sort + pagination). */
+/** Subfolders are sorted locally; files keep API order (server-side sort + pagination). */
 function orderFolderTableEntries(
   entries: FileSystemEntry[],
   sort: FolderContentsSortState
 ): FileSystemEntry[] {
   const dirMul = sort.dir === "asc" ? 1 : -1
   const folders = entries.filter((entry) => entry.kind === "folder")
-  const files = entries.filter((entry) => entry.kind === "blob")
+  const files = entries.filter((entry) => entry.kind === "file")
   const folderSorted = [...folders].sort(
     (a, b) => a.name.localeCompare(b.name) * dirMul
   )

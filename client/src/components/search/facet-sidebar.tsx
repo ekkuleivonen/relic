@@ -16,8 +16,8 @@ type FacetSidebarProps = {
 
 /** Faceted browsing panel. Each axis (tags, MIME, extension) shows top values
  * with their counts; clicking toggles that value in the matching SearchQuery
- * filter. Facet counts are drillsight (the active filter on the same axis is
- * ignored when computing counts) so the panel keeps working as the user
+ * filter. Counts ignore the active filter on the same axis, so the panel
+ * keeps working as the user
  * narrows. */
 export function FacetSidebar({
   facets,

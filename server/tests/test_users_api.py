@@ -6,8 +6,10 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from database import get_db
-from models import Base, User
-from schema_plan import UserRole
+from file_meta import build_file_meta
+from models import Base, File, Folder, User
+from schema_plan import BucketTier, UserRole
+from tests.factories.models import BlobFactory, BucketFactory
 from services.auth import create_session_token
 from utils.passwords import hash_password
 
@@ -141,3 +143,43 @@ def test_delete_user(client, db_session):
 
     assert response.status_code == 204
     assert db_session.get(User, user.id) is None
+
+
+def test_delete_user_with_uploaded_files_returns_conflict(client, db_session):
+    user = User(
+        name="Ada Lovelace",
+        email="ada@example.com",
+        password_hash=hash_password("password"),
+        role=UserRole.ADMIN,
+    )
+    root = Folder(name="", parent_id=None, cooldown_days=None, min_tier=BucketTier.HOT)
+    db_session.add_all([user, root])
+    db_session.flush()
+    folder = Folder(
+        name="photos",
+        parent_id=root.id,
+        cooldown_days=None,
+        min_tier=BucketTier.HOT,
+    )
+    bucket = BucketFactory.build()
+    db_session.add_all([folder, bucket])
+    db_session.flush()
+    blob = BlobFactory.build(bucket_id=bucket.id)
+    db_session.add(blob)
+    db_session.flush()
+    db_session.add(
+        File(
+            folder_id=folder.id,
+            blob_id=blob.id,
+            uploaded_by=user.id,
+            name="cat.jpg",
+            meta=build_file_meta(file_name="cat.jpg", size=1, user_meta={}),
+        )
+    )
+    db_session.commit()
+
+    response = client.delete(f"/api/users/{user.id}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Cannot delete user with uploaded files"
+    assert db_session.get(User, user.id) is not None

@@ -162,7 +162,7 @@ export function UsersPage() {
             <AlertDialogTitle>Delete user?</AlertDialogTitle>
             <AlertDialogDescription>
               {deletingUser
-                ? `This will delete ${deletingUser.name} and cascade related access keys and folder access grants.`
+                ? `This will delete ${deletingUser.name} and cascade related access keys and folder access grants. Users with uploaded files cannot be deleted.`
                 : "This will delete the selected user."}
             </AlertDialogDescription>
           </AlertDialogHeader>

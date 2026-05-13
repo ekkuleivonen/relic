@@ -64,17 +64,13 @@ function FilesystemPageInner() {
   const params = useParams()
   const navigate = useNavigate()
   const routeFolderId = params.folderId
-  const legacyPathSegments = React.useMemo(
-    () => parsePathSegments(params["*"] ?? ""),
-    [params]
-  )
   const folderTree = useFolderTree()
   const selectedFolder = React.useMemo(
     () =>
       routeFolderId
         ? findFolderById(folderTree.data, routeFolderId)
-        : findFolderByPath(folderTree.data, legacyPathSegments),
-    [folderTree.data, legacyPathSegments, routeFolderId]
+        : folderTree.data,
+    [folderTree.data, routeFolderId]
   )
   const [fileOffset, setFileOffset] = React.useState(0)
   const [sort, setSort] = React.useState<FolderContentsSortState>({
@@ -123,12 +119,6 @@ function FilesystemPageInner() {
     disabled:
       !selectedFolder || !can(selectedFolder.effective_permissions, PERM.WRITE),
   })
-
-  React.useEffect(() => {
-    if (!routeFolderId && selectedFolder && legacyPathSegments.length > 0) {
-      navigate(buildFolderRoute(selectedFolder), { replace: true })
-    }
-  }, [legacyPathSegments.length, navigate, routeFolderId, selectedFolder])
 
   const dnd = useFolderDnd({ tree: folderTree.data })
 
@@ -191,7 +181,6 @@ function FilesystemPageInner() {
                   <FilesystemBreadcrumbs
                     root={folderTree.data}
                     selectedFolder={selectedFolder}
-                    fallbackPathSegments={legacyPathSegments}
                   />
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -397,7 +386,7 @@ function renderContentState({
   if (isFilesError) {
     return (
       <ErrorState
-        title="Could not load blobs"
+        title="Could not load files"
         message={extractApiError(folderFilesError)}
         onRetry={onRetryFiles}
       />
@@ -409,7 +398,7 @@ function renderContentState({
       <EmptyState
         icon={Database}
         title="This folder is empty"
-        message="Sub-folders and blobs will appear here when they are created."
+        message="Sub-folders and files will appear here when they are created."
       />
     )
   }
@@ -436,15 +425,11 @@ function renderContentState({
 function FilesystemBreadcrumbs({
   root,
   selectedFolder,
-  fallbackPathSegments,
 }: {
   root: FolderTreeNode | undefined
   selectedFolder: FolderTreeNode | undefined
-  fallbackPathSegments: string[]
 }) {
-  const pathSegments = selectedFolder
-    ? parsePathSegments(selectedFolder.path)
-    : fallbackPathSegments
+  const pathSegments = selectedFolder ? parsePathSegments(selectedFolder.path) : []
   const parts = buildBreadcrumbParts(root, selectedFolder, pathSegments)
 
   return (
@@ -571,7 +556,7 @@ function buildFolderEntries(
     node: child,
   }))
   const fileEntries = files.map<FileSystemEntry>((file) => ({
-    kind: "blob",
+    kind: "file",
     id: file.id,
     name: file.name,
     size: file.meta.size,
@@ -582,18 +567,6 @@ function buildFolderEntries(
   }))
 
   return [...folderEntries, ...fileEntries]
-}
-
-function findFolderByPath(
-  root: FolderTreeNode | undefined,
-  pathSegments: string[]
-) {
-  if (!root) {
-    return undefined
-  }
-
-  const targetPath = buildPathHref(pathSegments)
-  return findFolderByHref(root, targetPath)
 }
 
 function getExpandedFolderIds(
@@ -607,28 +580,6 @@ function getExpandedFolderIds(
     ids.add(root.id)
   }
   return ids
-}
-
-function findFolderByHref(
-  folder: FolderTreeNode | undefined,
-  href: string
-): FolderTreeNode | undefined {
-  if (!folder) {
-    return undefined
-  }
-
-  if (buildPathHref(parsePathSegments(folder.path)) === href) {
-    return folder
-  }
-
-  for (const child of folder.children) {
-    const match = findFolderByHref(child, href)
-    if (match) {
-      return match
-    }
-  }
-
-  return undefined
 }
 
 function getDisplayedAncestorIds(
@@ -734,12 +685,20 @@ function parsePathSegments(path: string) {
     .map((segment) => decodeURIComponent(segment))
 }
 
-function buildPathHref(pathSegments: string[]) {
+function findFolderByPath(
+  root: FolderTreeNode | undefined,
+  pathSegments: string[]
+): FolderTreeNode | undefined {
+  if (!root) {
+    return undefined
+  }
   if (pathSegments.length === 0) {
-    return "/"
+    return root
   }
 
-  return `/${pathSegments.map(encodeURIComponent).join("/")}`
+  const [head, ...tail] = pathSegments
+  const child = root.children.find((folder) => folder.name === head)
+  return child ? findFolderByPath(child, tail) : undefined
 }
 
 function buildFolderRoute(folder: FolderTreeNode) {

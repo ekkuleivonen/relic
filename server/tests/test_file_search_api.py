@@ -605,7 +605,7 @@ def test_facets_basic_counts(client, db_session, user, bucket, photos_folder):
     assert ext_counts == {"jpg": 2, "pdf": 1}
 
 
-def test_facets_drillsight_keeps_other_tag_values_visible(
+def test_facets_keep_other_tag_values_visible(
     client, db_session, user, bucket, photos_folder
 ):
     grant(db_session, user, photos_folder, int(Permission.READ))
@@ -673,7 +673,7 @@ def test_facets_expose_kvs_keys_in_dataset(
     assert counts == {"row_count": 2, "column_count": 1, "duration_seconds": 1}
 
 
-def test_facets_kvs_keys_drillsight_ignores_active_kvs_filter(
+def test_facets_kvs_keys_ignore_active_kvs_filter(
     client, db_session, user, bucket, photos_folder
 ):
     grant(db_session, user, photos_folder, int(Permission.READ))
@@ -703,7 +703,7 @@ def test_facets_kvs_keys_drillsight_ignores_active_kvs_filter(
     assert body["total"] == 1
 
 
-def test_facets_mimetype_drillsight_with_active_mimetype_filter(
+def test_facets_mimetype_with_active_mimetype_filter(
     client, db_session, user, bucket, photos_folder
 ):
     grant(db_session, user, photos_folder, int(Permission.READ))

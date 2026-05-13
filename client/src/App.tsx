@@ -2,7 +2,6 @@ import { Navigate, Route, Routes } from "react-router"
 
 import { AdminLayout } from "@/components/layout/admin-layout"
 import { RequireSession } from "@/components/layout/route-guards"
-import { AdminPlaceholderPage } from "@/pages/admin/admin-placeholder-page"
 import { AccessKeysPage } from "@/pages/admin/access-keys-page"
 import { AuditEventsPage } from "@/pages/admin/audit-events-page"
 import { BucketsPage } from "@/pages/admin/buckets-page"
@@ -31,31 +30,13 @@ export function App() {
           <Route path="file-events" element={<FileEventsPage />} />
           <Route path="maintenance-events" element={<MaintenanceEventsPage />} />
           <Route path="processors" element={<ProcessorsPage />} />
-          <Route
-            path="files"
-            element={
-              <AdminPlaceholderPage
-                title="Files"
-                description="Inspect logical file references and metadata."
-              />
-            }
-          />
-          <Route
-            path="blobs"
-            element={
-              <AdminPlaceholderPage
-                title="Blobs"
-                description="Inspect physical blob placement, refcounts, and migration state."
-              />
-            }
-          />
         </Route>
       </Route>
       <Route element={<RequireSession />}>
+        <Route path="/" element={<FilesystemPage />} />
         <Route path="/search" element={<SearchPage />} />
         <Route path="/folder/:folderId" element={<FilesystemPage />} />
         <Route path="/file/:fileId" element={<FileDetailPage />} />
-        <Route path="*" element={<FilesystemPage />} />
       </Route>
     </Routes>
   )

@@ -13,8 +13,6 @@ const adminNavItems = [
   { to: "/admin/file-events", label: "File Events" },
   { to: "/admin/maintenance-events", label: "Maintenance Events" },
   { to: "/admin/processors", label: "Processors" },
-  { to: "/admin/files", label: "Files" },
-  { to: "/admin/blobs", label: "Blobs" },
 ] as const
 
 export function AdminLayout() {

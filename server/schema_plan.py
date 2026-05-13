@@ -15,7 +15,7 @@ class Permission(enum.IntFlag):
     READ = 1
     WRITE = 2
     DELETE = 4
-    ENRICH = 8  # for processors/transformers updating meta
+    ENRICH = 8  # for processors/substrates updating meta
 
 
 class BucketTier(enum.IntEnum):

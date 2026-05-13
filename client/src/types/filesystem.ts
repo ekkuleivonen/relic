@@ -75,7 +75,7 @@ export type FileSystemEntry =
       node: FolderTreeNode
     }
   | {
-      kind: "blob"
+      kind: "file"
       id: string
       name: string
       size?: number

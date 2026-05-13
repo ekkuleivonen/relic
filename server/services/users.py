@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from managers.exceptions import ConflictError, ResourceNotFound
-from models import User
+from models import File, User
 from services.audit_events import create_audit_event
 from services.event_context import EventContext
 from utils.passwords import hash_password
@@ -94,6 +94,12 @@ def delete_user(
     db: Session, user_id: uuid.UUID, *, event_context: EventContext | None = None
 ) -> None:
     user = get_user(db, user_id)
+    uploaded_file_id = db.scalar(
+        select(File.id).where(File.uploaded_by == user.id).limit(1)
+    )
+    if uploaded_file_id is not None:
+        raise ConflictError("Cannot delete user with uploaded files")
+
     metadata = {"user_id": str(user.id), "email": user.email}
     actor_user_id = event_context.actor_user_id if event_context else None
     if actor_user_id == user.id:

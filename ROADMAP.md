@@ -22,12 +22,18 @@ operational guardrails.
   probe-state, and configuration readiness.
 - Configuration readiness warns on local-development defaults for secrets.
 - Worker status visibility is partially shipped through queue depth and oldest
-  pending job age for both queues. Remaining work: explicit worker heartbeat
-  state and per-processor cursor lag versus the head of `file_events`.
+  pending job age for both queues. Processor admin/API visibility includes
+  cursor, head offset, pending count, failure state, and last commit time.
+  Remaining work: explicit worker heartbeat state and Prometheus gauges for
+  queue and processor lag.
+- Prometheus-compatible `/metrics` has not shipped yet. The metric families in
+  "Observability and Metrics" are the planned scrape contract, not current API
+  surface.
 
-After health/readiness, prioritize S3 gateway coverage next. It is the best
-follow-up if the immediate goal is client compatibility. Pick external activity
-sinks instead if downstream event delivery becomes more urgent, or admin
+After health/readiness, prioritize native S3 gateway authentication and
+compatibility testing if the immediate goal is client compatibility. Pick
+Prometheus metrics if operational alerting is the bigger need, external
+activity sinks if downstream event delivery becomes more urgent, or admin
 file/blob inspection if operator inventory is the bigger UX gap.
 
 ## Platform Layer
@@ -154,8 +160,9 @@ Derived views:
 
 ### S3 Gateway Coverage
 
-The current gateway focuses on object operations. Broader compatibility
-would make Relic easier to use with existing tooling.
+The gateway now covers the core object, bucket, listing, and multipart flows
+that Relic itself exercises. Broader authentication and client compatibility
+would make it easier to use with existing tooling.
 
 - `ListBuckets` (shipped).
 - `HeadBucket` (shipped).
@@ -164,9 +171,10 @@ would make Relic easier to use with existing tooling.
 - Live compatibility smoke harness for current presigned-URL gateway flows
   (shipped).
 - Multipart upload lifecycle (shipped).
+- Access-key `Authorization` header authentication for normal S3 clients
+  (planned). The current supported flows use Relic presigned SigV4 query URLs.
 - Compatibility testing against common clients such as AWS CLI, boto3,
-  rclone, and DuckLake once access-key `Authorization` header auth is
-  supported.
+  rclone, and DuckLake after header authentication lands.
 
 ### Import and Sync
 
@@ -217,8 +225,9 @@ Processed metadata should become more visible and useful to users.
 
 ### Admin File and Blob Inspection
 
-The admin routes for files and blobs are currently placeholders. They
-should become operational inspection tools.
+The admin file and blob UI pages are currently placeholders. They should
+become operational inspection tools that make the existing file/blob state and
+storage placement easier to inspect.
 
 - Logical file inventory with filters for owner, folder, metadata
   extraction status, size, and metadata.
@@ -228,17 +237,20 @@ should become operational inspection tools.
 - Manual purge or repair workflows with strong safety checks.
 - Storage migration status and retry controls.
 
-## Final Observability Pass
+## Observability and Metrics
 
 ### Prometheus Metrics
 
-Relic exposes operational performance data through a Prometheus scrape
-endpoint. Event tables answer "what happened" with full-fidelity, queryable
-history; metrics answer "how is the system performing" with low-cardinality
-aggregates. High-volume read paths (S3 `GET` / `HEAD`, signed-URL fetches)
-only live in metrics — they never write to `file_events`.
+Relic should expose operational performance data through a Prometheus scrape
+endpoint. Today, the durable event tables and readiness endpoint are live;
+the Prometheus endpoint and metric families below are still planned.
 
-Initial endpoint:
+Event tables answer "what happened" with full-fidelity, queryable history;
+metrics answer "how is the system performing" with low-cardinality aggregates.
+High-volume read paths (S3 `GET` / `HEAD`, signed-URL fetches) should only
+live in metrics — they should never write to `file_events`.
+
+Planned endpoint:
 
 - `/metrics` for Prometheus-compatible counters, histograms, and gauges.
 

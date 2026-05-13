@@ -87,7 +87,7 @@ def test_create_processor_uses_substrate_defaults(db_session):
         "file.created",
         "file.updated",
         "file.copied",
-        "file.moved",
+        "file.renamed",
     ]
     assert processor.enabled is True
     assert processor.source == PROCESSOR_SOURCE_ADMIN
@@ -843,44 +843,7 @@ def test_execute_processor_event_double_run_emits_outcome_once(
         assert len(outcomes) == 1
 
 
-def test_meta_extract_skips_move_without_rename(session_factory, monkeypatch):
-    parsed = []
-
-    def fake_parse(db, file_id):
-        parsed.append(file_id)
-
-    monkeypatch.setattr(
-        "processors.meta_extract.base.parse_file", fake_parse
-    )
-
-    with session_factory() as bootstrap_db:
-        processor = ProcessorFactory.build(
-            name="meta_extract", subscribed_event_types=["file.moved"]
-        )
-        bootstrap_db.add(processor)
-        bootstrap_db.flush()
-        file_id = uuid.uuid4()
-        event = create_file_event(
-            bootstrap_db,
-            event_type="file.moved",
-            file_id=file_id,
-            payload={"from_name": "x.txt", "to_name": "x.txt"},
-        )
-        bootstrap_db.commit()
-        processor_id = processor.id
-        event_id = event.id
-        event_offset = event.offset
-
-    result = processor_service.execute_processor_event(
-        session_factory, processor_id=processor_id, event_id=event_id
-    )
-
-    assert result.status == "ok"
-    assert result.advanced_to_offset == event_offset
-    assert parsed == []  # handler bailed early without parse_file call
-
-
-def test_meta_extract_runs_on_move_with_rename(session_factory, monkeypatch):
+def test_meta_extract_runs_on_rename(session_factory, monkeypatch):
     parsed: list[uuid.UUID] = []
 
     def fake_parse(db, file_id):
@@ -892,14 +855,14 @@ def test_meta_extract_runs_on_move_with_rename(session_factory, monkeypatch):
 
     with session_factory() as bootstrap_db:
         processor = ProcessorFactory.build(
-            name="meta_extract", subscribed_event_types=["file.moved"]
+            name="meta_extract", subscribed_event_types=["file.renamed"]
         )
         bootstrap_db.add(processor)
         bootstrap_db.flush()
         file_id = uuid.uuid4()
         event = create_file_event(
             bootstrap_db,
-            event_type="file.moved",
+            event_type="file.renamed",
             file_id=file_id,
             payload={"from_name": "old.txt", "to_name": "new.txt"},
         )

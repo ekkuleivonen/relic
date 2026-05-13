@@ -201,7 +201,7 @@ async def file_facets(
         le=search_service.MAX_FACET_TOP,
     ),
 ) -> FacetsRead:
-    """Drillsight facet counts over the same query shape as `/search`.
+    """Facet counts over the same query shape as `/search`.
 
     Each axis (tags, mimetypes, extensions) is computed with its own filter
     cleared so the panel keeps working as the user toggles values.

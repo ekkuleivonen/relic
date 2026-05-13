@@ -213,6 +213,17 @@ New substrates plug in by registering a `kind`, a pydantic config model,
 and a handler. First-party substrates are upserted from `server/seed.py`;
 admin-managed substrates (future external sinks) are created from the API.
 
+### Operational Visibility
+
+- Admin views for audit events, file events, maintenance events, and
+  processors are live.
+- Processor admin includes enabled state, cursor lag, pause/resume, rewind,
+  and skip-stuck-event actions, with cursor changes written to `audit_events`.
+
+Prometheus-compatible `/metrics` is not implemented yet; it remains tracked in
+`ROADMAP.md` alongside lower-level gateway, API, processor, and maintenance
+metrics.
+
 ### Health and Readiness
 
 - `/healthz` reports basic API process liveness.
@@ -235,9 +246,10 @@ admin-managed substrates (future external sinks) are created from the API.
   `ListObjectsV2`.
 - Multipart upload lifecycle: create upload, upload part, complete, and abort.
 
-The S3 gateway still uses Relic presigned SigV4 query URLs. Native AWS CLI,
-boto3 client, rclone, and DuckLake checks should be added after the gateway
-accepts normal access-key `Authorization` header requests.
+The S3 gateway still uses Relic presigned SigV4 query URLs for the supported
+flows. Native AWS CLI, boto3 client, rclone, and DuckLake compatibility checks
+should be added after the gateway accepts normal access-key `Authorization`
+header requests.
 
 ## Architecture
 
@@ -304,6 +316,8 @@ These defaults are for local development only. Override secrets and seed values
 with environment variables before using non-local data.
 
 ## Useful Commands
+
+Backend commands use `uv` and require Python 3.14 or newer.
 
 Run the client locally:
 
@@ -423,4 +437,5 @@ dispatcher, the seeded `meta_extract` substrate, and production health /
 readiness endpoints are all live and developed against. Still tracked in
 `ROADMAP.md`: external activity sinks (webhook, SQS, Kafka, object-store),
 native-client S3 compatibility work, Prometheus metrics endpoint,
-import-from-bucket flows, quotas, retention, and versioning.
+import-from-bucket flows, quotas, retention, versioning, and richer admin
+file/blob inspection beyond the current placeholder UI pages.

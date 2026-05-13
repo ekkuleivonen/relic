@@ -75,9 +75,10 @@ def move_file(
         file.meta_extract_status = META_EXTRACT_STATUS_PENDING
     db.flush()
     if event_context is not None:
+        event_type = "file.renamed" if old_name != new_name else "file.moved"
         create_file_event(
             db,
-            event_type="file.moved",
+            event_type=event_type,
             actor_user_id=event_context.actor_user_id,
             request_id=event_context.request_id,
             file_id=file.id,
@@ -123,7 +124,7 @@ def rename_file(
     if event_context is not None:
         create_file_event(
             db,
-            event_type="file.moved",
+            event_type="file.renamed",
             actor_user_id=event_context.actor_user_id,
             request_id=event_context.request_id,
             file_id=file.id,
