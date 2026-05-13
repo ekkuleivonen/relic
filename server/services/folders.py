@@ -11,6 +11,7 @@ from models import Blob, File, Folder, User
 from schema_plan import Permission, UserRole
 from services.audit_events import AuditEventContext, create_audit_event
 from services import folder_access as folder_access_service
+from services.file_events import create_file_event
 from utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -50,6 +51,19 @@ def create_folder(
         db.flush()
         path = f"{folder_access_service.resolve_folder_path(db, parent).rstrip('/')}/{folder.name}"
         if event_context is not None:
+            create_file_event(
+                db,
+                event_type="folder.created",
+                actor_user_id=event_context.actor_user_id,
+                request_id=event_context.request_id,
+                folder_id=folder.id,
+                payload={
+                    "folder_id": str(folder.id),
+                    "parent_id": str(parent.id),
+                    "name": folder.name,
+                    "path": path,
+                },
+            )
             create_audit_event(
                 db,
                 operation="folder.created",
@@ -103,6 +117,10 @@ def update_folder(
                 "Only administrators can change folder storage policy."
             )
 
+    old_name = folder.name
+    old_parent_id = folder.parent_id
+    old_min_tier = folder.min_tier
+    old_cooldown_days = folder.cooldown_days
     changed = False
 
     if name is not None:
@@ -143,6 +161,26 @@ def update_folder(
     try:
         db.flush()
         if event_context is not None:
+            event_type = "folder.moved" if parent_id is not None else "folder.updated"
+            create_file_event(
+                db,
+                event_type=event_type,
+                actor_user_id=event_context.actor_user_id,
+                request_id=event_context.request_id,
+                folder_id=folder.id,
+                payload={
+                    "folder_id": str(folder.id),
+                    "from_parent_id": str(old_parent_id) if old_parent_id else None,
+                    "to_parent_id": str(folder.parent_id) if folder.parent_id else None,
+                    "from_name": old_name,
+                    "to_name": folder.name,
+                    "old_min_tier": old_min_tier,
+                    "new_min_tier": folder.min_tier,
+                    "old_cooldown_days": old_cooldown_days,
+                    "new_cooldown_days": folder.cooldown_days,
+                    "path": folder_access_service.resolve_folder_path(db, folder),
+                },
+            )
             create_audit_event(
                 db,
                 operation="folder.updated",
@@ -229,6 +267,34 @@ def delete_folder(
             blob.refcount = 0
 
     if event_context is not None:
+        for file in file_rows:
+            create_file_event(
+                db,
+                event_type="file.deleted",
+                actor_user_id=event_context.actor_user_id,
+                request_id=event_context.request_id,
+                file_id=file.id,
+                folder_id=file.folder_id,
+                payload={
+                    "file_id": str(file.id),
+                    "folder_id": str(file.folder_id),
+                    "name": file.name,
+                    "blob_id": str(file.blob_id),
+                },
+            )
+        create_file_event(
+            db,
+            event_type="folder.deleted",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            folder_id=folder_id,
+            payload={
+                "folder_id": str(folder_id),
+                "recursive": recursive,
+                "descendant_count": len(descendant_ids),
+                "file_count": len(file_rows),
+            },
+        )
         create_audit_event(
             db,
             operation="folder.deleted",
@@ -296,22 +362,25 @@ def duplicate_folder(
         raise ConflictError("A folder with that name already exists here.") from exc
 
     blob_increments: dict[uuid.UUID, int] = defaultdict(int)
+    copied_files: list[tuple[uuid.UUID, File, File]] = []
+    cloned_folders: list[Folder] = [cloned_root]
 
     def clone_files(source_id: uuid.UUID, target_id: uuid.UUID) -> None:
         files = list(
             db.scalars(select(File).where(File.folder_id == source_id)).all()
         )
         for file in files:
-            db.add(
-                File(
-                    folder_id=target_id,
-                    blob_id=file.blob_id,
-                    uploaded_by=file.uploaded_by,
-                    name=file.name,
-                    parse_status=file.parse_status,
-                    meta=dict(file.meta),
-                )
+            new_file = File(
+                folder_id=target_id,
+                blob_id=file.blob_id,
+                uploaded_by=file.uploaded_by,
+                name=file.name,
+                parse_status=file.parse_status,
+                meta=dict(file.meta),
             )
+            db.add(new_file)
+            db.flush()
+            copied_files.append((source_id, file, new_file))
             blob_increments[file.blob_id] += 1
 
     clone_files(source.id, cloned_root.id)
@@ -334,6 +403,7 @@ def duplicate_folder(
                 )
                 db.add(clone)
                 db.flush()
+                cloned_folders.append(clone)
                 cloned_by_source[child.id] = clone
                 clone_files(child.id, clone.id)
                 queue.append(child.id)
@@ -345,6 +415,40 @@ def duplicate_folder(
 
     try:
         if event_context is not None:
+            for cloned_folder in cloned_folders:
+                create_file_event(
+                    db,
+                    event_type="folder.created",
+                    actor_user_id=event_context.actor_user_id,
+                    request_id=event_context.request_id,
+                    folder_id=cloned_folder.id,
+                    payload={
+                        "folder_id": str(cloned_folder.id),
+                        "parent_id": str(cloned_folder.parent_id)
+                        if cloned_folder.parent_id
+                        else None,
+                        "name": cloned_folder.name,
+                        "source_folder_id": str(source.id),
+                        "copy": True,
+                    },
+                )
+            for source_folder_id, source_file, new_file in copied_files:
+                create_file_event(
+                    db,
+                    event_type="file.copied",
+                    actor_user_id=event_context.actor_user_id,
+                    request_id=event_context.request_id,
+                    file_id=new_file.id,
+                    folder_id=new_file.folder_id,
+                    payload={
+                        "source_file_id": str(source_file.id),
+                        "source_folder_id": str(source_folder_id),
+                        "new_file_id": str(new_file.id),
+                        "to_folder_id": str(new_file.folder_id),
+                        "name": new_file.name,
+                        "blob_id": str(new_file.blob_id),
+                    },
+                )
             create_audit_event(
                 db,
                 operation="folder.copied",

@@ -27,7 +27,7 @@ def parse_file(db: Session, file_id: uuid.UUID) -> File:
     parser_meta: dict | None = None
     file = require_file(db, file_id)
     file.parse_status = PARSE_STATUS_IN_PROGRESS
-    db.commit()
+    db.flush()
 
     try:
         blob = require_blob(db, file.blob_id)
@@ -47,12 +47,12 @@ def parse_file(db: Session, file_id: uuid.UUID) -> File:
         validate_parser_meta(parser_meta=parser_meta)
         file.meta = parser_meta
         file.parse_status = PARSE_STATUS_COMPLETED
-        db.commit()
+        db.flush()
         db.refresh(file)
         return file
-    except Exception as exc:
+    except Exception:
         file.parse_status = PARSE_STATUS_FAILED
-        db.commit()
+        db.flush()
         raise
 
 
@@ -73,7 +73,7 @@ def validate_parser_meta(*, parser_meta: dict) -> None:
     try:
         validate_file_meta_dict(parser_meta)
     except ValidationError as exc:
-        raise ValueError(f"Parser metadata invalid: {exc}") from exc
+        raise ValueError(f"Extracted metadata invalid: {exc}") from exc
 
 
 def detect_mime_type(*, prefix: bytes, filename: str) -> str:
@@ -125,7 +125,7 @@ def maybe_run_toolchain(
 ) -> None:
     try:
         if mime_type.startswith("image/"):
-            from parsers.toolchains.image import parse_image
+            from processors.meta_extract.toolchains.image import parse_image
 
             cap = settings.IMAGE_PARSE_MAX_BYTES
             content = read_blob_bytes_capped(
@@ -147,7 +147,7 @@ def maybe_run_toolchain(
             parser_meta.clear()
             parser_meta.update(merged)
         elif mime_type == "text/csv":
-            from parsers.toolchains.csv import parse_csv
+            from processors.meta_extract.toolchains.csv import parse_csv
 
             cap = settings.TABULAR_PARSE_MAX_BYTES
             content = read_blob_bytes_capped(
@@ -170,7 +170,7 @@ def maybe_run_toolchain(
             parser_meta.clear()
             parser_meta.update(merged)
         elif is_json_file(mime_type=mime_type, parser_meta=parser_meta):
-            from parsers.toolchains.json import parse_json
+            from processors.meta_extract.toolchains.json import parse_json
 
             cap = settings.JSON_PARSE_MAX_BYTES
             content = read_blob_bytes_capped(
@@ -193,7 +193,7 @@ def maybe_run_toolchain(
             parser_meta.clear()
             parser_meta.update(merged)
         elif mime_type == "application/pdf":
-            from parsers.toolchains.pdf import parse_pdf
+            from processors.meta_extract.toolchains.pdf import parse_pdf
 
             cap = settings.PDF_PARSE_MAX_BYTES
             content = read_blob_bytes_capped(
@@ -216,7 +216,7 @@ def maybe_run_toolchain(
             parser_meta.clear()
             parser_meta.update(merged)
         elif is_parquet_file(mime_type=mime_type, parser_meta=parser_meta):
-            from parsers.toolchains.parquet import parse_parquet
+            from processors.meta_extract.toolchains.parquet import parse_parquet
 
             cap = settings.PARQUET_PARSE_MAX_BYTES
             content = read_blob_bytes_capped(
@@ -239,7 +239,7 @@ def maybe_run_toolchain(
             parser_meta.clear()
             parser_meta.update(merged)
         elif is_audio_file(mime_type=mime_type, parser_meta=parser_meta):
-            from parsers.toolchains.audio import parse_audio
+            from processors.meta_extract.toolchains.audio import parse_audio
 
             cap = settings.AUDIO_PARSE_MAX_BYTES
             content = read_blob_bytes_capped(
@@ -262,7 +262,7 @@ def maybe_run_toolchain(
             parser_meta.clear()
             parser_meta.update(merged)
         elif is_video_file(mime_type=mime_type, parser_meta=parser_meta):
-            from parsers.toolchains.video import parse_video
+            from processors.meta_extract.toolchains.video import parse_video
 
             cap = settings.VIDEO_PARSE_MAX_BYTES
             content = read_blob_bytes_capped(
@@ -285,7 +285,7 @@ def maybe_run_toolchain(
             parser_meta.clear()
             parser_meta.update(merged)
         elif is_office_doc_file(mime_type=mime_type, parser_meta=parser_meta):
-            from parsers.toolchains.office_doc import parse_office_doc
+            from processors.meta_extract.toolchains.office_doc import parse_office_doc
 
             cap = settings.OFFICE_DOC_PARSE_MAX_BYTES
             content = read_blob_bytes_capped(
@@ -308,7 +308,7 @@ def maybe_run_toolchain(
             parser_meta.clear()
             parser_meta.update(merged)
         elif is_html_file(mime_type=mime_type, parser_meta=parser_meta):
-            from parsers.toolchains.html import parse_html
+            from processors.meta_extract.toolchains.html import parse_html
 
             cap = settings.HTML_PARSE_MAX_BYTES
             content = read_blob_bytes_capped(
@@ -331,7 +331,7 @@ def maybe_run_toolchain(
             parser_meta.clear()
             parser_meta.update(merged)
         elif is_archive_file(mime_type=mime_type, parser_meta=parser_meta):
-            from parsers.toolchains.archive import parse_archive
+            from processors.meta_extract.toolchains.archive import parse_archive
 
             cap = settings.ARCHIVE_PARSE_MAX_BYTES
             content = read_blob_bytes_capped(
@@ -354,7 +354,7 @@ def maybe_run_toolchain(
             parser_meta.clear()
             parser_meta.update(merged)
         elif is_text_file(mime_type=mime_type, parser_meta=parser_meta):
-            from parsers.toolchains.text import parse_text
+            from processors.meta_extract.toolchains.text import parse_text
 
             cap = settings.TEXT_PARSE_MAX_BYTES
             content = read_blob_bytes_capped(

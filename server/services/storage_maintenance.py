@@ -1,7 +1,7 @@
 """
 Background blob lifecycle: purge dereferenced blobs, bucket probes, and rebalancing.
 
-See workers called from parsers/worker.py (arq cron).
+See workers called from processors/worker_maintenance.py (arq cron).
 """
 
 import datetime as dt

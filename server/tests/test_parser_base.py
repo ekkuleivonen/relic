@@ -1,4 +1,4 @@
-"""Tests for parser dispatch helpers."""
+"""Tests for metadata extraction dispatch helpers."""
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from file_meta import build_file_meta
 from models import AuditEvent, Base, File, PARSE_STATUS_COMPLETED, PARSE_STATUS_FAILED
-from parsers.base import detect_mime_type, is_parquet_file, parse_file
+from processors.meta_extract.base import detect_mime_type, is_parquet_file, parse_file
 from schema_plan import BucketTier
 from tests.factories.models import BlobFactory, BucketFactory, FolderFactory, UserFactory
 
@@ -68,9 +68,9 @@ def test_parse_csv_file_accepts_legacy_meta_missing_summary(
     db_session.commit()
 
     csv_bytes = b"a,b\n1,2\n3,4\n"
-    monkeypatch.setattr("parsers.base.read_blob_prefix", lambda **kwargs: csv_bytes)
+    monkeypatch.setattr("processors.meta_extract.base.read_blob_prefix", lambda **kwargs: csv_bytes)
     monkeypatch.setattr(
-        "parsers.base.read_blob_bytes_capped",
+        "processors.meta_extract.base.read_blob_bytes_capped",
         lambda **kwargs: csv_bytes,
     )
 
@@ -106,7 +106,7 @@ def test_parse_failure_marks_file_failed_without_audit_event(
     def fail_read_prefix(**kwargs):
         raise RuntimeError("source object is unreadable")
 
-    monkeypatch.setattr("parsers.base.read_blob_prefix", fail_read_prefix)
+    monkeypatch.setattr("processors.meta_extract.base.read_blob_prefix", fail_read_prefix)
 
     with pytest.raises(RuntimeError):
         parse_file(db_session, file.id)

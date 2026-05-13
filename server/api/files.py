@@ -1,14 +1,14 @@
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.dependencies import CurrentUser
 from database import DbSession
 from services import files as files_service
 from services import filesystem as filesystem_service
-from services import parser_queue
+from services import file_events as file_event_service
 from services import search as search_service
 
 router = APIRouter()
@@ -321,38 +321,43 @@ async def get_file(
 async def rename_file(
     file_id: uuid.UUID,
     payload: RenameFileRequest,
+    request: Request,
     db: DbSession,
     current_user: CurrentUser,
 ) -> FileRead:
-    """Rename a file in place and mark parser metadata stale."""
-    file = files_service.rename_file(
+    """Rename a file in place and mark extracted metadata stale."""
+    return files_service.rename_file(
         db,
         file_id=file_id,
         name=payload.name,
         current_user=current_user,
+        event_context=file_event_service.context_from_headers(
+            request.headers,
+            actor_user_id=current_user.id,
+        ),
     )
-    await parser_queue.enqueue_parse_file_best_effort(file.id)
-    return file
 
 
 @router.post("/{file_id}/move")
 async def move_file(
     file_id: uuid.UUID,
     payload: MoveFileRequest,
+    request: Request,
     db: DbSession,
     current_user: CurrentUser,
 ) -> FileRead:
     """
     Move a file to another folder. Atomic; refcount on Blob unchanged.
-    Parser metadata is marked stale only when the move also changes the name.
+    Extracted metadata is marked stale only when the move also changes the name.
     """
-    file = files_service.move_file(
+    return files_service.move_file(
         db,
         file_id=file_id,
         destination_folder_id=payload.destination_folder_id,
         name=payload.name,
         current_user=current_user,
+        event_context=file_event_service.context_from_headers(
+            request.headers,
+            actor_user_id=current_user.id,
+        ),
     )
-    if payload.name is not None:
-        await parser_queue.enqueue_parse_file_best_effort(file.id)
-    return file

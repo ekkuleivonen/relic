@@ -17,8 +17,9 @@ from managers.exceptions import (
     ResourceNotFound,
 )
 from models import User
+from services import file_events as file_event_service
 from services import objects as object_service
-from services import parser_queue, s3_signing
+from services import s3_signing
 
 router = APIRouter()
 
@@ -119,7 +120,7 @@ async def put_object(
 
         copy_source = request.headers.get("x-amz-copy-source")
         if copy_source is not None:
-            response, result = handle_copy_object(
+            response, _result = handle_copy_object(
                 db=db,
                 request=request,
                 user=user,
@@ -127,7 +128,6 @@ async def put_object(
                 dest_key=key,
                 copy_source=copy_source,
             )
-            await parser_queue.enqueue_parse_file_best_effort(result.file.id)
             return response
 
         spooled = await spool_request_body(request)
@@ -140,8 +140,12 @@ async def put_object(
             size_bytes=spooled.size_bytes,
             ingest_meta=extract_user_metadata(request),
             current_user=user,
+            allow_overwrite=request.headers.get("x-relic-if-none-match") != "*",
+            event_context=file_event_service.context_from_headers(
+                request.headers,
+                actor_user_id=user.id,
+            ),
         )
-        await parser_queue.enqueue_parse_file_best_effort(result.file.id)
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
     except DomainError as exc:
@@ -173,6 +177,10 @@ def handle_copy_object(
         ingest_meta=extract_user_metadata(request),
         metadata_directive=metadata_directive,
         current_user=user,
+        event_context=file_event_service.context_from_headers(
+            request.headers,
+            actor_user_id=user.id,
+        ),
     )
     last_modified = result.file.updated_at.strftime("%Y-%m-%dT%H:%M:%S.000Z")
     body = (
@@ -388,6 +396,10 @@ async def delete_object(
             bucket_name=bucket,
             key=key,
             current_user=user,
+            event_context=file_event_service.context_from_headers(
+                request.headers,
+                actor_user_id=user.id,
+            ),
         )
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)

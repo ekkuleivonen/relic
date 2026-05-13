@@ -1,6 +1,17 @@
 import factory
 
-from models import AccessKey, AuditEvent, Blob, Bucket, Folder, FolderAccess, User
+from models import (
+    AccessKey,
+    AuditEvent,
+    Blob,
+    Bucket,
+    FileEvent,
+    Folder,
+    FolderAccess,
+    PROCESSOR_SOURCE_SEED,
+    Processor,
+    User,
+)
 from schema_plan import BucketTier, Permission, UserRole
 from utils.passwords import hash_password
 
@@ -83,3 +94,39 @@ class AuditEventFactory(factory.Factory):
     folder_ids = factory.LazyFunction(list)
     blob_ids = factory.LazyFunction(list)
     meta = factory.LazyFunction(dict)
+
+
+class FileEventFactory(factory.Factory):
+    class Meta:
+        model = FileEvent
+
+    offset = factory.Sequence(lambda n: n + 1)
+    schema_version = 1
+    event_type = factory.Sequence(lambda n: f"file.event.{n}")
+    status = "succeeded"
+    actor_user_id = None
+    request_id = factory.Sequence(lambda n: f"req-{n}")
+    idempotency_key = None
+    file_id = None
+    folder_id = None
+    payload = factory.LazyFunction(dict)
+
+
+class ProcessorFactory(factory.Factory):
+    class Meta:
+        model = Processor
+
+    name = factory.Sequence(lambda n: f"processor-{n}")
+    kind = "meta_extract"
+    enabled = True
+    source = PROCESSOR_SOURCE_SEED
+    subscribed_event_types = factory.LazyFunction(
+        lambda: ["file.created", "file.updated"]
+    )
+    config = factory.LazyFunction(dict)
+    last_committed_offset = 0
+    last_committed_at = None
+    last_failed_event_id = None
+    last_failed_at = None
+    last_error_class = None
+    last_error_message = None

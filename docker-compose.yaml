@@ -7,6 +7,8 @@ x-server-environment: &server-environment
   REDIS_HOST: redis
   REDIS_PORT: "6379"
   REDIS_PASSWORD: ${REDIS_PASSWORD:-replace_me}
+  PROCESSING_QUEUE_NAME: ${PROCESSING_QUEUE_NAME:-relic:processing}
+  MAINTENANCE_QUEUE_NAME: ${MAINTENANCE_QUEUE_NAME:-relic:maintenance}
   ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:-dev-encryption-secret-change-me}
   SESSION_SECRET: ${SESSION_SECRET:-dev-encryption-secret-change-me}
   SESSION_COOKIE_SECURE: "false"
@@ -90,10 +92,32 @@ services:
       redis:
         condition: service_healthy
 
-  worker:
+  worker-processing:
     <<: *server-service
-    container_name: relic_worker
-    command: arq parsers.worker.WorkerSettings
+    container_name: relic_worker_processing
+    command: arq processors.worker_processing.WorkerSettings
+    restart: unless-stopped
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  dispatcher:
+    <<: *server-service
+    container_name: relic_dispatcher
+    command: python -m processors.dispatcher
+    restart: unless-stopped
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  worker-maintenance:
+    <<: *server-service
+    container_name: relic_worker_maintenance
+    command: arq processors.worker_maintenance.WorkerSettings
     restart: unless-stopped
     depends_on:
       seed:

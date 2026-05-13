@@ -1,7 +1,7 @@
-"""Tests for parsers.toolchains.text."""
+"""Tests for processors.meta_extract.toolchains.text."""
 
 from file_meta import FileMeta, build_file_meta
-from parsers.toolchains.text import empty_text_meta, parse, parse_text
+from processors.meta_extract.toolchains.text import empty_text_meta, parse, parse_text
 
 
 def _base_meta(file_name: str = "notes.txt", mimetype: str = "text/plain") -> dict:

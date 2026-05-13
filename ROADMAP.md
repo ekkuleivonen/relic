@@ -7,8 +7,16 @@ like a file manager and more like dependable storage infrastructure.
 
 ### Async Processors
 
-The current single-queue parser/maintenance worker becomes a broader processor
-system organized around three concurrency tiers:
+> **Status:** the warm-path runtime described below is live. The `processors`
+> registry table, the `LISTEN/NOTIFY` dispatcher, the `meta_extract` substrate
+> on the new cursor model, the `processor.meta_extract.completed`/`failed`
+> outcome events, and the audited rewind/skip-stuck-event admin actions all
+> ship today. The remaining `Async Processors` content below is the design
+> contract those components implement; future substrates (preview, webhooks,
+> etc.) extend the same registry. The `maintenance_events` table is still
+> planned.
+
+Relic's background work is organized around three concurrency tiers:
 
 - **Hot path** is the synchronous S3 gateway and REST API. It mutates canonical
   tables, emits events, and returns. It does not own any async work; it only
@@ -21,22 +29,21 @@ system organized around three concurrency tiers:
   (purge dereferenced blobs, bucket probes, blob rebalance, event retention
   trim). It is invisible to external consumers.
 
-The two queues run as separate worker pools so a slow rebalance batch can never
-queue behind a fast metadata extraction (and vice versa).
+The processing and maintenance queues run as separate worker pools so a slow
+rebalance batch can never queue behind a fast metadata extraction (and vice
+versa).
 
 #### Module reorganization
 
-- `server/parsers/` becomes `server/processors/meta_extract/`. The metadata
-  extractor is the first processor substrate; future substrates land as siblings
-  under `server/processors/<substrate>/`.
-- `server/parsers/worker.py` splits into `server/processors/worker_processing.py`
-  (warm) and `server/processors/worker_maintenance.py` (cold). Each binds to
-  exactly one queue.
-- `server/services/parser_queue.py` becomes `server/services/processor_queue.py`
-  with a thin enqueue helper per substrate.
-- `PARSER_QUEUE_NAME` is retired. Two new env knobs replace it:
-  `PROCESSING_QUEUE_NAME` (default `relic:processing`) and
-  `MAINTENANCE_QUEUE_NAME` (default `relic:maintenance`).
+- `server/processors/meta_extract/` contains the current metadata extractor and
+  its toolchains. Future substrates land as siblings under
+  `server/processors/<substrate>/`.
+- `server/processors/worker_processing.py` owns warm processing jobs and binds
+  to `PROCESSING_QUEUE_NAME` (default `relic:processing`).
+- `server/processors/worker_maintenance.py` owns cold maintenance jobs and binds
+  to `MAINTENANCE_QUEUE_NAME` (default `relic:maintenance`).
+- `server/services/processor_queue.py` contains thin enqueue helpers for
+  processing jobs.
 
 #### Outbox dispatcher
 
@@ -155,10 +162,12 @@ rewinds (cursor moved backwards rather than forwards).
 
 ### `file_events` — the warm outbox
 
-New table. Source of truth for "something happened to a file, folder, or
-content-side processor outcome." Written in the same transaction as the
-canonical mutation. Consumed by the warm outbox dispatcher, which fans out
-one `relic:processing` job per `(event_id, processor_name)` pair.
+Shipped as the durable content activity log and admin browser; future work
+promotes it into the warm processor outbox. It is the source of truth for
+"something happened to a file, folder, or content-side processor outcome."
+File and folder mutation rows are written in the same transaction as the
+canonical mutation. Once the dispatcher lands, it will consume these rows and
+fan out one `relic:processing` job per `(event_id, processor_name)` pair.
 
 External sinks (webhooks, SQS, Kafka, NATS, object-store batches) subscribe to
 `file_events` through the same mechanism Relic's internal processors use.
@@ -256,7 +265,7 @@ Payload shapes (illustrative, all extended additively within `schema_version=1`)
 { "processor": "meta_extract",
   "duration_ms": 88,
   "error_class": "ValueError",
-  "error_message": "Parser metadata invalid: ..." }
+  "error_message": "Extracted metadata invalid: ..." }
 ```
 
 ### `maintenance_events` — internal cold-path log

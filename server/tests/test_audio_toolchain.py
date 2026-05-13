@@ -1,4 +1,4 @@
-"""Tests for parsers.toolchains.audio."""
+"""Tests for processors.meta_extract.toolchains.audio."""
 
 import io
 import wave
@@ -7,7 +7,7 @@ from mutagen.id3 import TALB, TCON, TDRC, TIT2, TPE1, TRCK
 from mutagen.wave import WAVE
 
 from file_meta import FileMeta, build_file_meta
-from parsers.toolchains.audio import empty_audio_meta, parse, parse_audio
+from processors.meta_extract.toolchains.audio import empty_audio_meta, parse, parse_audio
 
 
 def _base_meta(file_name: str = "x.wav", mimetype: str = "audio/wav") -> dict:

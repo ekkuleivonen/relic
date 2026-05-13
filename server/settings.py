@@ -95,7 +95,7 @@ UPLOAD_SPOOL_MAX_MEMORY_BYTES: int = env.int(
 )
 
 # =============================================================================
-# Parser Queue (arq)
+# Processor Queues (arq)
 # =============================================================================
 
 # Max bytes fetched from object storage per image when building file meta (S3 Range GET).
@@ -167,9 +167,27 @@ HTML_PARSE_MAX_BYTES: int = env.int(
 REDIS_HOST: str = env.str("REDIS_HOST", default="localhost")
 REDIS_PORT: int = env.int("REDIS_PORT", default=6379)
 REDIS_PASSWORD: str = env.str("REDIS_PASSWORD", default="replace_me")
-PARSER_QUEUE_NAME: str = env.str("PARSER_QUEUE_NAME", default="relic:parser")
+PROCESSING_QUEUE_NAME: str = env.str(
+    "PROCESSING_QUEUE_NAME",
+    default="relic:processing",
+)
+MAINTENANCE_QUEUE_NAME: str = env.str(
+    "MAINTENANCE_QUEUE_NAME",
+    default="relic:maintenance",
+)
 
-# Storage maintenance (arq cron + jobs; see parsers/worker.py)
+# Dispatcher (warm-path pull loop; see processors/dispatcher.py)
+DISPATCHER_BATCH_SIZE: int = env.int("DISPATCHER_BATCH_SIZE", default=100)
+DISPATCHER_SAFETY_INTERVAL_SECONDS: int = env.int(
+    "DISPATCHER_SAFETY_INTERVAL_SECONDS",
+    default=15,
+)
+DISPATCHER_LISTEN_BACKOFF_SECONDS: int = env.int(
+    "DISPATCHER_LISTEN_BACKOFF_SECONDS",
+    default=2,
+)
+
+# Storage maintenance (arq cron + jobs; see processors/worker_maintenance.py)
 EVENT_RETENTION_DAYS: int = env.int("EVENT_RETENTION_DAYS", default=90)
 STORAGE_MAINTENANCE_PURGE_BATCH: int = env.int(
     "STORAGE_MAINTENANCE_PURGE_BATCH",

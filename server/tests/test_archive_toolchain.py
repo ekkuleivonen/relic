@@ -1,11 +1,11 @@
-"""Tests for parsers.toolchains.archive."""
+"""Tests for processors.meta_extract.toolchains.archive."""
 
 import io
 import tarfile
 import zipfile
 
 from file_meta import FileMeta, build_file_meta
-from parsers.toolchains.archive import empty_archive_meta, parse, parse_archive
+from processors.meta_extract.toolchains.archive import empty_archive_meta, parse, parse_archive
 
 
 def _base_meta(file_name: str = "bundle.zip", mimetype: str = "application/zip") -> dict:

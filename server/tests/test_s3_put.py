@@ -12,9 +12,10 @@ from api.app import app
 from database import get_db
 from file_meta import build_file_meta
 from managers.exceptions import ConflictError, ResourceNotFound
-from models import Base, Blob, Bucket, File, Folder, FolderAccess, PARSE_STATUS_PENDING
+from models import Base, Blob, Bucket, File, FileEvent, Folder, FolderAccess, PARSE_STATUS_PENDING
 from schema_plan import BucketTier, Permission, UserRole
 from services import objects as object_service
+from services.audit_events import AuditEventContext
 from services.placement import choose_bucket, clear_bucket_usage_cache, get_bucket_usage
 from tests.factories.models import BlobFactory, BucketFactory, UserFactory
 
@@ -275,42 +276,58 @@ def test_put_object_dedupes_existing_blob(db_session, bucket_folder, monkeypatch
     assert usage.current_size_bytes == blob.size_bytes
 
 
-def test_put_object_rejects_existing_file_name(
+def test_put_object_overwrites_existing_file_name(
     db_session, root_folder, bucket_folder, monkeypatch
 ):
     physical_bucket = add_bucket(db_session, name="hot")
     mark_healthy(physical_bucket)
-    blob = BlobFactory(bucket_id=physical_bucket.id)
+    old_blob = BlobFactory(bucket_id=physical_bucket.id, refcount=1)
     owner = UserFactory.build(email="owner@relic.local", role=UserRole.ADMIN)
     db_session.add(owner)
-    db_session.add(blob)
+    db_session.add(old_blob)
     db_session.flush()
-    db_session.add(
-        File(
-            folder_id=bucket_folder.id,
-            blob_id=blob.id,
-            uploaded_by=owner.id,
-            name="cat.jpg",
-            meta=build_file_meta(file_name="cat.jpg", size=blob.size_bytes, user_meta={}),
-        )
+    existing_file = File(
+        folder_id=bucket_folder.id,
+        blob_id=old_blob.id,
+        uploaded_by=owner.id,
+        name="cat.jpg",
+        meta=build_file_meta(
+            file_name="cat.jpg", size=old_blob.size_bytes, user_meta={}
+        ),
     )
+    db_session.add(existing_file)
     db_session.commit()
+    body = b"new"
+    uploaded = []
 
     class FakeS3Client:
         def put_object(self, Bucket, Key, Body):
-            raise AssertionError("conflicting file should not be uploaded")
+            uploaded.append({"Bucket": Bucket, "Key": Key, "Body": read_body(Body)})
 
     monkeypatch.setattr("services.objects.boto3.client", lambda **kwargs: FakeS3Client())
 
-    with pytest.raises(ConflictError, match="File already exists"):
-        object_service.put_object(
-            db_session,
-            bucket_name="photos",
-            key="cat.jpg",
-            body=b"new",
-            ingest_meta={},
-            current_user=owner,
-        )
+    result = object_service.put_object(
+        db_session,
+        bucket_name="photos",
+        key="cat.jpg",
+        body=body,
+        ingest_meta={"album": "summer"},
+        current_user=owner,
+        event_context=AuditEventContext(actor_user_id=owner.id, request_id="req-update"),
+    )
+
+    assert len(uploaded) == 1
+    assert result.file.id == existing_file.id
+    assert result.file.blob_id != old_blob.id
+    assert result.file.meta["kvs"]["album"] == "summer"
+    db_session.refresh(old_blob)
+    assert old_blob.refcount == 0
+    updated_event = db_session.scalars(
+        select(FileEvent).where(FileEvent.event_type == "file.updated")
+    ).one()
+    assert updated_event.file_id == existing_file.id
+    assert updated_event.payload["previous_blob_id"] == str(old_blob.id)
+    assert updated_event.payload["blob_id"] == str(result.blob.id)
 
 
 def test_put_object_with_user_requires_write_permission(db_session, bucket_folder):

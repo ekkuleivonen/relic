@@ -16,7 +16,8 @@ from managers.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import Blob, Bucket, File, Folder, PARSE_STATUS_PENDING, User
 from schema_plan import BucketTier, Permission
 from services import folder_access as folder_access_service
-from services.audit_events import elapsed_ms, timer_start
+from services.audit_events import AuditEventContext, elapsed_ms, timer_start
+from services.file_events import create_file_event
 from services.folder_storage_policy import effective_min_tier
 from services.placement import adjust_bucket_usage_cache, choose_bucket
 from utils.logging import get_logger
@@ -78,12 +79,15 @@ def put_object(
     current_user: User,
     content_hash: bytes | None = None,
     size_bytes: int | None = None,
+    allow_overwrite: bool = True,
+    event_context: AuditEventContext | None = None,
 ) -> PutObjectResult:
     folder, file_name = resolve_object_path(
         db,
         bucket_name=bucket_name,
         key=key,
         current_user=current_user,
+        event_context=event_context,
     )
     folder_access_service.require_folder_permission_strict(
         db,
@@ -91,7 +95,12 @@ def put_object(
         folder.id,
         Permission.WRITE,
     )
-    ensure_file_name_available(db, folder.id, file_name)
+    existing_file = db.scalar(
+        select(File).where(File.folder_id == folder.id, File.name == file_name)
+    )
+    if existing_file is not None and not allow_overwrite:
+        raise ConflictError("File already exists")
+    previous_blob_id = existing_file.blob_id if existing_file is not None else None
 
     body_file, digest, object_size = prepare_body(
         body=body,
@@ -104,7 +113,8 @@ def put_object(
     )
 
     if blob:
-        blob.refcount += 1
+        if existing_file is None or existing_file.blob_id != blob.id:
+            blob.refcount += 1
     else:
         bucket = choose_bucket(
             db,
@@ -120,20 +130,59 @@ def put_object(
         )
         blob = created_blob.blob
 
-    file = File(
-        folder_id=folder.id,
-        blob_id=blob.id,
-        uploaded_by=current_user.id,
-        name=file_name,
-        parse_status=PARSE_STATUS_PENDING,
-        meta=build_file_meta(
+    if existing_file is None:
+        file = File(
+            folder_id=folder.id,
+            blob_id=blob.id,
+            uploaded_by=current_user.id,
+            name=file_name,
+            parse_status=PARSE_STATUS_PENDING,
+            meta=build_file_meta(
+                file_name=file_name,
+                size=object_size,
+                user_meta=ingest_meta,
+            ),
+        )
+        db.add(file)
+        event_type = "file.created"
+    else:
+        file = existing_file
+        old_blob = db.get(Blob, previous_blob_id)
+        file.blob_id = blob.id
+        file.uploaded_by = current_user.id
+        file.parse_status = PARSE_STATUS_PENDING
+        file.meta = build_file_meta(
             file_name=file_name,
             size=object_size,
             user_meta=ingest_meta,
-        ),
-    )
-    db.add(file)
+        )
+        if old_blob is not None and old_blob.id != blob.id:
+            old_blob.refcount -= 1
+            if old_blob.refcount < 0:
+                old_blob.refcount = 0
+        event_type = "file.updated"
     db.flush()
+    if event_context is not None:
+        payload = {
+            "file_id": str(file.id),
+            "folder_id": str(file.folder_id),
+            "name": file.name,
+            "blob_id": str(blob.id),
+            "size_bytes": blob.size_bytes,
+            "mimetype": file.meta.get("mimetype"),
+            "content_hash": digest_hex,
+        }
+        if previous_blob_id is not None:
+            payload["previous_blob_id"] = str(previous_blob_id)
+        create_file_event(
+            db,
+            event_type=event_type,
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            file_id=file.id,
+            folder_id=file.folder_id,
+            payload=payload,
+        )
     db.commit()
     db.refresh(file)
     db.refresh(blob)
@@ -146,6 +195,7 @@ def resolve_object_path(
     bucket_name: str,
     key: str,
     current_user: User | None = None,
+    event_context: AuditEventContext | None = None,
 ) -> tuple[Folder, str]:
     normalized_key = normalize_key(key)
     parts = [part for part in PurePosixPath(normalized_key).parts if part not in ("", ".")]
@@ -169,6 +219,7 @@ def resolve_object_path(
             parent=parent,
             name=folder_name,
             current_user=current_user,
+            event_context=event_context,
         )
     return parent, parts[-1]
 
@@ -186,6 +237,7 @@ def get_or_create_child_folder(
     parent: Folder,
     name: str,
     current_user: User | None = None,
+    event_context: AuditEventContext | None = None,
 ) -> Folder:
     child = db.scalar(
         select(Folder).where(Folder.parent_id == parent.id, Folder.name == name)
@@ -209,6 +261,19 @@ def get_or_create_child_folder(
         )
     db.add(child)
     db.flush()
+    if event_context is not None:
+        create_file_event(
+            db,
+            event_type="folder.created",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            folder_id=child.id,
+            payload={
+                "folder_id": str(child.id),
+                "parent_id": str(parent.id),
+                "name": child.name,
+            },
+        )
     return child
 
 
@@ -306,6 +371,7 @@ def delete_object(
     bucket_name: str,
     key: str,
     current_user: User | None = None,
+    event_context: AuditEventContext | None = None,
 ) -> DeleteObjectResult:
     """
     Delete a File by bucket+key and decrement the Blob refcount.
@@ -338,6 +404,10 @@ def delete_object(
         return DeleteObjectResult(existed=False)
 
     blob = db.get(Blob, file.blob_id)
+    deleted_file_id = file.id
+    deleted_folder_id = file.folder_id
+    deleted_blob_id = file.blob_id
+    deleted_name = file.name
     db.delete(file)
     db.flush()
 
@@ -346,6 +416,21 @@ def delete_object(
         if blob.refcount < 0:
             blob.refcount = 0
 
+    if event_context is not None:
+        create_file_event(
+            db,
+            event_type="file.deleted",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            file_id=deleted_file_id,
+            folder_id=deleted_folder_id,
+            payload={
+                "file_id": str(deleted_file_id),
+                "folder_id": str(deleted_folder_id),
+                "name": deleted_name,
+                "blob_id": str(deleted_blob_id),
+            },
+        )
     db.commit()
     return DeleteObjectResult(existed=True)
 
@@ -379,6 +464,7 @@ def copy_object(
     ingest_meta: dict,
     metadata_directive: str = METADATA_DIRECTIVE_COPY,
     current_user: User,
+    event_context: AuditEventContext | None = None,
 ) -> CopyObjectResult:
     """
     S3 CopyObject - metadata-only copy. The new File points at the same Blob;
@@ -409,6 +495,7 @@ def copy_object(
         bucket_name=dest_bucket,
         key=dest_key,
         current_user=current_user,
+        event_context=event_context,
     )
 
     if (
@@ -451,6 +538,23 @@ def copy_object(
     db.add(new_file)
     blob.refcount += 1
     db.flush()
+    if event_context is not None:
+        create_file_event(
+            db,
+            event_type="file.copied",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            file_id=new_file.id,
+            folder_id=new_file.folder_id,
+            payload={
+                "source_file_id": str(source_file.id),
+                "new_file_id": str(new_file.id),
+                "to_folder_id": str(new_file.folder_id),
+                "name": new_file.name,
+                "blob_id": str(blob.id),
+                "metadata_directive": metadata_directive,
+            },
+        )
     db.commit()
     db.refresh(new_file)
     db.refresh(blob)

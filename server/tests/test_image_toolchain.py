@@ -1,4 +1,4 @@
-"""Tests for parsers.toolchains.image."""
+"""Tests for processors.meta_extract.toolchains.image."""
 
 import io
 
@@ -6,7 +6,7 @@ import pytest
 from PIL import Image, ImageDraw
 
 from file_meta import FileMeta, build_file_meta
-from parsers.toolchains.image import (
+from processors.meta_extract.toolchains.image import (
     _parse_exif_datetime,
     _parse_gps_coord,
     empty_image_meta,

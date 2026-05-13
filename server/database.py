@@ -19,6 +19,22 @@ def get_database_url() -> str:
     ).render_as_string(hide_password=False)
 
 
+def get_libpq_dsn() -> str:
+    """libpq-style DSN for clients that bypass SQLAlchemy (e.g. psycopg async).
+
+    SQLAlchemy URLs use the ``postgresql+psycopg://`` scheme; libpq only
+    understands ``postgresql://``.
+    """
+    return URL.create(
+        drivername="postgresql",
+        username=S.POSTGRES_USER,
+        password=S.POSTGRES_PASSWORD,
+        host=S.POSTGRES_HOST,
+        port=S.POSTGRES_PORT,
+        database=S.POSTGRES_DB,
+    ).render_as_string(hide_password=False)
+
+
 @lru_cache
 def get_engine():
     return create_engine(get_database_url(), pool_pre_ping=True)

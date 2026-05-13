@@ -1,0 +1,260 @@
+"""Admin routes for warm-path processors.
+
+Processors are the warm-queue consumers that sit on top of the file-events
+outbox. These routes let an admin browse cursor lag, pause/resume runs,
+add or retire admin-managed processors (e.g. webhook sinks), and recover
+from poisoned events via rewind/skip.
+"""
+
+import datetime as dt
+import uuid
+
+from fastapi import APIRouter, Query, Request, Response, status
+from pydantic import BaseModel, ConfigDict, Field
+
+from api.dependencies import AdminUser
+from database import DbSession
+from models import Processor
+from services import audit_events as audit_event_service
+from services import processors as processor_service
+
+router = APIRouter()
+
+
+class ProcessorRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID
+    name: str
+    kind: str
+    enabled: bool
+    source: str
+    subscribed_event_types: list[str]
+    config: dict
+    last_committed_offset: int
+    last_committed_at: dt.datetime | None
+    last_failed_event_id: uuid.UUID | None
+    last_failed_at: dt.datetime | None
+    last_error_class: str | None
+    last_error_message: str | None
+    head_offset: int
+    pending_count: int
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+    @classmethod
+    def from_lag(cls, item: processor_service.ProcessorWithLag) -> "ProcessorRead":
+        processor = item.processor
+        return cls(
+            id=processor.id,
+            name=processor.name,
+            kind=processor.kind,
+            enabled=processor.enabled,
+            source=processor.source,
+            subscribed_event_types=list(processor.subscribed_event_types),
+            config=dict(processor.config),
+            last_committed_offset=int(processor.last_committed_offset),
+            last_committed_at=processor.last_committed_at,
+            last_failed_event_id=processor.last_failed_event_id,
+            last_failed_at=processor.last_failed_at,
+            last_error_class=processor.last_error_class,
+            last_error_message=processor.last_error_message,
+            head_offset=item.head_offset,
+            pending_count=item.pending_count,
+            created_at=processor.created_at,
+            updated_at=processor.updated_at,
+        )
+
+
+class ProcessorListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ProcessorRead]
+    total: int
+    limit: int
+    offset: int
+
+
+class ProcessorSubstrateRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str
+
+
+class ProcessorSubstratesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ProcessorSubstrateRead]
+
+
+class ProcessorCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=128)
+    kind: str = Field(min_length=1, max_length=64)
+    enabled: bool = True
+    subscribed_event_types: list[str] | None = Field(default=None)
+    config: dict | None = Field(default=None)
+
+
+class ProcessorUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool | None = None
+    subscribed_event_types: list[str] | None = None
+    config: dict | None = None
+
+
+class ProcessorRewindRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_offset: int = Field(ge=0)
+    reason: str = Field(min_length=1, max_length=512)
+
+
+class ProcessorSkipRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: uuid.UUID
+    reason: str = Field(min_length=1, max_length=512)
+
+
+@router.get("/")
+async def list_processors_route(
+    db: DbSession,
+    limit: int = Query(
+        default=processor_service.DEFAULT_LIST_LIMIT,
+        ge=1,
+        le=processor_service.MAX_LIST_LIMIT,
+    ),
+    offset: int = Query(default=0, ge=0),
+) -> ProcessorListResponse:
+    page = processor_service.list_processors(db, limit=limit, offset=offset)
+    return ProcessorListResponse(
+        items=[ProcessorRead.from_lag(item) for item in page.items],
+        total=page.total,
+        limit=page.limit,
+        offset=page.offset,
+    )
+
+
+@router.get("/substrates")
+async def list_substrates_route() -> ProcessorSubstratesResponse:
+    """Discover the substrate kinds the running server supports.
+
+    Useful for the admin UI when creating a new processor row.
+    """
+    return ProcessorSubstratesResponse(
+        items=[
+            ProcessorSubstrateRead(kind=kind)
+            for kind in processor_service.list_substrates()
+        ]
+    )
+
+
+@router.get("/{processor_id}")
+async def get_processor_route(
+    processor_id: uuid.UUID, db: DbSession
+) -> ProcessorRead:
+    item = processor_service.get_processor_with_lag(db, processor_id)
+    return ProcessorRead.from_lag(item)
+
+
+@router.post("/")
+async def create_processor_route(
+    payload: ProcessorCreateRequest,
+    request: Request,
+    db: DbSession,
+    current_user: AdminUser,
+) -> ProcessorRead:
+    processor: Processor = processor_service.create_processor(
+        db,
+        name=payload.name,
+        kind=payload.kind,
+        enabled=payload.enabled,
+        subscribed_event_types=payload.subscribed_event_types,
+        config=payload.config,
+        event_context=audit_event_service.context_from_headers(
+            request.headers, actor_user_id=current_user.id
+        ),
+    )
+    item = processor_service.get_processor_with_lag(db, processor.id)
+    return ProcessorRead.from_lag(item)
+
+
+@router.patch("/{processor_id}")
+async def update_processor_route(
+    processor_id: uuid.UUID,
+    payload: ProcessorUpdateRequest,
+    request: Request,
+    db: DbSession,
+    current_user: AdminUser,
+) -> ProcessorRead:
+    processor_service.update_processor(
+        db,
+        processor_id=processor_id,
+        enabled=payload.enabled,
+        subscribed_event_types=payload.subscribed_event_types,
+        config=payload.config,
+        event_context=audit_event_service.context_from_headers(
+            request.headers, actor_user_id=current_user.id
+        ),
+    )
+    item = processor_service.get_processor_with_lag(db, processor_id)
+    return ProcessorRead.from_lag(item)
+
+
+@router.delete("/{processor_id}")
+async def delete_processor_route(
+    processor_id: uuid.UUID, request: Request, db: DbSession, current_user: AdminUser
+) -> Response:
+    processor_service.delete_processor(
+        db,
+        processor_id=processor_id,
+        event_context=audit_event_service.context_from_headers(
+            request.headers, actor_user_id=current_user.id
+        ),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{processor_id}/rewind")
+async def rewind_processor_route(
+    processor_id: uuid.UUID,
+    payload: ProcessorRewindRequest,
+    request: Request,
+    db: DbSession,
+    current_user: AdminUser,
+) -> ProcessorRead:
+    processor_service.rewind_cursor(
+        db,
+        processor_id=processor_id,
+        target_offset=payload.target_offset,
+        reason=payload.reason,
+        event_context=audit_event_service.context_from_headers(
+            request.headers, actor_user_id=current_user.id
+        ),
+    )
+    item = processor_service.get_processor_with_lag(db, processor_id)
+    return ProcessorRead.from_lag(item)
+
+
+@router.post("/{processor_id}/skip")
+async def skip_stuck_event_route(
+    processor_id: uuid.UUID,
+    payload: ProcessorSkipRequest,
+    request: Request,
+    db: DbSession,
+    current_user: AdminUser,
+) -> ProcessorRead:
+    processor_service.skip_stuck_event(
+        db,
+        processor_id=processor_id,
+        event_id=payload.event_id,
+        reason=payload.reason,
+        event_context=audit_event_service.context_from_headers(
+            request.headers, actor_user_id=current_user.id
+        ),
+    )
+    item = processor_service.get_processor_with_lag(db, processor_id)
+    return ProcessorRead.from_lag(item)

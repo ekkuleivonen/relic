@@ -524,6 +524,6 @@ Sprint 3: parquet, archive, office_doc, spreadsheet, presentation, html.
 
 Sprint 4: markdown, notebook, email, xml/svg.
 
-Sprint 5: specialty parsers on demand.
+Sprint 5: specialty metadata extractors on demand.
 
 The important architectural concern is consistency. Every parser should use the same output builder, the same tag vocabulary, the same keyword caps, and the same failure behavior. A parser should describe what the file appears to be and what terms help a user find it later. It should not preserve every fact the underlying library can expose.

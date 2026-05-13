@@ -77,6 +77,7 @@ async def presign_upload(
         bucket=bucket,
         key=key,
         headers={
+            "x-relic-if-none-match": "*",
             **{f"x-amz-meta-{name}": value for name, value in user_metadata.items()},
         },
         user_id=current_user.id,

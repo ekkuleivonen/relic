@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 from managers.exceptions import BadRequestError
 from models import File, PARSE_STATUS_PENDING, User
 from schema_plan import Permission
+from services.audit_events import AuditEventContext
+from services.file_events import create_file_event
 from services import folder_access as folder_access_service
 from services import objects as object_service
 
@@ -41,6 +43,7 @@ def move_file(
     destination_folder_id: uuid.UUID,
     name: str | None,
     current_user: User,
+    event_context: AuditEventContext | None = None,
 ) -> File:
     file = object_service.get_file_for_user(
         db, file_id, current_user, Permission.DELETE
@@ -58,7 +61,10 @@ def move_file(
         new_name = file.name
         validate_filename(new_name)
 
-    if file.folder_id == destination.id and file.name == new_name:
+    old_folder_id = file.folder_id
+    old_name = file.name
+
+    if old_folder_id == destination.id and old_name == new_name:
         return file
 
     object_service.ensure_file_name_available(db, destination.id, new_name)
@@ -68,6 +74,22 @@ def move_file(
     if name is not None:
         file.parse_status = PARSE_STATUS_PENDING
     db.flush()
+    if event_context is not None:
+        create_file_event(
+            db,
+            event_type="file.moved",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            file_id=file.id,
+            folder_id=file.folder_id,
+            payload={
+                "file_id": str(file.id),
+                "from_folder_id": str(old_folder_id),
+                "to_folder_id": str(file.folder_id),
+                "from_name": old_name,
+                "to_name": file.name,
+            },
+        )
     db.commit()
     db.refresh(file)
     return file
@@ -79,6 +101,7 @@ def rename_file(
     file_id: uuid.UUID,
     name: str,
     current_user: User,
+    event_context: AuditEventContext | None = None,
 ) -> File:
     file = object_service.get_file_for_user(
         db, file_id, current_user, Permission.WRITE
@@ -87,7 +110,9 @@ def rename_file(
         current_name=file.name, requested_name=name
     )
 
-    if file.name == name:
+    old_name = file.name
+
+    if old_name == name:
         return file
 
     object_service.ensure_file_name_available(db, file.folder_id, name)
@@ -95,6 +120,22 @@ def rename_file(
     file.name = name
     file.parse_status = PARSE_STATUS_PENDING
     db.flush()
+    if event_context is not None:
+        create_file_event(
+            db,
+            event_type="file.moved",
+            actor_user_id=event_context.actor_user_id,
+            request_id=event_context.request_id,
+            file_id=file.id,
+            folder_id=file.folder_id,
+            payload={
+                "file_id": str(file.id),
+                "from_folder_id": str(file.folder_id),
+                "to_folder_id": str(file.folder_id),
+                "from_name": old_name,
+                "to_name": file.name,
+            },
+        )
     db.commit()
     db.refresh(file)
     return file

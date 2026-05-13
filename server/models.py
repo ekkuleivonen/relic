@@ -3,8 +3,10 @@ import uuid
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
+    Identity,
     Index,
     Integer,
     LargeBinary,
@@ -243,3 +245,97 @@ class AuditEvent(Base, TimestampMixin):
     )
 
     actor: Mapped[User | None] = relationship()
+
+
+class FileEvent(Base):
+    __tablename__ = "file_events"
+    __table_args__ = (
+        Index("ix_file_events_offset", "offset", unique=True),
+        Index("ix_file_events_event_type_created_at", "event_type", "created_at"),
+        Index("ix_file_events_status_created_at", "status", "created_at"),
+        Index("ix_file_events_actor_user_id_created_at", "actor_user_id", "created_at"),
+        Index("ix_file_events_request_id", "request_id"),
+        Index("ix_file_events_file_id_created_at", "file_id", "created_at"),
+        Index("ix_file_events_folder_id_created_at", "folder_id", "created_at"),
+        Index(
+            "uq_file_events_idempotency_key",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    offset: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        nullable=False,
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    schema_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
+    event_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="succeeded", server_default="succeeded"
+    )
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    request_id: Mapped[str | None] = mapped_column(String(255))
+    idempotency_key: Mapped[str | None] = mapped_column(String(255))
+    file_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
+    payload: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+
+    actor: Mapped[User | None] = relationship()
+
+
+PROCESSOR_SOURCE_SEED = "seed"
+PROCESSOR_SOURCE_ADMIN = "admin"
+
+
+class Processor(Base, TimestampMixin):
+    """Configuration + cursor for a warm-path event consumer.
+
+    Each row is one logical consumer of `file_events`. The dispatcher reads
+    `last_committed_offset` to find new events to enqueue; the worker advances
+    it after the substrate handler succeeds. See ROADMAP `Async Processors`
+    for the full invariants.
+    """
+
+    __tablename__ = "processors"
+    __table_args__ = (
+        Index("ix_processors_kind", "kind"),
+        Index("ix_processors_enabled", "enabled"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    source: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=PROCESSOR_SOURCE_ADMIN
+    )
+    subscribed_event_types: Mapped[list[str]] = mapped_column(
+        JSONType, nullable=False, default=list
+    )
+    config: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    last_committed_offset: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    last_committed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    last_failed_event_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
+    last_failed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error_class: Mapped[str | None] = mapped_column(String(255))
+    last_error_message: Mapped[str | None] = mapped_column(Text)

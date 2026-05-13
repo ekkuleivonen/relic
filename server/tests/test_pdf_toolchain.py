@@ -1,11 +1,11 @@
-"""Tests for parsers.toolchains.pdf."""
+"""Tests for processors.meta_extract.toolchains.pdf."""
 
 import io
 
 from pypdf import PdfWriter
 
 from file_meta import FileMeta, build_file_meta
-from parsers.toolchains.pdf import empty_pdf_meta, parse, parse_pdf
+from processors.meta_extract.toolchains.pdf import empty_pdf_meta, parse, parse_pdf
 
 
 def _base_meta(file_name: str = "x.pdf") -> dict:

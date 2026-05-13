@@ -2,6 +2,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import settings as S
+from processors.registry import init_builtin_substrates
 from .access_keys import router as access_keys_router
 from .audit_events import router as audit_events_router
 from .auth import router as auth_router
@@ -9,12 +10,16 @@ from .blobs import router as blobs_router
 from .buckets import router as buckets_router
 from .dependencies import require_admin, require_user
 from .exception_handlers import register_exception_handlers
+from .file_events import router as file_events_router
 from .files import router as files_router
 from .folder_access import router as folder_access_router
 from .folders import router as folders_router
+from .processors import router as processors_router
 from .s3_gateway import router as s3_gateway_router
 from .uploads import router as uploads_router
 from .users import router as users_router
+
+init_builtin_substrates()
 
 app = FastAPI(
     title="Relic API",
@@ -89,6 +94,18 @@ app.include_router(
     audit_events_router,
     prefix=f"{API_PREFIX}/audit-events",
     tags=["audit-events"],
+    dependencies=[Depends(require_admin)],
+)
+app.include_router(
+    file_events_router,
+    prefix=f"{API_PREFIX}/file-events",
+    tags=["file-events"],
+    dependencies=[Depends(require_admin)],
+)
+app.include_router(
+    processors_router,
+    prefix=f"{API_PREFIX}/processors",
+    tags=["processors"],
     dependencies=[Depends(require_admin)],
 )
 
