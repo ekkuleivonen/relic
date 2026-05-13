@@ -448,7 +448,7 @@ def assert_native_boto_client(
         client,
         "POST",
         "/api/access-keys/",
-        json_body={"user_id": user_id, "name": "s3 gateway compat"},
+        json_body={"actor_id": user_id, "name": "s3 gateway compat"},
     )
     s3 = boto3.client(
         "s3",

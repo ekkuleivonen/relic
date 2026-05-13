@@ -207,16 +207,6 @@ def probe_all_buckets(
             }
             if result.reachable:
                 ok += 1
-                create_maintenance_event(
-                    db,
-                    job="bucket_probe",
-                    action="bucket.probe_ok",
-                    status="succeeded",
-                    batch_id=effective_batch_id,
-                    bucket_id=result.bucket.id,
-                    duration_ms=elapsed_ms(started_at, minimum=0),
-                    metadata=metadata,
-                )
             else:
                 failed += 1
                 create_maintenance_event(
@@ -269,18 +259,19 @@ def trim_old_bucket_probes_batch(
         delete(BucketProbe).where(BucketProbe.observed_at < cutoff)
     )
     deleted_rows = result.rowcount or 0
-    create_maintenance_event(
-        db,
-        job="trim_bucket_probes",
-        action="bucket_probe.trimmed",
-        status="succeeded",
-        batch_id=effective_batch_id,
-        duration_ms=elapsed_ms(started_at, minimum=0),
-        metadata={
-            "retention_days": retention_days,
-            "deleted_rows": deleted_rows,
-        },
-    )
+    if deleted_rows > 0:
+        create_maintenance_event(
+            db,
+            job="trim_bucket_probes",
+            action="bucket_probe.trimmed",
+            status="succeeded",
+            batch_id=effective_batch_id,
+            duration_ms=elapsed_ms(started_at, minimum=0),
+            metadata={
+                "retention_days": retention_days,
+                "deleted_rows": deleted_rows,
+            },
+        )
     db.commit()
     log.info(
         "bucket_probe_retention_trimmed",

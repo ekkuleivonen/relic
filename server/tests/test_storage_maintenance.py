@@ -170,7 +170,7 @@ def test_purge_skips_positive_refcount(db_session, fake_storage):
 # ---------------------------------------------------------------------------
 
 
-def test_successful_scheduled_probe_emits_maintenance_event_not_audit_event(
+def test_successful_scheduled_probe_records_probe_without_maintenance_event(
     db_session, monkeypatch
 ):
     class FakeS3Client:
@@ -202,19 +202,12 @@ def test_successful_scheduled_probe_emits_maintenance_event_not_audit_event(
 
     assert result == {"bucket_count": 1, "ok": 1, "failed": 0}
     assert db_session.scalars(select(AuditEvent)).all() == []
-    events = db_session.scalars(select(MaintenanceEvent)).all()
-    assert len(events) == 1
-    assert events[0].job == "bucket_probe"
-    assert events[0].action == "bucket.probe_ok"
-    assert events[0].status == "succeeded"
-    assert events[0].bucket_id == bucket_row.id
+    assert db_session.scalars(select(MaintenanceEvent)).all() == []
     sample = db_session.scalar(
         select(BucketProbe).where(BucketProbe.bucket_id == bucket_row.id)
     )
     assert sample is not None
     assert sample.success is True
-    for key in ("put_ms", "head_ms", "get_ms", "delete_ms"):
-        assert events[0].meta[key] == getattr(sample, key)
 
 
 def test_trim_old_bucket_probes_drops_only_records_past_retention(db_session):
@@ -242,6 +235,22 @@ def test_trim_old_bucket_probes_drops_only_records_past_retention(db_session):
     assert events[0].job == "trim_bucket_probes"
     assert events[0].action == "bucket_probe.trimmed"
     assert events[0].meta == {"retention_days": 7, "deleted_rows": 1}
+
+
+def test_trim_old_bucket_probes_skips_event_when_nothing_deleted(db_session):
+    bucket = BucketFactory.build()
+    db_session.add(bucket)
+    db_session.flush()
+
+    fresh = BucketProbeFactory.build(bucket_id=bucket.id)
+    db_session.add(fresh)
+    db_session.commit()
+
+    out = trim_old_bucket_probes_batch(db_session, retention_days=7)
+
+    assert out["deleted_rows"] == 0
+    assert db_session.scalars(select(BucketProbe)).all() == [fresh]
+    assert db_session.scalars(select(MaintenanceEvent)).all() == []
 
 
 # ---------------------------------------------------------------------------

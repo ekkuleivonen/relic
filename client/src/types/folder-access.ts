@@ -37,7 +37,7 @@ export type FolderAccess = {
 }
 
 export type FolderAccessGrantInput = {
-  user_id: string
+  actor_id: string
   folder_id: string
   permissions: number
 }

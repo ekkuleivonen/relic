@@ -353,7 +353,7 @@ def test_get_processor_with_lag_reports_pending(db_session):
 
     info = processor_service.get_processor_with_lag(db_session, processor.id)
     assert info.pending_count == 1
-    assert info.head_offset == 2
+    assert info.head_offset == 1
 
 
 def test_get_processor_with_lag_respects_folder_scope(db_session):
@@ -383,6 +383,24 @@ def test_get_processor_with_lag_respects_folder_scope(db_session):
 
     info = processor_service.get_processor_with_lag(db_session, processor.id)
     assert info.pending_count == 1
+    assert info.head_offset == 1
+
+
+def test_get_processor_with_lag_uses_cursor_when_no_matching_events(db_session):
+    processor = ProcessorFactory.build(
+        name="meta_extract",
+        subscribed_event_types=["file.created"],
+        last_committed_offset=10,
+    )
+    db_session.add(processor)
+    db_session.flush()
+    _make_event(db_session, event_type="file.deleted")
+    db_session.commit()
+
+    info = processor_service.get_processor_with_lag(db_session, processor.id)
+
+    assert info.pending_count == 0
+    assert info.head_offset == 10
 
 
 def test_execute_processor_event_advances_cursor_on_success(
@@ -531,6 +549,41 @@ def test_execute_processor_event_skips_when_already_processed(
     assert parse_calls == []
 
 
+def test_execute_processor_event_skips_stale_dispatch_generation(
+    session_factory, monkeypatch
+):
+    parse_calls: list[uuid.UUID] = []
+
+    def handler(db, file_id):
+        parse_calls.append(file_id)
+
+    monkeypatch.setattr("processors.meta_extract.base.parse_file", handler)
+
+    with session_factory() as bootstrap_db:
+        processor = ProcessorFactory.build(
+            name="meta_extract",
+            subscribed_event_types=["file.created"],
+            dispatch_generation=2,
+        )
+        bootstrap_db.add(processor)
+        bootstrap_db.flush()
+        event = _make_event(bootstrap_db, event_type="file.created")
+        processor_id = processor.id
+        event_id = event.id
+        bootstrap_db.commit()
+
+    result = processor_service.execute_processor_event(
+        session_factory,
+        processor_id=processor_id,
+        dispatch_generation=1,
+        event_id=event_id,
+    )
+
+    assert result.status == "skipped_stale_generation"
+    assert result.advanced_to_offset is None
+    assert parse_calls == []
+
+
 def test_execute_processor_event_refuses_non_subscribed(
     session_factory, monkeypatch
 ):
@@ -625,7 +678,9 @@ def test_rewind_cursor_writes_audit(db_session):
     actor = UserFactory.build()
     db_session.add(actor)
     db_session.commit()
-    processor = ProcessorFactory.build(name="meta_extract", last_committed_offset=10)
+    processor = ProcessorFactory.build(
+        name="meta_extract", last_committed_offset=10, dispatch_generation=3
+    )
     db_session.add(processor)
     db_session.commit()
 
@@ -639,11 +694,13 @@ def test_rewind_cursor_writes_audit(db_session):
 
     refreshed = db_session.get(Processor, processor.id)
     assert refreshed.last_committed_offset == 2
+    assert refreshed.dispatch_generation == 4
     audit = db_session.scalars(
         select(AuditEvent).where(AuditEvent.operation == "processor.cursor.rewound")
     ).one()
     assert audit.meta["from_offset"] == 10
     assert audit.meta["to_offset"] == 2
+    assert audit.meta["dispatch_generation"] == 4
     assert audit.meta["reason"] == "reprocess after schema fix"
 
 

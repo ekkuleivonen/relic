@@ -54,7 +54,7 @@ export function FolderAccessForm({
     }
 
     await onSubmit({
-      user_id: userId,
+      actor_id: userId,
       folder_id: folderId,
       permissions,
     })

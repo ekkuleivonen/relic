@@ -67,7 +67,7 @@ const OPERATION_OPTIONS = [
 type AuditEventFiltersDraft = {
   operation: string
   status: string
-  actor_user_id: string
+  actor_id: string
   request_id: string
   created_after: Date | undefined
   created_before: Date | undefined
@@ -82,7 +82,7 @@ export function AuditEventsPage() {
   const [draft, setDraft] = React.useState<AuditEventFiltersDraft>({
     operation: OPERATION_ALL,
     status: STATUS_ALL,
-    actor_user_id: "",
+    actor_id: "",
     request_id: "",
     created_after: undefined,
     created_before: undefined,
@@ -99,7 +99,7 @@ export function AuditEventsPage() {
         draft.status === STATUS_ALL
           ? undefined
           : (draft.status as AuditEventStatus),
-      actor_user_id: draft.actor_user_id,
+      actor_id: draft.actor_id,
       request_id: draft.request_id,
       created_after: toStartOfDayIso(draft.created_after),
       created_before: toEndOfDayIso(draft.created_before),
@@ -112,7 +112,7 @@ export function AuditEventsPage() {
     setDraft({
       operation: OPERATION_ALL,
       status: STATUS_ALL,
-      actor_user_id: "",
+      actor_id: "",
       request_id: "",
       created_after: undefined,
       created_before: undefined,
@@ -250,12 +250,12 @@ export function AuditEventsPage() {
               }
             />
             <Input
-              placeholder="Actor user ID"
-              value={draft.actor_user_id}
+              placeholder="Actor ID"
+              value={draft.actor_id}
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
-                  actor_user_id: event.target.value,
+                  actor_id: event.target.value,
                 }))
               }
             />

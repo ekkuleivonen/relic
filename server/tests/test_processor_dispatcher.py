@@ -4,7 +4,7 @@ We exercise `dispatch_pending` directly with a stubbed ArqRedis pool and a
 fresh in-memory database. The LISTEN/NOTIFY loop and signal plumbing are
 covered indirectly — this test focuses on the contract every tick must
 honour: at-least-once enqueue with `_job_id` dedup keyed off
-``processor_id:event_id``.
+``processor_id:dispatch_generation:event_id``.
 """
 
 import asyncio
@@ -16,7 +16,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from models import Base
+from models import Base, Processor
 from processors import dispatcher as dispatcher_module
 from processors.registry import init_builtin_substrates
 from services.file_events import create_file_event
@@ -98,8 +98,9 @@ def test_dispatch_pending_enqueues_one_job_per_processor(session_factory, monkey
 
     assert enqueued == 1
     assert {job.kwargs["_job_id"] for job in redis.enqueued} == {
-        f"{processor_id}:{event_ids[0]}"
+        f"{processor_id}:0:{event_ids[0]}"
     }
+    assert redis.enqueued[0].args == (str(processor_id), "0", str(event_ids[0]))
 
 
 def test_dispatch_pending_dedups_via_job_id(session_factory, monkeypatch):
@@ -112,6 +113,28 @@ def test_dispatch_pending_dedups_via_job_id(session_factory, monkeypatch):
     asyncio.run(dispatcher_module.dispatch_pending(redis))
 
     assert len(redis.enqueued) == 1  # second tick is a no-op due to dedup
+
+
+def test_dispatch_pending_uses_generation_in_job_id_after_rewind(
+    session_factory, monkeypatch
+):
+    processor_id, event_ids = _seed_processor_with_events(session_factory, count=1)
+    monkeypatch.setattr(dispatcher_module, "get_sessionmaker", lambda: session_factory)
+
+    redis = FakeArqRedis()
+    asyncio.run(dispatcher_module.dispatch_pending(redis))
+
+    with session_factory() as db:
+        processor = db.get(Processor, processor_id)
+        processor.dispatch_generation = 1
+        db.commit()
+
+    asyncio.run(dispatcher_module.dispatch_pending(redis))
+
+    assert [job.kwargs["_job_id"] for job in redis.enqueued] == [
+        f"{processor_id}:0:{event_ids[0]}",
+        f"{processor_id}:1:{event_ids[0]}",
+    ]
 
 
 def test_dispatch_pending_skips_disabled_processor(session_factory, monkeypatch):
@@ -173,7 +196,7 @@ def test_dispatch_pending_filters_by_subscribed_event_types(
 
     assert enqueued == 1
     job = redis.enqueued[0]
-    assert job.kwargs["_job_id"] == f"{processor_id}:{expected_event_id}"
+    assert job.kwargs["_job_id"] == f"{processor_id}:0:{expected_event_id}"
 
 
 def test_dispatch_pending_filters_by_folder_scope(session_factory, monkeypatch):
@@ -221,7 +244,7 @@ def test_dispatch_pending_filters_by_folder_scope(session_factory, monkeypatch):
 
     assert enqueued == 1
     job = redis.enqueued[0]
-    assert job.kwargs["_job_id"] == f"{processor_id}:{expected_event_id}"
+    assert job.kwargs["_job_id"] == f"{processor_id}:0:{expected_event_id}"
 
 
 def test_dispatch_pending_fan_out_across_processors(session_factory, monkeypatch):
@@ -244,8 +267,8 @@ def test_dispatch_pending_fan_out_across_processors(session_factory, monkeypatch
         )
         db.commit()
         expected = {
-            f"{creator.id}:{created.id}",
-            f"{deleter.id}:{deleted.id}",
+            f"{creator.id}:0:{created.id}",
+            f"{deleter.id}:0:{deleted.id}",
         }
 
     monkeypatch.setattr(dispatcher_module, "get_sessionmaker", lambda: session_factory)

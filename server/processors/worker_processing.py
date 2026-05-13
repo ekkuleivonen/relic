@@ -1,8 +1,9 @@
 """Arq worker for the warm `relic:processing` queue.
 
-Each job is one `(processor_id, event_id)` pair handed in by the dispatcher.
-The handler is idempotent over the pair and advances the processor's cursor
-on success only — see `services.processors.execute_processor_event`.
+Each job is one `(processor_id, dispatch_generation, event_id)` tuple handed in
+by the dispatcher. The handler is idempotent over that tuple and advances the
+processor's cursor on success only — see
+`services.processors.execute_processor_event`.
 """
 
 import asyncio
@@ -19,7 +20,7 @@ init_builtin_substrates()
 
 
 async def run_processor_event(
-    ctx, processor_id: str, event_id: str
+    ctx, processor_id: str, dispatch_generation: str, event_id: str
 ) -> dict[str, object]:
     """Run one processor against one file event.
 
@@ -33,6 +34,7 @@ async def run_processor_event(
         return processor_service.execute_processor_event(
             sm,
             processor_id=uuid.UUID(processor_id),
+            dispatch_generation=int(dispatch_generation),
             event_id=uuid.UUID(event_id),
         )
 

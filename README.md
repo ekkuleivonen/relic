@@ -114,7 +114,7 @@ fast metadata extraction.
   `processor.disabled`, `processor.cursor.rewound`,
   `processor.cursor.skipped`). Written in the same DB transaction as the
   canonical mutation. Envelope is intentionally narrow:
-  `(id, created_at, updated_at, operation, status, actor_user_id,
+  `(id, created_at, updated_at, operation, status, actor_id,
   request_id, meta)` — resource ids that an event refers to live inside
   `meta`. The admin audit log UI filters by operation, status, request ID,
   actor, and time range with per-row metadata detail.

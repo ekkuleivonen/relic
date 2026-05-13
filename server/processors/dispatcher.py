@@ -6,8 +6,8 @@ safety-net timer so missed notifications don't strand events forever.
 
 For each tick we ask ``services.processors.collect_pending_jobs`` for the
 oldest events past every enabled processor's cursor and enqueue them via
-arq with ``_job_id = "<processor_id>:<event_id>"`` so a duplicate dispatch
-is a no-op as long as the previous job is in-flight.
+arq with ``_job_id = "<processor_id>:<dispatch_generation>:<event_id>"`` so a
+duplicate dispatch is a no-op as long as the previous job is in-flight.
 """
 
 import asyncio
@@ -130,10 +130,11 @@ async def dispatch_pending(redis: ArqRedis) -> int:
 
     enqueued = 0
     for job in jobs:
-        job_id = f"{job.processor_id}:{job.event_id}"
+        job_id = f"{job.processor_id}:{job.dispatch_generation}:{job.event_id}"
         result = await redis.enqueue_job(
             "run_processor_event",
             str(job.processor_id),
+            str(job.dispatch_generation),
             str(job.event_id),
             _job_id=job_id,
         )

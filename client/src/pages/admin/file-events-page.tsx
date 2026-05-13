@@ -61,7 +61,7 @@ const EVENT_TYPE_OPTIONS = [
 type FileEventFiltersDraft = {
   event_type: string
   status: string
-  actor_user_id: string
+  actor_id: string
   request_id: string
   file_id: string
   folder_id: string
@@ -78,7 +78,7 @@ export function FileEventsPage() {
   const [draft, setDraft] = React.useState<FileEventFiltersDraft>({
     event_type: EVENT_TYPE_ALL,
     status: STATUS_ALL,
-    actor_user_id: "",
+    actor_id: "",
     request_id: "",
     file_id: "",
     folder_id: "",
@@ -97,7 +97,7 @@ export function FileEventsPage() {
         draft.status === STATUS_ALL
           ? undefined
           : (draft.status as FileEventStatus),
-      actor_user_id: draft.actor_user_id,
+      actor_id: draft.actor_id,
       request_id: draft.request_id,
       file_id: draft.file_id,
       folder_id: draft.folder_id,
@@ -112,7 +112,7 @@ export function FileEventsPage() {
     setDraft({
       event_type: EVENT_TYPE_ALL,
       status: STATUS_ALL,
-      actor_user_id: "",
+      actor_id: "",
       request_id: "",
       file_id: "",
       folder_id: "",
@@ -251,12 +251,12 @@ export function FileEventsPage() {
               }
             />
             <Input
-              placeholder="Actor user ID"
-              value={draft.actor_user_id}
+              placeholder="Actor ID"
+              value={draft.actor_id}
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
-                  actor_user_id: event.target.value,
+                  actor_id: event.target.value,
                 }))
               }
             />

@@ -43,7 +43,7 @@ function toQueryString(query: AuditEventsQuery) {
   const params = new URLSearchParams()
   addString(params, "operation", query.operation)
   addString(params, "status", query.status)
-  addString(params, "actor_user_id", query.actor_user_id)
+  addString(params, "actor_id", query.actor_id)
   addString(params, "request_id", query.request_id)
   addString(params, "created_after", query.created_after)
   addString(params, "created_before", query.created_before)

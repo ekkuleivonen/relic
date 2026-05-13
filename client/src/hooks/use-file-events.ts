@@ -40,7 +40,7 @@ function toQueryString(query: FileEventsQuery) {
   const params = new URLSearchParams()
   addString(params, "event_type", query.event_type)
   addString(params, "status", query.status)
-  addString(params, "actor_user_id", query.actor_user_id)
+  addString(params, "actor_id", query.actor_id)
   addString(params, "request_id", query.request_id)
   addString(params, "file_id", query.file_id)
   addString(params, "folder_id", query.folder_id)

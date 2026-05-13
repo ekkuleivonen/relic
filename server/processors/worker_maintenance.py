@@ -111,17 +111,18 @@ async def trim_old_audit_events_worker(ctx) -> None:
                 db,
                 retention_days=S.EVENT_RETENTION_DAYS,
             )
-            maintenance_event_service.create_maintenance_event(
-                db,
-                job="trim_audit_events",
-                action="audit.trimmed",
-                status="succeeded",
-                batch_id=batch_id,
-                metadata={
-                    "retention_days": S.EVENT_RETENTION_DAYS,
-                    "deleted_rows": deleted_rows,
-                },
-            )
+            if deleted_rows > 0:
+                maintenance_event_service.create_maintenance_event(
+                    db,
+                    job="trim_audit_events",
+                    action="audit.trimmed",
+                    status="succeeded",
+                    batch_id=batch_id,
+                    metadata={
+                        "retention_days": S.EVENT_RETENTION_DAYS,
+                        "deleted_rows": deleted_rows,
+                    },
+                )
             db.commit()
         log.info(
             "audit_event_retention_trimmed",
@@ -143,17 +144,18 @@ async def trim_old_file_events_worker(ctx) -> None:
                 db,
                 retention_days=S.EVENT_RETENTION_DAYS,
             )
-            maintenance_event_service.create_maintenance_event(
-                db,
-                job="trim_file_events",
-                action="file_event.trimmed",
-                status="succeeded",
-                batch_id=batch_id,
-                metadata={
-                    "retention_days": S.EVENT_RETENTION_DAYS,
-                    "deleted_rows": deleted_rows,
-                },
-            )
+            if deleted_rows > 0:
+                maintenance_event_service.create_maintenance_event(
+                    db,
+                    job="trim_file_events",
+                    action="file_event.trimmed",
+                    status="succeeded",
+                    batch_id=batch_id,
+                    metadata={
+                        "retention_days": S.EVENT_RETENTION_DAYS,
+                        "deleted_rows": deleted_rows,
+                    },
+                )
             db.commit()
         log.info(
             "file_event_retention_trimmed",
@@ -175,17 +177,18 @@ async def trim_old_maintenance_events_worker(ctx) -> None:
                 db,
                 retention_days=S.EVENT_RETENTION_DAYS,
             )
-            maintenance_event_service.create_maintenance_event(
-                db,
-                job="trim_maintenance_events",
-                action="maintenance_event.trimmed",
-                status="succeeded",
-                batch_id=batch_id,
-                metadata={
-                    "retention_days": S.EVENT_RETENTION_DAYS,
-                    "deleted_rows": deleted_rows,
-                },
-            )
+            if deleted_rows > 0:
+                maintenance_event_service.create_maintenance_event(
+                    db,
+                    job="trim_maintenance_events",
+                    action="maintenance_event.trimmed",
+                    status="succeeded",
+                    batch_id=batch_id,
+                    metadata={
+                        "retention_days": S.EVENT_RETENTION_DAYS,
+                        "deleted_rows": deleted_rows,
+                    },
+                )
             db.commit()
         log.info(
             "maintenance_event_retention_trimmed",
@@ -207,17 +210,18 @@ async def abort_incomplete_multipart_uploads_worker(ctx) -> None:
         sm = get_sessionmaker()
         with sm() as db:
             deleted_rows = s3_multipart.abort_incomplete_uploads_older_than(db, cutoff)
-            maintenance_event_service.create_maintenance_event(
-                db,
-                job="abort_incomplete_multipart_uploads",
-                action="multipart_upload.aborted",
-                status="succeeded",
-                batch_id=batch_id,
-                metadata={
-                    "abort_after_hours": S.S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS,
-                    "deleted_rows": deleted_rows,
-                },
-            )
+            if deleted_rows > 0:
+                maintenance_event_service.create_maintenance_event(
+                    db,
+                    job="abort_incomplete_multipart_uploads",
+                    action="multipart_upload.aborted",
+                    status="succeeded",
+                    batch_id=batch_id,
+                    metadata={
+                        "abort_after_hours": S.S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS,
+                        "deleted_rows": deleted_rows,
+                    },
+                )
             db.commit()
         log.info(
             "multipart_upload_retention_aborted",

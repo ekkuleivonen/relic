@@ -12,7 +12,7 @@ export type AccessKey = {
 }
 
 export type AccessKeyCreateInput = {
-  user_id: string
+  actor_id: string
   name: string
 }
 

@@ -71,6 +71,7 @@ class ProcessorPage:
 @dataclass(frozen=True)
 class PendingDispatchJob:
     processor_id: uuid.UUID
+    dispatch_generation: int
     event_id: uuid.UUID
     event_offset: int
     event_type: str
@@ -80,7 +81,7 @@ class PendingDispatchJob:
 class ExecutionResult:
     """What the worker handler reports back for logging/metrics."""
 
-    status: str  # 'ok' | 'failed' | 'skipped_disabled' | 'skipped_missing_processor' | 'skipped_already_processed' | 'skipped_missing_event'
+    status: str  # 'ok' | 'failed' | 'skipped_disabled' | 'skipped_missing_processor' | 'skipped_stale_generation' | 'skipped_already_processed' | 'skipped_missing_event'
     advanced_to_offset: int | None
     duration_ms: int
 
@@ -327,12 +328,11 @@ def list_processors(
             .offset(offset)
         )
     )
-    head_offset = db.scalar(select(func.coalesce(func.max(FileEvent.offset), 0))) or 0
     items = [
         ProcessorWithLag(
             processor=processor,
             pending_count=_pending_count(db, processor),
-            head_offset=int(head_offset),
+            head_offset=_eligible_head_offset(db, processor),
         )
         for processor in rows
     ]
@@ -341,11 +341,10 @@ def list_processors(
 
 def get_processor_with_lag(db: Session, processor_id: uuid.UUID) -> ProcessorWithLag:
     processor = require_processor(db, processor_id)
-    head_offset = db.scalar(select(func.coalesce(func.max(FileEvent.offset), 0))) or 0
     return ProcessorWithLag(
         processor=processor,
         pending_count=_pending_count(db, processor),
-        head_offset=int(head_offset),
+        head_offset=_eligible_head_offset(db, processor),
     )
 
 
@@ -357,6 +356,15 @@ def _pending_count(db: Session, processor: Processor) -> int:
         db.scalar(stmt)
         or 0
     )
+
+
+def _eligible_head_offset(db: Session, processor: Processor) -> int:
+    if not processor.subscribed_event_types:
+        return int(processor.last_committed_offset)
+    stmt = _matching_events_stmt(db, processor).with_only_columns(
+        func.coalesce(func.max(FileEvent.offset), processor.last_committed_offset)
+    )
+    return int(db.scalar(stmt) or processor.last_committed_offset)
 
 
 # ---------------------------------------------------------------------------
@@ -415,6 +423,7 @@ def collect_pending_jobs(
         jobs.append(
             PendingDispatchJob(
                 processor_id=processor.id,
+                dispatch_generation=int(processor.dispatch_generation),
                 event_id=event_id,
                 event_offset=int(event_offset),
                 event_type=event_type,
@@ -435,6 +444,7 @@ def execute_processor_event(
     *,
     processor_id: uuid.UUID,
     event_id: uuid.UUID,
+    dispatch_generation: int = 0,
     now: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.UTC),
 ) -> ExecutionResult:
     """Run the substrate handler, emit the outcome event, and advance the cursor.
@@ -464,6 +474,15 @@ def execute_processor_event(
                 event_id=str(event_id),
             )
             return _result("skipped_disabled", None, started_at)
+        if dispatch_generation != processor.dispatch_generation:
+            log.info(
+                "processor_skipped_stale_generation",
+                processor_id=str(processor_id),
+                event_id=str(event_id),
+                job_generation=dispatch_generation,
+                current_generation=processor.dispatch_generation,
+            )
+            return _result("skipped_stale_generation", None, started_at)
 
         event = db.get(FileEvent, event_id)
         if event is None:
@@ -614,6 +633,7 @@ def rewind_cursor(
         raise BadRequestError("target_offset cannot be ahead of the current cursor")
     processor.last_committed_offset = target_offset
     processor.last_committed_at = dt.datetime.now(dt.UTC)
+    processor.dispatch_generation += 1
     _clear_failure_state(processor)
     db.flush()
 
@@ -628,6 +648,7 @@ def rewind_cursor(
                 "name": processor.name,
                 "from_offset": previous,
                 "to_offset": target_offset,
+                "dispatch_generation": processor.dispatch_generation,
                 "reason": cleaned_reason,
             },
         )

@@ -509,6 +509,9 @@ class Processor(Base, TimestampMixin):
         JSONType, nullable=False, default=list, server_default=text("'[]'")
     )
     config: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
+    dispatch_generation: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
     last_committed_offset: Mapped[int] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"),
         nullable=False,

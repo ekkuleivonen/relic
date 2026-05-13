@@ -77,7 +77,7 @@ class AccessKeyCreated(AccessKeyRead):
 async def list_access_keys(db: DbSession) -> list[AccessKeyRead]:
     """
     GET /access-keys -> list keys.
-    Self sees own keys; admin sees all (?user_id= filter).
+    Self sees own keys; admin sees all.
     Never returns the secret, only key_id, name, last_used_at, revoked_at.
     """
     return [AccessKeyRead.from_row(row) for row in access_key_service.list_access_keys(db)]

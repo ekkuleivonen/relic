@@ -53,7 +53,7 @@ export function AccessKeyCreateDialog({
     }
 
     await onSubmit({
-      user_id: userId,
+      actor_id: userId,
       name: name.trim(),
     })
   }

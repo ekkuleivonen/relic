@@ -6,7 +6,7 @@ export type AuditEventRecord = {
   id: string
   operation: string
   status: AuditEventStatus
-  actor_user_id: string | null
+  actor_id: string | null
   actor: User | null
   request_id: string | null
   metadata: Record<string, unknown>
@@ -17,7 +17,7 @@ export type AuditEventRecord = {
 export type AuditEventsQuery = {
   operation?: string
   status?: AuditEventStatus
-  actor_user_id?: string
+  actor_id?: string
   request_id?: string
   created_after?: string
   created_before?: string

@@ -8,7 +8,7 @@ export type FileEventRecord = {
   schema_version: number
   event_type: string
   status: FileEventStatus
-  actor_user_id: string | null
+  actor_id: string | null
   actor: User | null
   request_id: string | null
   idempotency_key: string | null
@@ -21,7 +21,7 @@ export type FileEventRecord = {
 export type FileEventsQuery = {
   event_type?: string
   status?: FileEventStatus
-  actor_user_id?: string
+  actor_id?: string
   request_id?: string
   file_id?: string
   folder_id?: string

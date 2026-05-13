@@ -152,6 +152,7 @@ class ProcessorFactory(factory.Factory):
     )
     folder_scopes = factory.LazyFunction(list)
     config = factory.LazyFunction(dict)
+    dispatch_generation = 0
     last_committed_offset = 0
     last_committed_at = None
     last_failed_event_id = None
