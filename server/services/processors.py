@@ -43,6 +43,8 @@ from processors.registry import (
     get_processor_kind,
     list_processor_definitions as list_registered_processor_definitions,
     validate_config,
+    validate_extensions,
+    validate_mimetype_prefixes,
     validate_subscribed_event_types,
 )
 from services import audit_events as audit_event_service
@@ -98,6 +100,8 @@ def create_processor(
     kind: str,
     subscribed_event_types: list[str] | None = None,
     folder_scopes: list[dict] | None = None,
+    mimetype_prefixes: list[str] | None = None,
+    extensions: list[str] | None = None,
     config: dict | None = None,
     enabled: bool = True,
     source: str = ProcessorSource.ADMIN.value,
@@ -116,6 +120,16 @@ def create_processor(
 
     cleaned_config = validate_config(kind=cleaned_kind, config=config)
     cleaned_folder_scopes = _validate_folder_scopes(db, folder_scopes)
+    cleaned_mimetype_prefixes = (
+        validate_mimetype_prefixes(kind=cleaned_kind, prefixes=mimetype_prefixes)
+        if mimetype_prefixes is not None
+        else list(processor_kind.default_mimetype_prefixes)
+    )
+    cleaned_extensions = (
+        validate_extensions(kind=cleaned_kind, extensions=extensions)
+        if extensions is not None
+        else list(processor_kind.default_extensions)
+    )
     processor = Processor(
         name=cleaned_name,
         kind=cleaned_kind,
@@ -123,6 +137,8 @@ def create_processor(
         source=source,
         subscribed_event_types=types,
         folder_scopes=cleaned_folder_scopes,
+        mimetype_prefixes=cleaned_mimetype_prefixes,
+        extensions=cleaned_extensions,
         config=cleaned_config,
         last_committed_offset=0,
     )
@@ -148,6 +164,8 @@ def create_processor(
                 "source": processor.source,
                 "subscribed_event_types": processor.subscribed_event_types,
                 "folder_scopes": processor.folder_scopes,
+                "mimetype_prefixes": processor.mimetype_prefixes,
+                "extensions": processor.extensions,
             },
         )
     db.commit()
@@ -162,6 +180,8 @@ def upsert_seed_processor(
     kind: str,
     subscribed_event_types: list[str] | None = None,
     folder_scopes: list[dict] | None = None,
+    mimetype_prefixes: list[str] | None = None,
+    extensions: list[str] | None = None,
     config: dict | None = None,
 ) -> Processor:
     """Idempotent seed entrypoint. Preserves cursor + enabled state on re-run."""
@@ -173,6 +193,14 @@ def upsert_seed_processor(
             existing.subscribed_event_types = list(subscribed_event_types)
         if folder_scopes is not None:
             existing.folder_scopes = _validate_folder_scopes(db, folder_scopes)
+        if mimetype_prefixes is not None:
+            existing.mimetype_prefixes = validate_mimetype_prefixes(
+                kind=kind, prefixes=mimetype_prefixes
+            )
+        if extensions is not None:
+            existing.extensions = validate_extensions(
+                kind=kind, extensions=extensions
+            )
         if config is not None:
             existing.config = validate_config(kind=kind, config=config)
         return existing
@@ -182,6 +210,8 @@ def upsert_seed_processor(
         kind=kind,
         subscribed_event_types=subscribed_event_types,
         folder_scopes=folder_scopes,
+        mimetype_prefixes=mimetype_prefixes,
+        extensions=extensions,
         config=config,
         enabled=True,
         source=ProcessorSource.SEED.value,
@@ -196,6 +226,8 @@ def update_processor(
     enabled: bool | None = None,
     subscribed_event_types: list[str] | None = None,
     folder_scopes: list[dict] | None = None,
+    mimetype_prefixes: list[str] | None = None,
+    extensions: list[str] | None = None,
     config: dict | None = None,
     event_context: EventContext | None = None,
 ) -> Processor:
@@ -203,6 +235,8 @@ def update_processor(
     if processor.source == ProcessorSource.SEED.value and (
         subscribed_event_types is not None
         or folder_scopes is not None
+        or mimetype_prefixes is not None
+        or extensions is not None
         or config is not None
     ):
         raise BadRequestError(
@@ -231,6 +265,26 @@ def update_processor(
                 "to": cleaned_folder_scopes,
             }
             processor.folder_scopes = cleaned_folder_scopes
+    if mimetype_prefixes is not None:
+        cleaned_prefixes = validate_mimetype_prefixes(
+            kind=processor.kind, prefixes=mimetype_prefixes
+        )
+        if cleaned_prefixes != processor.mimetype_prefixes:
+            changes["mimetype_prefixes"] = {
+                "from": list(processor.mimetype_prefixes),
+                "to": cleaned_prefixes,
+            }
+            processor.mimetype_prefixes = cleaned_prefixes
+    if extensions is not None:
+        cleaned_extensions = validate_extensions(
+            kind=processor.kind, extensions=extensions
+        )
+        if cleaned_extensions != processor.extensions:
+            changes["extensions"] = {
+                "from": list(processor.extensions),
+                "to": cleaned_extensions,
+            }
+            processor.extensions = cleaned_extensions
     if config is not None:
         cleaned_config = validate_config(kind=processor.kind, config=config)
         if cleaned_config != processor.config:

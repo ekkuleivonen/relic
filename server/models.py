@@ -23,7 +23,6 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 from enums import (
     EventStatus,
-    MetaExtractStatus,
     Permission,
     ProcessorSource,
     UserRole,
@@ -269,10 +268,6 @@ class FolderAccess(Base, TimestampMixin):
 class File(Base, TimestampMixin):
     __tablename__ = "files"
     __table_args__ = (
-        CheckConstraint(
-            f"meta_extract_status IN ({','.join(str(int(status)) for status in MetaExtractStatus)})",
-            name="ck_files_meta_extract_status",
-        ),
         UniqueConstraint("folder_id", "name", name="uq_files_folder_name"),
     )
 
@@ -287,13 +282,9 @@ class File(Base, TimestampMixin):
         GUID(), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # Status of the latest meta_extract processor run on this file. The column
-    # is denormalized — file_events.processor.meta_extract.{completed,failed}
-    # is the source of truth for processor outcomes. We keep this here so the
-    # filesystem UI can render per-file badges without a per-row event lookup.
-    meta_extract_status: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=int(MetaExtractStatus.PENDING)
-    )
+    # Sectioned per-processor metadata; see ``domain.files.meta``. Each
+    # processor kind owns ``meta.sections.<kind>`` and refreshes the merged
+    # top-level view (tags/keywords/summary/kvs) atomically.
     meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
 
     folder: Mapped[Folder] = relationship(back_populates="files")
@@ -506,6 +497,15 @@ class Processor(Base, TimestampMixin):
         JSONType, nullable=False, default=list
     )
     folder_scopes: Mapped[list[dict]] = mapped_column(
+        JSONType, nullable=False, default=list, server_default=text("'[]'")
+    )
+    # Optional per-instance filters: events are skipped when the file's
+    # ``meta.sections.file_info`` mimetype/extension don't match. An empty
+    # list means "no filter" — every event subscribed via event_types runs.
+    mimetype_prefixes: Mapped[list[str]] = mapped_column(
+        JSONType, nullable=False, default=list, server_default=text("'[]'")
+    )
+    extensions: Mapped[list[str]] = mapped_column(
         JSONType, nullable=False, default=list, server_default=text("'[]'")
     )
     config: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)

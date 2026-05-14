@@ -168,7 +168,7 @@ async def get_folder_stats(
 ) -> FolderStatsRead:
     """
     GET /folders/{id}/stats -> recursive rollup over this folder + descendants.
-    Returns total file count, enriched (meta_extract COMPLETED) count, and
+    Returns total file count, enriched (file_info section completed) count, and
     logical size in bytes (sum of blob sizes per file row, no dedupe).
     Caller needs READ on the folder.
     """

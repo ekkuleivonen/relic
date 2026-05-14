@@ -38,7 +38,11 @@ import { formatBytes } from "@/lib/format"
 import { PERM, can } from "@/lib/permissions"
 import { buildSingleFilterHref } from "@/lib/search-query"
 import { cn } from "@/lib/utils"
-import type { FileSystemFile, FolderTreeNode } from "@/types/filesystem"
+import type {
+  FileMetaSection,
+  FileSystemFile,
+  FolderTreeNode,
+} from "@/types/filesystem"
 
 export function FileDetailPage() {
   return (
@@ -266,7 +270,7 @@ function FileDetailContent({
       <div className="grid gap-4 md:grid-cols-3">
         <StatCard
           label="Status"
-          value={formatMetaExtractStatus(file.meta_extract_status)}
+          value={formatFileInfoStatus(file.meta.sections?.file_info?.status)}
         />
         <StatCard label="Size" value={formatBytes(file.meta.size)} />
         <StatCard label="Type" value={file.meta.mimetype || "Unknown"} />
@@ -367,7 +371,95 @@ function FileDetailContent({
           )}
         </CardContent>
       </Card>
+
+      <ProcessorSectionsCard sections={file.meta.sections ?? {}} />
     </>
+  )
+}
+
+function ProcessorSectionsCard({
+  sections,
+}: {
+  sections: Record<string, FileMetaSection>
+}) {
+  const kinds = Object.keys(sections).sort()
+  return (
+    <Card>
+      <CardHeader className="gap-2 sm:flex sm:flex-row sm:items-center sm:justify-between">
+        <CardTitle>Processor Sections</CardTitle>
+        <Badge variant="outline">{kinds.length} sections</Badge>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {kinds.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No processor has written a section for this file yet.
+          </p>
+        ) : (
+          kinds.map((kind) => (
+            <ProcessorSectionRow key={kind} kind={kind} section={sections[kind]} />
+          ))
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function ProcessorSectionRow({
+  kind,
+  section,
+}: {
+  kind: string
+  section: FileMetaSection
+}) {
+  const kvEntries = Object.entries(section.kvs ?? {})
+  return (
+    <div className="rounded-md border p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">{kind}</span>
+        <Badge variant="outline" className="capitalize">
+          {section.status}
+        </Badge>
+        {section.extracted_at && (
+          <span className="text-xs text-muted-foreground">
+            {formatDateTime(section.extracted_at)}
+          </span>
+        )}
+      </div>
+      {section.summary && (
+        <p className="mt-2 text-sm text-muted-foreground">{section.summary}</p>
+      )}
+      {(section.tags?.length || section.keywords?.length) ? (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {section.tags?.map((tag) => (
+            <Badge key={`tag-${tag}`} variant="secondary">
+              {tag}
+            </Badge>
+          ))}
+          {section.keywords?.map((keyword) => (
+            <Badge key={`kw-${keyword}`} variant="outline">
+              {keyword}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+      {kvEntries.length > 0 && (
+        <dl className="mt-3 grid gap-1 text-sm sm:grid-cols-[10rem_1fr]">
+          {kvEntries.map(([key, value]) => (
+            <React.Fragment key={key}>
+              <dt className="text-muted-foreground">{key}</dt>
+              <dd className="break-all font-mono text-xs">
+                {value === null ? "—" : String(value)}
+              </dd>
+            </React.Fragment>
+          ))}
+        </dl>
+      )}
+      {section.error_message && (
+        <p className="mt-2 text-sm text-destructive">
+          {section.error_class}: {section.error_message}
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -675,16 +767,18 @@ function formatDetailValue(value: unknown) {
   return JSON.stringify(value)
 }
 
-function formatMetaExtractStatus(status: number) {
+function formatFileInfoStatus(status: string | undefined) {
   switch (status) {
-    case 1:
+    case "pending":
       return "Pending"
-    case 2:
+    case "in_progress":
       return "Extracting"
-    case 3:
+    case "completed":
       return "Ready"
-    case 4:
+    case "failed":
       return "Failed"
+    case "skipped":
+      return "Skipped"
     default:
       return "Unknown"
   }

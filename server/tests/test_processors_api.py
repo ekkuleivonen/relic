@@ -68,22 +68,26 @@ def _create_event(db_session, *, event_type="file.created"):
     )
 
 
-def test_list_processor_kinds_includes_meta_extract(client):
+def test_list_processor_kinds_returns_seed_kinds(client):
     response = client.get("/api/processors/kinds")
     assert response.status_code == 200
     body = response.json()
-    meta_extract = next(
-        item for item in body["items"] if item["kind"] == "meta_extract"
-    )
-    assert meta_extract["display_name"] == "Metadata extraction"
-    assert meta_extract["default_task_queue"] == "relic:tasks:meta_extract"
-    assert meta_extract["default_concurrency"] == 16
+    file_info = next(item for item in body["items"] if item["kind"] == "file_info")
+    assert file_info["display_name"] == "File info"
+    assert file_info["default_task_queue"] == "relic:tasks:file_info"
+
+    image_meta = next(item for item in body["items"] if item["kind"] == "image_meta")
+    assert "image/" in image_meta["valid_mimetype_prefixes"]
+    assert "processor.file_info.completed" in image_meta["valid_event_types"]
+
     webhook = next(
         item for item in body["items"] if item["kind"] == "webhook_event_dispatch"
     )
     assert webhook["display_name"] == "Webhook event dispatch"
     assert webhook["default_task_queue"] == "relic:tasks:webhook_event_dispatch"
-    assert "processor.meta_extract.completed" in webhook["valid_event_types"]
+    # Webhook valid event types are derived dynamically from registered kinds.
+    assert "processor.image_meta.completed" in webhook["valid_event_types"]
+    assert "processor.file_info.completed" in webhook["valid_event_types"]
     assert {
         "value": "file.created",
         "label": "file.created",
@@ -113,13 +117,13 @@ def test_list_processor_folder_options_returns_flat_paths(client, db_session):
 def test_create_processor_returns_lag(client, db_session):
     response = client.post(
         "/api/processors/",
-        json={"name": "meta_extract", "kind": "meta_extract"},
+        json={"name": "file_info", "kind": "file_info"},
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["name"] == "meta_extract"
-    assert body["kind"] == "meta_extract"
+    assert body["name"] == "file_info"
+    assert body["kind"] == "file_info"
     assert body["enabled"] is True
     assert body["pending_count"] == 0
     assert body["head_offset"] == 0
@@ -127,6 +131,8 @@ def test_create_processor_returns_lag(client, db_session):
         ["file.created", "file.updated", "file.copied", "file.renamed"]
     )
     assert body["folder_scopes"] == []
+    assert body["mimetype_prefixes"] == []
+    assert body["extensions"] == []
 
 
 def test_create_webhook_processor_redacts_secret(client):
@@ -156,8 +162,8 @@ def test_create_processor_accepts_folder_scopes(client, db_session):
     response = client.post(
         "/api/processors/",
         json={
-            "name": "meta_extract",
-            "kind": "meta_extract",
+            "name": "file_info",
+            "kind": "file_info",
             "folder_scopes": [{"folder_id": str(folder.id), "cascade": True}],
         },
     )
@@ -167,9 +173,25 @@ def test_create_processor_accepts_folder_scopes(client, db_session):
     assert body["folder_scopes"] == [{"folder_id": str(folder.id), "cascade": True}]
 
 
+def test_create_image_meta_processor_with_mimetype_filter(client):
+    response = client.post(
+        "/api/processors/",
+        json={
+            "name": "image_meta",
+            "kind": "image_meta",
+            "mimetype_prefixes": ["image/"],
+            "extensions": ["png", "jpg"],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mimetype_prefixes"] == ["image/"]
+    assert body["extensions"] == ["png", "jpg"]
+
+
 def test_list_processors_reports_pending(client, db_session):
     processor = ProcessorFactory.build(
-        name="meta_extract", subscribed_event_types=["file.created"]
+        name="file_info", subscribed_event_types=["file.created"]
     )
     db_session.add(processor)
     db_session.flush()
@@ -186,7 +208,7 @@ def test_list_processors_reports_pending(client, db_session):
 
 
 def test_update_processor_disables_via_patch(client, db_session):
-    processor = ProcessorFactory.build(name="meta_extract")
+    processor = ProcessorFactory.build(name="file_info")
     db_session.add(processor)
     db_session.commit()
 
@@ -198,8 +220,20 @@ def test_update_processor_disables_via_patch(client, db_session):
     assert db_session.get(Processor, processor.id).enabled is False
 
 
+def test_update_processor_rejects_folder_scopes_field(client, db_session):
+    processor = ProcessorFactory.build(name="file_info")
+    db_session.add(processor)
+    db_session.commit()
+
+    response = client.patch(
+        f"/api/processors/{processor.id}",
+        json={"folder_scopes": [{"folder_id": str(uuid.uuid4()), "cascade": True}]},
+    )
+    assert response.status_code == 422
+
+
 def test_rewind_cursor_via_route(client, db_session):
-    processor = ProcessorFactory.build(name="meta_extract", last_committed_offset=10)
+    processor = ProcessorFactory.build(name="file_info", last_committed_offset=10)
     db_session.add(processor)
     db_session.commit()
 
@@ -214,7 +248,7 @@ def test_rewind_cursor_via_route(client, db_session):
 
 def test_skip_stuck_event_via_route(client, db_session):
     processor = ProcessorFactory.build(
-        name="meta_extract",
+        name="file_info",
         subscribed_event_types=["file.created"],
         last_committed_offset=0,
     )
@@ -237,7 +271,7 @@ def test_skip_stuck_event_via_route(client, db_session):
 
 
 def test_delete_processor_blocked_for_seeded(client, db_session):
-    processor = ProcessorFactory.build(name="meta_extract", source="seed")
+    processor = ProcessorFactory.build(name="file_info", source="seed")
     db_session.add(processor)
     db_session.commit()
 
@@ -292,7 +326,7 @@ def test_create_processor_validates_event_types(client):
         "/api/processors/",
         json={
             "name": "x",
-            "kind": "meta_extract",
+            "kind": "file_info",
             "subscribed_event_types": ["file.bogus"],
         },
     )

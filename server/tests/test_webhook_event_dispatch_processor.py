@@ -100,9 +100,9 @@ def test_build_webhook_body_is_canonical_json(db_session) -> None:
     db_session.flush()
     event = create_file_event(
         db_session,
-        event_type="processor.meta_extract.completed",
+        event_type="processor.file_info.completed",
         file_id=uuid.uuid4(),
-        payload={"kind": "meta_extract", "duration_ms": 7},
+        payload={"kind": "file_info", "duration_ms": 7},
     )
     webhook = WebhookEventDispatchProcessor()
     task = webhook.build_task(
@@ -119,7 +119,7 @@ def test_build_webhook_body_is_canonical_json(db_session) -> None:
     decoded = json.loads(body)
     assert decoded["event"]["id"] == str(event.id)
     assert decoded["event"]["offset"] == event.offset
-    assert decoded["event"]["payload"] == {"duration_ms": 7, "kind": "meta_extract"}
+    assert decoded["event"]["payload"] == {"duration_ms": 7, "kind": "file_info"}
     assert body == build_webhook_body(task)
 
 

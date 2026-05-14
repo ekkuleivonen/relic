@@ -19,8 +19,55 @@ from models import (
     FileEvent,
     Processor,
 )
-from processors.kinds.meta_extract.extractor import MetaExtractionResult
-from processors.registry import init_builtin_processors
+from processors.base import ProcessorResult
+from processors.registry import get_processor_kind, init_builtin_processors
+
+
+def _patch_file_info_handler(
+    monkeypatch,
+    *,
+    raise_exc: Exception | None = None,
+    on_call=None,
+):
+    """Stub the ``file_info`` processor's lifecycle for outer pipeline tests.
+
+    Tests in this module care about the cursor / outcome-event side of
+    ``execute_processor_event``, not the actual S3 + parsing work that
+    ``FileInfoProcessor`` does, so we replace the handler with either a
+    success result or a configured exception. ``on_call`` is invoked with
+    the ``RunContext`` (so call-counting tests can observe real activity).
+    """
+    kind_cls = type(get_processor_kind("file_info"))
+
+    def _handle(self, ctx):
+        if on_call is not None:
+            on_call(ctx)
+        if raise_exc is not None:
+            raise raise_exc
+        return ProcessorResult.succeeded()
+
+    monkeypatch.setattr(kind_cls, "handle", _handle)
+    monkeypatch.setattr(kind_cls, "should_enqueue", lambda self, ctx: True)
+    monkeypatch.setattr(kind_cls, "build_task", _stub_task)
+
+
+def _stub_task(self, ctx):
+    """Minimal valid ProcessorTask for the stubbed file_info handler."""
+    from processors.base import ProcessorTask
+
+    return ProcessorTask(
+        processor_id=ctx.processor.id,
+        processor_name=ctx.processor.name,
+        processor_kind=self.kind,
+        source_event_id=ctx.event.id,
+        source_event_type=ctx.event.event_type,
+        subject_type="file",
+        subject_id=ctx.event.file_id or ctx.event.id,
+        input_version=str(ctx.event.offset),
+        dedupe_key=f"{self.kind}:event:{ctx.event.id}",
+        queue_name=self.default_task_queue,
+        payload={"file_id": str(ctx.event.file_id) if ctx.event.file_id else None},
+    )
 from services import processors as processor_service
 from services.event_context import EventContext
 from services.file_events import create_file_event
@@ -79,11 +126,11 @@ def _make_event(
 def test_create_processor_uses_processor_kind_defaults(db_session):
     processor = processor_service.create_processor(
         db_session,
-        name="meta_extract",
-        kind="meta_extract",
+        name="file_info",
+        kind="file_info",
     )
 
-    assert processor.kind == "meta_extract"
+    assert processor.kind == "file_info"
     assert processor.subscribed_event_types == [
         "file.created",
         "file.updated",
@@ -97,11 +144,11 @@ def test_create_processor_uses_processor_kind_defaults(db_session):
 
 def test_create_processor_rejects_duplicate_name(db_session):
     processor_service.create_processor(
-        db_session, name="dup", kind="meta_extract"
+        db_session, name="dup", kind="file_info"
     )
     with pytest.raises(ConflictError):
         processor_service.create_processor(
-            db_session, name="dup", kind="meta_extract"
+            db_session, name="dup", kind="file_info"
         )
 
 
@@ -117,7 +164,7 @@ def test_create_processor_rejects_invalid_event_type(db_session):
         processor_service.create_processor(
             db_session,
             name="x",
-            kind="meta_extract",
+            kind="file_info",
             subscribed_event_types=["file.bogus"],
         )
 
@@ -130,7 +177,7 @@ def test_create_processor_normalizes_folder_scopes(db_session):
     processor = processor_service.create_processor(
         db_session,
         name="scoped",
-        kind="meta_extract",
+        kind="file_info",
         folder_scopes=[
             {"folder_id": str(folder.id), "cascade": False},
             {"folder_id": str(folder.id), "cascade": True},
@@ -147,7 +194,7 @@ def test_create_processor_rejects_missing_folder_scope(db_session):
         processor_service.create_processor(
             db_session,
             name="scoped",
-            kind="meta_extract",
+            kind="file_info",
             folder_scopes=[{"folder_id": str(uuid.uuid4()), "cascade": True}],
         )
 
@@ -155,14 +202,14 @@ def test_create_processor_rejects_missing_folder_scope(db_session):
 def test_upsert_seed_processor_is_idempotent(db_session):
     first = processor_service.upsert_seed_processor(
         db_session,
-        name="meta_extract",
-        kind="meta_extract",
+        name="file_info",
+        kind="file_info",
         subscribed_event_types=["file.created"],
     )
     second = processor_service.upsert_seed_processor(
         db_session,
-        name="meta_extract",
-        kind="meta_extract",
+        name="file_info",
+        kind="file_info",
         subscribed_event_types=["file.created", "file.updated"],
     )
 
@@ -175,7 +222,7 @@ def test_update_processor_writes_audit_event(db_session):
     db_session.add(actor)
     db_session.commit()
     processor = processor_service.create_processor(
-        db_session, name="x", kind="meta_extract"
+        db_session, name="x", kind="file_info"
     )
 
     processor_service.update_processor(
@@ -196,7 +243,7 @@ def test_update_processor_writes_audit_event(db_session):
 
 def test_update_seed_processor_rejects_config_drift(db_session):
     processor = processor_service.upsert_seed_processor(
-        db_session, name="meta_extract", kind="meta_extract"
+        db_session, name="file_info", kind="file_info"
     )
     db_session.commit()
 
@@ -213,7 +260,7 @@ def test_create_processor_validates_config_for_kind(db_session):
         processor_service.create_processor(
             db_session,
             name="x",
-            kind="meta_extract",
+            kind="file_info",
             config={"unexpected": True},
         )
 
@@ -234,8 +281,6 @@ def test_create_webhook_processor_validates_config_and_defaults(db_session):
         "file.created",
         "file.updated",
         "file.deleted",
-        "processor.meta_extract.completed",
-        "processor.meta_extract.failed",
     ]
     assert processor.config["url"] == "https://example.com/relic"
     assert processor.config["timeout_seconds"] == 5.0
@@ -258,7 +303,7 @@ def test_create_webhook_processor_accepts_file_moved_subscription(db_session):
 
 def test_delete_processor_blocks_seeded_rows(db_session):
     processor = processor_service.upsert_seed_processor(
-        db_session, name="meta_extract", kind="meta_extract"
+        db_session, name="file_info", kind="file_info"
     )
     db_session.commit()
     with pytest.raises(BadRequestError):
@@ -269,7 +314,7 @@ def test_delete_processor_blocks_seeded_rows(db_session):
 
 def test_collect_pending_jobs_returns_only_subscribed_events_past_cursor(db_session):
     processor = ProcessorFactory.build(
-        name="meta_extract",
+        name="file_info",
         last_committed_offset=0,
         subscribed_event_types=["file.created"],
     )
@@ -288,7 +333,7 @@ def test_collect_pending_jobs_returns_only_subscribed_events_past_cursor(db_sess
 
 def test_collect_pending_jobs_respects_cursor(db_session):
     processor = ProcessorFactory.build(
-        name="meta_extract",
+        name="file_info",
         subscribed_event_types=["file.created"],
         last_committed_offset=0,
     )
@@ -307,7 +352,7 @@ def test_collect_pending_jobs_respects_cursor(db_session):
 
 def test_collect_pending_jobs_skips_disabled_processor(db_session):
     processor = ProcessorFactory.build(
-        name="meta_extract",
+        name="file_info",
         enabled=False,
         subscribed_event_types=["file.created"],
     )
@@ -328,7 +373,7 @@ def test_collect_pending_jobs_filters_by_exact_folder_scope(db_session):
     db_session.add_all([in_scope_folder, out_of_scope_folder])
     db_session.flush()
     processor = ProcessorFactory.build(
-        name="meta_extract",
+        name="file_info",
         subscribed_event_types=["file.created"],
         folder_scopes=[
             {"folder_id": str(in_scope_folder.id), "cascade": False}
@@ -362,7 +407,7 @@ def test_collect_pending_jobs_filters_by_cascading_folder_scope(db_session):
     db_session.add(grandchild)
     db_session.flush()
     processor = ProcessorFactory.build(
-        name="meta_extract",
+        name="file_info",
         subscribed_event_types=["file.created"],
         folder_scopes=[{"folder_id": str(child.id), "cascade": True}],
     )
@@ -382,7 +427,7 @@ def test_collect_pending_jobs_filters_by_cascading_folder_scope(db_session):
 
 def test_get_processor_with_lag_reports_pending(db_session):
     processor = ProcessorFactory.build(
-        name="meta_extract", subscribed_event_types=["file.created"]
+        name="file_info", subscribed_event_types=["file.created"]
     )
     db_session.add(processor)
     db_session.flush()
@@ -404,7 +449,7 @@ def test_get_processor_with_lag_respects_folder_scope(db_session):
     db_session.add_all([in_scope_folder, out_of_scope_folder])
     db_session.flush()
     processor = ProcessorFactory.build(
-        name="meta_extract",
+        name="file_info",
         subscribed_event_types=["file.created"],
         folder_scopes=[
             {"folder_id": str(in_scope_folder.id), "cascade": False}
@@ -427,7 +472,7 @@ def test_get_processor_with_lag_respects_folder_scope(db_session):
 
 def test_get_processor_with_lag_uses_cursor_when_no_matching_events(db_session):
     processor = ProcessorFactory.build(
-        name="meta_extract",
+        name="file_info",
         subscribed_event_types=["file.created"],
         last_committed_offset=10,
     )
@@ -445,16 +490,11 @@ def test_get_processor_with_lag_uses_cursor_when_no_matching_events(db_session):
 def test_execute_processor_event_advances_cursor_on_success(
     session_factory, monkeypatch
 ):
-    monkeypatch.setattr(
-        "processors.kinds.meta_extract.extract_file_metadata",
-        lambda db, file_id, expected_blob_id: MetaExtractionResult(
-            status="completed"
-        ),
-    )
+    _patch_file_info_handler(monkeypatch)
 
     with session_factory() as bootstrap_db:
         processor = ProcessorFactory.build(
-            name="meta_extract", subscribed_event_types=["file.created"]
+            name="file_info", subscribed_event_types=["file.created"]
         )
         bootstrap_db.add(processor)
         bootstrap_db.flush()
@@ -479,7 +519,7 @@ def test_execute_processor_event_advances_cursor_on_success(
         assert refreshed.last_committed_at is not None
         outcome = verify_db.scalars(
             select(FileEvent).where(
-                FileEvent.event_type == "processor.meta_extract.completed"
+                FileEvent.event_type == "processor.file_info.completed"
             )
         ).one()
         assert outcome.payload["source_event_id"] == str(event_id)
@@ -491,11 +531,11 @@ def test_execute_processor_event_emits_failure_without_advancing(
     def raise_exc(db, file_id, expected_blob_id):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr("processors.kinds.meta_extract.extract_file_metadata", raise_exc)
+    _patch_file_info_handler(monkeypatch, raise_exc=RuntimeError("boom"))
 
     with session_factory() as bootstrap_db:
         processor = ProcessorFactory.build(
-            name="meta_extract", subscribed_event_types=["file.created"]
+            name="file_info", subscribed_event_types=["file.created"]
         )
         bootstrap_db.add(processor)
         bootstrap_db.flush()
@@ -518,7 +558,7 @@ def test_execute_processor_event_emits_failure_without_advancing(
         assert refreshed.last_committed_offset == 0
         outcome = verify_db.scalars(
             select(FileEvent).where(
-                FileEvent.event_type == "processor.meta_extract.failed"
+                FileEvent.event_type == "processor.file_info.failed"
             )
         ).one()
         assert outcome.status == "failed"
@@ -536,11 +576,11 @@ def test_collect_pending_jobs_suppresses_stored_failed_event(
     def raise_exc(db, file_id, expected_blob_id):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr("processors.kinds.meta_extract.extract_file_metadata", raise_exc)
+    _patch_file_info_handler(monkeypatch, raise_exc=RuntimeError("boom"))
 
     with session_factory() as bootstrap_db:
         processor = ProcessorFactory.build(
-            name="meta_extract", subscribed_event_types=["file.created"]
+            name="file_info", subscribed_event_types=["file.created"]
         )
         bootstrap_db.add(processor)
         bootstrap_db.flush()
@@ -563,16 +603,13 @@ def test_execute_processor_event_skips_when_already_processed(
     session_factory, monkeypatch
 ):
     parse_calls: list[uuid.UUID] = []
-
-    def handler(db, file_id, expected_blob_id):
-        parse_calls.append(file_id)
-        return MetaExtractionResult(status="completed")
-
-    monkeypatch.setattr("processors.kinds.meta_extract.extract_file_metadata", handler)
+    _patch_file_info_handler(
+        monkeypatch, on_call=lambda ctx: parse_calls.append(ctx.event.file_id)
+    )
 
     with session_factory() as bootstrap_db:
         processor = ProcessorFactory.build(
-            name="meta_extract", subscribed_event_types=["file.created"]
+            name="file_info", subscribed_event_types=["file.created"]
         )
         bootstrap_db.add(processor)
         bootstrap_db.flush()
@@ -596,16 +633,13 @@ def test_execute_processor_event_skips_stale_dispatch_generation(
     session_factory, monkeypatch
 ):
     parse_calls: list[uuid.UUID] = []
-
-    def handler(db, file_id, expected_blob_id):
-        parse_calls.append(file_id)
-        return MetaExtractionResult(status="completed")
-
-    monkeypatch.setattr("processors.kinds.meta_extract.extract_file_metadata", handler)
+    _patch_file_info_handler(
+        monkeypatch, on_call=lambda ctx: parse_calls.append(ctx.event.file_id)
+    )
 
     with session_factory() as bootstrap_db:
         processor = ProcessorFactory.build(
-            name="meta_extract",
+            name="file_info",
             subscribed_event_types=["file.created"],
             dispatch_generation=2,
         )
@@ -640,16 +674,11 @@ def test_execute_processor_event_refuses_non_subscribed(
     tick refresh from the DB.
     """
 
-    monkeypatch.setattr(
-        "processors.kinds.meta_extract.extract_file_metadata",
-        lambda db, file_id, expected_blob_id: MetaExtractionResult(
-            status="completed"
-        ),
-    )
+    _patch_file_info_handler(monkeypatch)
 
     with session_factory() as bootstrap_db:
         processor = ProcessorFactory.build(
-            name="meta_extract", subscribed_event_types=["file.created"]
+            name="file_info", subscribed_event_types=["file.created"]
         )
         bootstrap_db.add(processor)
         bootstrap_db.flush()
@@ -675,12 +704,7 @@ def test_execute_processor_event_refuses_non_subscribed(
 def test_execute_processor_event_refuses_folder_scope_mismatch(
     session_factory, monkeypatch
 ):
-    monkeypatch.setattr(
-        "processors.kinds.meta_extract.extract_file_metadata",
-        lambda db, file_id, expected_blob_id: MetaExtractionResult(
-            status="completed"
-        ),
-    )
+    _patch_file_info_handler(monkeypatch)
 
     with session_factory() as bootstrap_db:
         root = FolderFactory.build(name="")
@@ -693,7 +717,7 @@ def test_execute_processor_event_refuses_folder_scope_mismatch(
         bootstrap_db.add_all([in_scope_folder, out_of_scope_folder])
         bootstrap_db.flush()
         processor = ProcessorFactory.build(
-            name="meta_extract",
+            name="file_info",
             subscribed_event_types=["file.created"],
             folder_scopes=[
                 {"folder_id": str(in_scope_folder.id), "cascade": False}
@@ -729,7 +753,7 @@ def test_rewind_cursor_writes_audit(db_session):
     db_session.add(actor)
     db_session.commit()
     processor = ProcessorFactory.build(
-        name="meta_extract", last_committed_offset=10, dispatch_generation=3
+        name="file_info", last_committed_offset=10, dispatch_generation=3
     )
     db_session.add(processor)
     db_session.commit()
@@ -755,7 +779,7 @@ def test_rewind_cursor_writes_audit(db_session):
 
 
 def test_rewind_cursor_rejects_negative(db_session):
-    processor = ProcessorFactory.build(name="meta_extract")
+    processor = ProcessorFactory.build(name="file_info")
     db_session.add(processor)
     db_session.commit()
     with pytest.raises(BadRequestError):
@@ -768,7 +792,7 @@ def test_rewind_cursor_rejects_negative(db_session):
 
 
 def test_rewind_cursor_rejects_forward_jump(db_session):
-    processor = ProcessorFactory.build(name="meta_extract", last_committed_offset=1)
+    processor = ProcessorFactory.build(name="file_info", last_committed_offset=1)
     db_session.add(processor)
     db_session.commit()
     with pytest.raises(BadRequestError):
@@ -781,7 +805,7 @@ def test_rewind_cursor_rejects_forward_jump(db_session):
 
 
 def test_rewind_cursor_requires_reason(db_session):
-    processor = ProcessorFactory.build(name="meta_extract")
+    processor = ProcessorFactory.build(name="file_info")
     db_session.add(processor)
     db_session.commit()
     with pytest.raises(BadRequestError):
@@ -795,7 +819,7 @@ def test_skip_stuck_event_advances_and_audits(db_session):
     db_session.add(actor)
     db_session.commit()
     processor = ProcessorFactory.build(
-        name="meta_extract",
+        name="file_info",
         subscribed_event_types=["file.created"],
         last_committed_offset=0,
     )
@@ -832,7 +856,7 @@ def test_skip_stuck_event_advances_and_audits(db_session):
 
 def test_skip_stuck_event_rejects_already_processed(db_session):
     processor = ProcessorFactory.build(
-        name="meta_extract", subscribed_event_types=["file.created"]
+        name="file_info", subscribed_event_types=["file.created"]
     )
     db_session.add(processor)
     db_session.flush()
@@ -851,7 +875,7 @@ def test_skip_stuck_event_rejects_already_processed(db_session):
 
 def test_skip_stuck_event_rejects_non_next_event(db_session):
     processor = ProcessorFactory.build(
-        name="meta_extract", subscribed_event_types=["file.created"]
+        name="file_info", subscribed_event_types=["file.created"]
     )
     db_session.add(processor)
     db_session.flush()
@@ -869,7 +893,7 @@ def test_skip_stuck_event_rejects_non_next_event(db_session):
 
 
 def test_skip_stuck_event_requires_event(db_session):
-    processor = ProcessorFactory.build(name="meta_extract")
+    processor = ProcessorFactory.build(name="file_info")
     db_session.add(processor)
     db_session.commit()
     with pytest.raises(ResourceNotFound):
@@ -882,7 +906,7 @@ def test_skip_stuck_event_requires_event(db_session):
 
 
 def test_skip_stuck_event_requires_reason(db_session):
-    processor = ProcessorFactory.build(name="meta_extract")
+    processor = ProcessorFactory.build(name="file_info")
     db_session.add(processor)
     db_session.flush()
     event = _make_event(db_session, event_type="file.created")
@@ -896,7 +920,7 @@ def test_skip_stuck_event_requires_reason(db_session):
 def test_execute_processor_event_skips_disabled(session_factory):
     with session_factory() as bootstrap_db:
         processor = ProcessorFactory.build(
-            name="meta_extract", enabled=False, subscribed_event_types=["file.created"]
+            name="file_info", enabled=False, subscribed_event_types=["file.created"]
         )
         bootstrap_db.add(processor)
         bootstrap_db.flush()
@@ -916,16 +940,11 @@ def test_execute_processor_event_double_run_emits_outcome_once(
 ):
     """Two concurrent workers must not emit duplicate completion events."""
 
-    monkeypatch.setattr(
-        "processors.kinds.meta_extract.extract_file_metadata",
-        lambda db, file_id, expected_blob_id: MetaExtractionResult(
-            status="completed"
-        ),
-    )
+    _patch_file_info_handler(monkeypatch)
 
     with session_factory() as bootstrap_db:
         processor = ProcessorFactory.build(
-            name="meta_extract", subscribed_event_types=["file.created"]
+            name="file_info", subscribed_event_types=["file.created"]
         )
         bootstrap_db.add(processor)
         bootstrap_db.flush()
@@ -947,26 +966,21 @@ def test_execute_processor_event_double_run_emits_outcome_once(
     with session_factory() as verify_db:
         outcomes = verify_db.scalars(
             select(FileEvent).where(
-                FileEvent.event_type == "processor.meta_extract.completed"
+                FileEvent.event_type == "processor.file_info.completed"
             )
         ).all()
         assert len(outcomes) == 1
 
 
-def test_meta_extract_runs_on_rename(session_factory, monkeypatch):
+def test_file_info_runs_on_rename(session_factory, monkeypatch):
     parsed: list[uuid.UUID] = []
-
-    def fake_parse(db, file_id, expected_blob_id):
-        parsed.append(file_id)
-        return MetaExtractionResult(status="completed")
-
-    monkeypatch.setattr(
-        "processors.kinds.meta_extract.extract_file_metadata", fake_parse
+    _patch_file_info_handler(
+        monkeypatch, on_call=lambda ctx: parsed.append(ctx.event.file_id)
     )
 
     with session_factory() as bootstrap_db:
         processor = ProcessorFactory.build(
-            name="meta_extract", subscribed_event_types=["file.renamed"]
+            name="file_info", subscribed_event_types=["file.renamed"]
         )
         bootstrap_db.add(processor)
         bootstrap_db.flush()

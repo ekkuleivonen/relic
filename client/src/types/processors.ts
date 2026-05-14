@@ -6,6 +6,8 @@ export type Processor = {
   source: "seed" | "admin"
   subscribed_event_types: string[]
   folder_scopes: ProcessorFolderScope[]
+  mimetype_prefixes: string[]
+  extensions: string[]
   config: Record<string, unknown>
   last_committed_offset: number
   last_committed_at: string | null
@@ -41,6 +43,12 @@ export type ProcessorKind = {
   default_subscribed_event_types: string[]
   valid_event_types: string[]
   event_type_options: ProcessorEventTypeOption[]
+  default_mimetype_prefixes: string[]
+  valid_mimetype_prefixes: string[]
+  mimetype_filter_options: ProcessorMimetypeFilterOption[]
+  default_extensions: string[]
+  valid_extensions: string[]
+  extension_filter_options: ProcessorExtensionFilterOption[]
   config_schema: ProcessorConfigSchema
 }
 
@@ -49,6 +57,18 @@ export type ProcessorKindsResponse = {
 }
 
 export type ProcessorEventTypeOption = {
+  value: string
+  label: string
+  default: boolean
+}
+
+export type ProcessorMimetypeFilterOption = {
+  value: string
+  label: string
+  default: boolean
+}
+
+export type ProcessorExtensionFilterOption = {
   value: string
   label: string
   default: boolean
@@ -94,13 +114,16 @@ export type ProcessorCreateInput = {
   enabled?: boolean
   subscribed_event_types?: string[]
   folder_scopes?: ProcessorFolderScope[]
+  mimetype_prefixes?: string[]
+  extensions?: string[]
   config?: Record<string, unknown>
 }
 
 export type ProcessorUpdateInput = {
   enabled?: boolean
   subscribed_event_types?: string[]
-  folder_scopes?: ProcessorFolderScope[]
+  mimetype_prefixes?: string[]
+  extensions?: string[]
   config?: Record<string, unknown>
 }
 

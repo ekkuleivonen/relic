@@ -34,6 +34,8 @@ class ProcessorRead(BaseModel):
     source: str
     subscribed_event_types: list[str]
     folder_scopes: list["ProcessorFolderScope"]
+    mimetype_prefixes: list[str]
+    extensions: list[str]
     config: dict
     last_committed_offset: int
     last_committed_at: dt.datetime | None
@@ -60,6 +62,8 @@ class ProcessorRead(BaseModel):
                 ProcessorFolderScope.model_validate(scope)
                 for scope in processor.folder_scopes
             ],
+            mimetype_prefixes=list(processor.mimetype_prefixes or []),
+            extensions=list(processor.extensions or []),
             config=processor_service.public_processor_config(processor),
             last_committed_offset=int(processor.last_committed_offset),
             last_committed_at=processor.last_committed_at,
@@ -83,6 +87,30 @@ class ProcessorListResponse(BaseModel):
     offset: int
 
 
+class ProcessorEventTypeOptionRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: str
+    label: str
+    default: bool = False
+
+
+class ProcessorMimetypeFilterOptionRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: str
+    label: str
+    default: bool = False
+
+
+class ProcessorExtensionFilterOptionRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: str
+    label: str
+    default: bool = False
+
+
 class ProcessorKindRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -94,16 +122,14 @@ class ProcessorKindRead(BaseModel):
     max_concurrency: int
     default_subscribed_event_types: list[str]
     valid_event_types: list[str]
-    event_type_options: list["ProcessorEventTypeOptionRead"]
+    event_type_options: list[ProcessorEventTypeOptionRead]
+    default_mimetype_prefixes: list[str]
+    valid_mimetype_prefixes: list[str]
+    mimetype_filter_options: list[ProcessorMimetypeFilterOptionRead]
+    default_extensions: list[str]
+    valid_extensions: list[str]
+    extension_filter_options: list[ProcessorExtensionFilterOptionRead]
     config_schema: dict
-
-
-class ProcessorEventTypeOptionRead(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    value: str
-    label: str
-    default: bool = False
 
 
 class ProcessorKindsResponse(BaseModel):
@@ -141,6 +167,8 @@ class ProcessorCreateRequest(BaseModel):
     enabled: bool = True
     subscribed_event_types: list[str] | None = Field(default=None)
     folder_scopes: list[ProcessorFolderScope] | None = Field(default=None)
+    mimetype_prefixes: list[str] | None = Field(default=None)
+    extensions: list[str] | None = Field(default=None)
     config: dict | None = Field(default=None)
 
 
@@ -149,7 +177,8 @@ class ProcessorUpdateRequest(BaseModel):
 
     enabled: bool | None = None
     subscribed_event_types: list[str] | None = None
-    folder_scopes: list[ProcessorFolderScope] | None = None
+    mimetype_prefixes: list[str] | None = None
+    extensions: list[str] | None = None
     config: dict | None = None
 
 
@@ -204,12 +233,28 @@ async def list_processor_kinds_route() -> ProcessorKindsResponse:
                 default_subscribed_event_types=list(
                     processor.default_subscribed_event_types
                 ),
-                valid_event_types=list(processor.valid_event_types),
+                valid_event_types=list(processor.runtime_valid_event_types()),
                 event_type_options=[
                     ProcessorEventTypeOptionRead.model_validate(
                         option.model_dump(mode="json")
                     )
                     for option in processor.event_type_options()
+                ],
+                default_mimetype_prefixes=list(processor.default_mimetype_prefixes),
+                valid_mimetype_prefixes=list(processor.valid_mimetype_prefixes),
+                mimetype_filter_options=[
+                    ProcessorMimetypeFilterOptionRead.model_validate(
+                        option.model_dump(mode="json")
+                    )
+                    for option in processor.mimetype_filter_options()
+                ],
+                default_extensions=list(processor.default_extensions),
+                valid_extensions=list(processor.valid_extensions),
+                extension_filter_options=[
+                    ProcessorExtensionFilterOptionRead.model_validate(
+                        option.model_dump(mode="json")
+                    )
+                    for option in processor.extension_filter_options()
                 ],
                 config_schema=processor.config_schema(),
             )
@@ -264,6 +309,8 @@ async def create_processor_route(
         ]
         if payload.folder_scopes is not None
         else None,
+        mimetype_prefixes=payload.mimetype_prefixes,
+        extensions=payload.extensions,
         config=payload.config,
         event_context=context_from_headers(
             request.headers, actor_id=current_user.id
@@ -286,11 +333,8 @@ async def update_processor_route(
         processor_id=processor_id,
         enabled=payload.enabled,
         subscribed_event_types=payload.subscribed_event_types,
-        folder_scopes=[
-            scope.model_dump(mode="json") for scope in payload.folder_scopes
-        ]
-        if payload.folder_scopes is not None
-        else None,
+        mimetype_prefixes=payload.mimetype_prefixes,
+        extensions=payload.extensions,
         config=payload.config,
         event_context=context_from_headers(
             request.headers, actor_id=current_user.id

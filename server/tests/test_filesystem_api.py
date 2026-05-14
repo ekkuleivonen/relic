@@ -1,9 +1,9 @@
 import pytest
 from api.app import app
 from database import get_db
-from enums import MetaExtractStatus, Permission, UserRole
+from enums import Permission, UserRole
 from fastapi.testclient import TestClient
-from domain.files.meta import build_file_meta
+from domain.files.meta import init_file_meta
 from models import (
     Base,
     File,
@@ -260,8 +260,7 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
                 blob_id=blob.id,
                 actor_id=user.id,
                 name="image.jpg",
-                meta_extract_status=MetaExtractStatus.COMPLETED,
-                meta=build_file_meta(
+                meta=init_file_meta(
                     file_name="image.jpg",
                     size=1024,
                     user_meta={},
@@ -273,8 +272,7 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
                 blob_id=blob.id,
                 actor_id=user.id,
                 name="notes.txt",
-                meta_extract_status=MetaExtractStatus.COMPLETED,
-                meta=build_file_meta(
+                meta=init_file_meta(
                     file_name="notes.txt",
                     size=12,
                     user_meta={},
@@ -326,24 +324,21 @@ def test_recursive_list_files_excludes_unreadable_descendants(
                 blob_id=blob.id,
                 actor_id=user.id,
                 name="image.jpg",
-                meta_extract_status=MetaExtractStatus.COMPLETED,
-                meta=build_file_meta(file_name="image.jpg", size=1024, user_meta={}),
+                meta=init_file_meta(file_name="image.jpg", size=1024, user_meta={}),
             ),
             File(
                 folder_id=raw.id,
                 blob_id=blob.id,
                 actor_id=user.id,
                 name="raw.nef",
-                meta_extract_status=MetaExtractStatus.COMPLETED,
-                meta=build_file_meta(file_name="raw.nef", size=2048, user_meta={}),
+                meta=init_file_meta(file_name="raw.nef", size=2048, user_meta={}),
             ),
             File(
                 folder_id=docs.id,
                 blob_id=blob.id,
                 actor_id=user.id,
                 name="notes.txt",
-                meta_extract_status=MetaExtractStatus.COMPLETED,
-                meta=build_file_meta(file_name="notes.txt", size=12, user_meta={}),
+                meta=init_file_meta(file_name="notes.txt", size=12, user_meta={}),
             ),
         ]
     )
@@ -374,8 +369,7 @@ def test_list_files_pagination(client, db_session, user, root_folder):
                 blob_id=blob.id,
                 actor_id=user.id,
                 name=name,
-                meta_extract_status=MetaExtractStatus.COMPLETED,
-                meta=build_file_meta(file_name=name, size=100, user_meta={}),
+                meta=init_file_meta(file_name=name, size=100, user_meta={}),
             )
         )
     db_session.commit()

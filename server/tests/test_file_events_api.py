@@ -153,8 +153,8 @@ def test_clear_file_events_requires_admin(db_session):
 def test_clear_file_events_rejects_pending_processor_events(client, db_session):
     db_session.add(
         Processor(
-            name="meta_extract",
-            kind="meta_extract",
+            name="file_info",
+            kind="file_info",
             enabled=True,
             source="seed",
             subscribed_event_types=["file.created"],
@@ -225,8 +225,8 @@ def test_trim_file_events_respects_slowest_enabled_processor_cursor(db_session):
     now = dt.datetime.now(dt.UTC)
     db_session.add(
         Processor(
-            name="meta_extract",
-            kind="meta_extract",
+            name="file_info",
+            kind="file_info",
             enabled=True,
             source="seed",
             subscribed_event_types=["file.created"],

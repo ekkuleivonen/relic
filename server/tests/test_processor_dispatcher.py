@@ -71,7 +71,7 @@ def session_factory():
 def _seed_processor_with_events(session_factory, *, count: int):
     with session_factory() as db:
         processor = ProcessorFactory.build(
-            name="meta_extract", subscribed_event_types=["file.created"]
+            name="file_info", subscribed_event_types=["file.created"]
         )
         db.add(processor)
         db.flush()
@@ -140,7 +140,7 @@ def test_dispatch_pending_uses_generation_in_job_id_after_rewind(
 def test_dispatch_pending_skips_disabled_processor(session_factory, monkeypatch):
     with session_factory() as db:
         processor = ProcessorFactory.build(
-            name="meta_extract",
+            name="file_info",
             enabled=False,
             subscribed_event_types=["file.created"],
         )
@@ -172,7 +172,7 @@ def test_dispatch_pending_filters_by_subscribed_event_types(
 
     with session_factory() as db:
         processor = ProcessorFactory.build(
-            name="meta_extract", subscribed_event_types=["file.created"]
+            name="file_info", subscribed_event_types=["file.created"]
         )
         db.add(processor)
         db.flush()
@@ -211,7 +211,7 @@ def test_dispatch_pending_filters_by_folder_scope(session_factory, monkeypatch):
         db.add_all([in_scope_folder, out_of_scope_folder])
         db.flush()
         processor = ProcessorFactory.build(
-            name="meta_extract",
+            name="file_info",
             subscribed_event_types=["file.created"],
             folder_scopes=[
                 {"folder_id": str(in_scope_folder.id), "cascade": False}
@@ -252,7 +252,7 @@ def test_dispatch_pending_fan_out_across_processors(session_factory, monkeypatch
 
     with session_factory() as db:
         creator = ProcessorFactory.build(
-            name="meta_extract", subscribed_event_types=["file.created"]
+            name="file_info", subscribed_event_types=["file.created"]
         )
         deleter = ProcessorFactory.build(
             name="webhook_deletes", subscribed_event_types=["file.deleted"]

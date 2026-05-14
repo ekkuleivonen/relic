@@ -70,6 +70,12 @@ export function ProcessorForm({
     []
   )
   const [includeDescendants, setIncludeDescendants] = React.useState(true)
+  const [selectedMimetypePrefixes, setSelectedMimetypePrefixes] = React.useState<
+    string[] | null
+  >(null)
+  const [selectedExtensions, setSelectedExtensions] = React.useState<
+    string[] | null
+  >(null)
   const [configValues, setConfigValues] = React.useState<ConfigValues | null>(null)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -93,9 +99,31 @@ export function ProcessorForm({
       })),
     [folders]
   )
+  const mimetypeOptions = React.useMemo(
+    () =>
+      (selectedKind?.mimetype_filter_options ?? []).map((option) => ({
+        value: option.value,
+        label: option.label,
+        description: option.default ? "Default" : undefined,
+      })),
+    [selectedKind]
+  )
+  const extensionOptions = React.useMemo(
+    () =>
+      (selectedKind?.extension_filter_options ?? []).map((option) => ({
+        value: option.value,
+        label: option.label,
+        description: option.default ? "Default" : undefined,
+      })),
+    [selectedKind]
+  )
   const selectedFolderIds = folderScopes.map((scope) => scope.folder_id)
   const effectiveEventTypes =
     selectedEventTypes ?? selectedKind?.default_subscribed_event_types ?? []
+  const effectiveMimetypePrefixes =
+    selectedMimetypePrefixes ?? selectedKind?.default_mimetype_prefixes ?? []
+  const effectiveExtensions =
+    selectedExtensions ?? selectedKind?.default_extensions ?? []
   const effectiveConfigValues =
     configValues ??
     (selectedKind ? defaultConfigValues(selectedKind.config_schema) : {})
@@ -103,6 +131,8 @@ export function ProcessorForm({
   function handleKindChange(nextKind: string) {
     setKind(nextKind)
     setSelectedEventTypes(null)
+    setSelectedMimetypePrefixes(null)
+    setSelectedExtensions(null)
     setConfigValues(null)
     setError(null)
   }
@@ -144,6 +174,10 @@ export function ProcessorForm({
       enabled,
       subscribed_event_types: effectiveEventTypes,
       folder_scopes: folderScopes.length > 0 ? folderScopes : undefined,
+      mimetype_prefixes:
+        selectedMimetypePrefixes !== null ? selectedMimetypePrefixes : undefined,
+      extensions:
+        selectedExtensions !== null ? selectedExtensions : undefined,
       config,
     })
   }
@@ -251,6 +285,39 @@ export function ProcessorForm({
           Empty means this processor receives matching events from every folder.
         </p>
       </div>
+
+      {mimetypeOptions.length > 0 && (
+        <div className="space-y-2">
+          <Label>Mimetype filters</Label>
+          <SearchableMultiSelect
+            options={mimetypeOptions}
+            values={effectiveMimetypePrefixes}
+            onChange={setSelectedMimetypePrefixes}
+            placeholder="Select mimetype prefixes"
+            emptyText="No mimetype prefixes available."
+          />
+          <p className="text-xs text-muted-foreground">
+            Limits the processor to files whose detected mimetype starts with
+            one of these prefixes. Defaults are preselected.
+          </p>
+        </div>
+      )}
+
+      {extensionOptions.length > 0 && (
+        <div className="space-y-2">
+          <Label>Extension filters</Label>
+          <SearchableMultiSelect
+            options={extensionOptions}
+            values={effectiveExtensions}
+            onChange={setSelectedExtensions}
+            placeholder="Select extensions"
+            emptyText="No extensions available."
+          />
+          <p className="text-xs text-muted-foreground">
+            Files whose extension is not in this list are skipped.
+          </p>
+        </div>
+      )}
 
       {selectedKind && (
         <ConfigSchemaForm

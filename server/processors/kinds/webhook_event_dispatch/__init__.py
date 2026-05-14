@@ -21,7 +21,7 @@ from processors.kinds.webhook_event_dispatch.client import (
     sign_webhook_body,
 )
 
-WEBHOOK_DELIVERABLE_EVENT_TYPES = (
+WEBHOOK_FILESYSTEM_EVENT_TYPES = (
     "file.created",
     "file.updated",
     "file.copied",
@@ -32,9 +32,9 @@ WEBHOOK_DELIVERABLE_EVENT_TYPES = (
     "folder.updated",
     "folder.moved",
     "folder.deleted",
-    "processor.meta_extract.completed",
-    "processor.meta_extract.failed",
 )
+
+PROCESSOR_RESULT_STATUSES = ("completed", "failed", "skipped")
 
 
 class WebhookEventDispatchConfig(BaseModel):
@@ -73,12 +73,24 @@ class WebhookEventDispatchProcessor(BaseProcessor):
         "file.created",
         "file.updated",
         "file.deleted",
-        "processor.meta_extract.completed",
-        "processor.meta_extract.failed",
     )
-    valid_event_types: ClassVar[tuple[str, ...]] = WEBHOOK_DELIVERABLE_EVENT_TYPES
+    # Static ``valid_event_types`` covers filesystem events (always available);
+    # processor.* result events are added dynamically in ``runtime_valid_event_types``
+    # so the list reflects whichever processor kinds are currently registered.
+    valid_event_types: ClassVar[tuple[str, ...]] = WEBHOOK_FILESYSTEM_EVENT_TYPES
     config_model: ClassVar[type[BaseModel]] = WebhookEventDispatchConfig
     ordering: ClassVar[OrderingSemantics] = OrderingSemantics.NONE
+
+    def runtime_valid_event_types(self) -> tuple[str, ...]:
+        from processors.registry import list_processor_definitions
+
+        types: list[str] = list(WEBHOOK_FILESYSTEM_EVENT_TYPES)
+        for processor in list_processor_definitions():
+            if processor.kind == self.kind:
+                continue
+            for status_name in PROCESSOR_RESULT_STATUSES:
+                types.append(f"processor.{processor.kind}.{status_name}")
+        return tuple(types)
 
     def public_config(self, raw_config: dict | None) -> dict[str, Any]:
         config = WebhookEventDispatchConfig.model_validate(raw_config or {})

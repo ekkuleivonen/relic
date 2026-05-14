@@ -38,7 +38,6 @@ class FileRead(BaseModel):
     actor_id: uuid.UUID
     actor_name: str | None
     name: str
-    meta_extract_status: int
     meta: dict
     created_at: dt.datetime
     updated_at: dt.datetime

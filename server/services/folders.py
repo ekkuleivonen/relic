@@ -341,7 +341,6 @@ def duplicate_folder(
                 blob_id=file.blob_id,
                 actor_id=file.actor_id,
                 name=file.name,
-                meta_extract_status=file.meta_extract_status,
                 meta=dict(file.meta),
             )
             db.add(new_file)

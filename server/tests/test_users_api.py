@@ -3,7 +3,7 @@ from api.app import app
 from database import get_db
 from enums import UserRole
 from fastapi.testclient import TestClient
-from domain.files.meta import build_file_meta
+from domain.files.meta import init_file_meta
 from models import Base, File, Folder, User
 from services.auth import create_session_token
 from sqlalchemy import create_engine, select
@@ -170,7 +170,7 @@ def test_delete_user_with_uploaded_files_returns_conflict(client, db_session):
             blob_id=blob.id,
             actor_id=user.id,
             name="cat.jpg",
-            meta=build_file_meta(file_name="cat.jpg", size=1, user_meta={}),
+            meta=init_file_meta(file_name="cat.jpg", size=1, user_meta={}),
         )
     )
     db_session.commit()

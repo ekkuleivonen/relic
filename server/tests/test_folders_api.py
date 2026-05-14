@@ -3,9 +3,9 @@ import uuid
 import pytest
 from api.app import app
 from database import get_db
-from enums import MetaExtractStatus, Permission, UserRole
+from enums import Permission, UserRole
 from fastapi.testclient import TestClient
-from domain.files.meta import build_file_meta
+from domain.files.meta import init_file_meta
 from models import (
     Base,
     Blob,
@@ -118,15 +118,28 @@ def add_file(
     blob: Blob,
     user: User,
     *,
-    status: MetaExtractStatus = MetaExtractStatus.COMPLETED,
+    file_info_status: str = "completed",
 ) -> File:
+    """Insert a File row with a ``file_info`` section in the requested status.
+
+    "Enriched" in the new architecture means ``meta.sections.file_info`` has
+    completed; tests use ``file_info_status`` to drive coverage assertions.
+    """
+    from domain.files.meta import apply_section, build_section_payload
+
+    meta = init_file_meta(file_name=name, size=blob.size_bytes, user_meta={})
+    section = build_section_payload(
+        status=file_info_status,
+        kvs={"size": blob.size_bytes, "extension": "", "mimetype": ""},
+    )
+    meta = apply_section(meta, kind="file_info", section=section)
+
     file = File(
         folder_id=folder.id,
         blob_id=blob.id,
         actor_id=user.id,
         name=name,
-        meta_extract_status=status,
-        meta=build_file_meta(file_name=name, size=blob.size_bytes, user_meta={}),
+        meta=meta,
     )
     db_session.add(file)
     db_session.commit()
@@ -722,7 +735,7 @@ def test_folder_stats_aggregates_size_and_enrichment_recursively(
     add_file(db_session, photos, "scan.png", blob_b, user)
     add_file(db_session, raw, "raw.nef", blob_c, user)
     add_file(
-        db_session, raw, "draft.nef", blob_c, user, status=MetaExtractStatus.PENDING
+        db_session, raw, "draft.nef", blob_c, user, file_info_status="pending"
     )
 
     response = client.get(f"/api/folders/{photos.id}/stats")
@@ -800,17 +813,17 @@ def test_folder_stats_counts_only_completed_as_enriched(
     folder = add_folder(db_session, root_folder, "mix")
     blob = _add_blob(db_session, size_bytes=10)
 
-    add_file(db_session, folder, "done.txt", blob, user, status=MetaExtractStatus.COMPLETED)
-    add_file(db_session, folder, "pending.txt", blob, user, status=MetaExtractStatus.PENDING)
+    add_file(db_session, folder, "done.txt", blob, user, file_info_status="completed")
+    add_file(db_session, folder, "pending.txt", blob, user, file_info_status="pending")
     add_file(
         db_session,
         folder,
         "in_progress.txt",
         blob,
         user,
-        status=MetaExtractStatus.IN_PROGRESS,
+        file_info_status="in_progress",
     )
-    add_file(db_session, folder, "failed.txt", blob, user, status=MetaExtractStatus.FAILED)
+    add_file(db_session, folder, "failed.txt", blob, user, file_info_status="failed")
 
     response = client.get(f"/api/folders/{folder.id}/stats")
 

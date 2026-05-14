@@ -64,7 +64,7 @@ def test_healthz_reports_api_ok(client):
 
 def test_readyz_reports_dependency_status(client, db_session):
     bucket = BucketFactory.build()
-    processor = ProcessorFactory.build(name="meta_extract")
+    processor = ProcessorFactory.build(name="file_info")
     db_session.add_all([bucket, processor])
     db_session.flush()
     db_session.add(BucketProbeFactory.build(bucket_id=bucket.id))

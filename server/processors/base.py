@@ -42,6 +42,26 @@ class EventTypeOption(BaseModel):
     default: bool = False
 
 
+class MimetypeFilterOption(BaseModel):
+    """One discoverable choice for the mimetype-prefix subscription filter."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    value: str
+    label: str
+    default: bool = False
+
+
+class ExtensionFilterOption(BaseModel):
+    """One discoverable choice for the extension subscription filter."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    value: str
+    label: str
+    default: bool = False
+
+
 class ProcessorTask(BaseModel):
     """Portable work descriptor emitted from a durable file event.
 
@@ -126,6 +146,15 @@ class BaseProcessor(ABC):
 
     default_subscribed_event_types: ClassVar[tuple[str, ...]]
     valid_event_types: ClassVar[tuple[str, ...]]
+
+    # Per-kind defaults + allowed values for the mimetype-prefix and
+    # extension subscription filters. ``valid_*`` is informational and
+    # surfaced to the UI; instances may use other values via the API.
+    default_mimetype_prefixes: ClassVar[tuple[str, ...]] = ()
+    valid_mimetype_prefixes: ClassVar[tuple[str, ...]] = ()
+    default_extensions: ClassVar[tuple[str, ...]] = ()
+    valid_extensions: ClassVar[tuple[str, ...]] = ()
+
     config_model: ClassVar[type[BaseModel]] = EmptyProcessorConfig
 
     delivery: ClassVar[DeliverySemantics] = DeliverySemantics.AT_LEAST_ONCE
@@ -160,6 +189,22 @@ class BaseProcessor(ABC):
                 f"{cls.__name__} default subscriptions are not valid: "
                 f"{sorted(invalid_defaults)}"
             )
+        invalid_mimetype_defaults = set(cls.default_mimetype_prefixes) - set(
+            cls.valid_mimetype_prefixes
+        )
+        if invalid_mimetype_defaults:
+            raise ValueError(
+                f"{cls.__name__} default_mimetype_prefixes contain unknown values: "
+                f"{sorted(invalid_mimetype_defaults)}"
+            )
+        invalid_extension_defaults = set(cls.default_extensions) - set(
+            cls.valid_extensions
+        )
+        if invalid_extension_defaults:
+            raise ValueError(
+                f"{cls.__name__} default_extensions contain unknown values: "
+                f"{sorted(invalid_extension_defaults)}"
+            )
 
     def parse_config(self, raw_config: dict | None) -> BaseModel:
         return self.config_model.model_validate(raw_config or {})
@@ -170,6 +215,16 @@ class BaseProcessor(ABC):
     def config_schema(self) -> dict[str, Any]:
         return self.config_model.model_json_schema()
 
+    def runtime_valid_event_types(self) -> tuple[str, ...]:
+        """Resolve the valid event-type list at runtime.
+
+        Defaults to the ``valid_event_types`` ClassVar, which most processors
+        declare statically. Processor kinds whose deliverable events depend on
+        which other kinds are registered (e.g. ``webhook_event_dispatch``)
+        override this hook so the API exposes an accurate list.
+        """
+        return tuple(self.valid_event_types)
+
     def event_type_options(self) -> list[EventTypeOption]:
         defaults = set(self.default_subscribed_event_types)
         return [
@@ -178,10 +233,60 @@ class BaseProcessor(ABC):
                 label=event_type,
                 default=event_type in defaults,
             )
-            for event_type in self.valid_event_types
+            for event_type in self.runtime_valid_event_types()
+        ]
+
+    def mimetype_filter_options(self) -> list[MimetypeFilterOption]:
+        defaults = set(self.default_mimetype_prefixes)
+        return [
+            MimetypeFilterOption(
+                value=prefix,
+                label=prefix,
+                default=prefix in defaults,
+            )
+            for prefix in self.valid_mimetype_prefixes
+        ]
+
+    def extension_filter_options(self) -> list[ExtensionFilterOption]:
+        defaults = set(self.default_extensions)
+        return [
+            ExtensionFilterOption(
+                value=extension,
+                label=extension,
+                default=extension in defaults,
+            )
+            for extension in self.valid_extensions
         ]
 
     def should_enqueue(self, ctx: EnqueueContext) -> bool:
+        return True
+
+    def matches_filters(
+        self,
+        *,
+        mimetype: str | None,
+        extension: str | None,
+        processor: Processor,
+    ) -> bool:
+        """Apply the processor instance's mimetype/extension filters.
+
+        Returns True when the file's observed mimetype/extension match every
+        configured filter, or when no filters are set. Empty filters mean
+        "no filter" (every event passes through).
+        """
+        prefixes: list[str] = list(processor.mimetype_prefixes or [])
+        if prefixes:
+            normalized_mimetype = (mimetype or "").lower()
+            if not any(
+                normalized_mimetype.startswith(prefix.lower()) for prefix in prefixes
+            ):
+                return False
+
+        extensions: list[str] = list(processor.extensions or [])
+        if extensions:
+            normalized_extension = (extension or "").lower().lstrip(".")
+            if normalized_extension not in {ext.lower().lstrip(".") for ext in extensions}:
+                return False
         return True
 
     @abstractmethod

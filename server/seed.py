@@ -56,15 +56,36 @@ def upsert_admin_user(db) -> User:
     return admin
 
 
-def upsert_meta_extract_processor(db) -> None:
-    processor_kind = get_processor_kind("meta_extract")
-    processor_service.upsert_seed_processor(
-        db,
-        name=processor_kind.kind,
-        kind=processor_kind.kind,
-        subscribed_event_types=list(processor_kind.default_subscribed_event_types),
-        config={},
-    )
+# Seeded out-of-the-box processors. Operators can disable or remove them
+# from the admin UI; ``upsert_seed_processor`` only creates them on first run.
+SEEDED_PROCESSOR_KINDS: tuple[str, ...] = (
+    "file_info",
+    "image_meta",
+    "html_meta",
+    "pdf_meta",
+    "parquet_meta",
+    "csv_meta",
+    "json_meta",
+    "audio_meta",
+    "video_meta",
+    "office_doc_meta",
+    "archive_meta",
+    "text_meta",
+)
+
+
+def upsert_seeded_processors(db) -> None:
+    for kind in SEEDED_PROCESSOR_KINDS:
+        processor_kind = get_processor_kind(kind)
+        processor_service.upsert_seed_processor(
+            db,
+            name=processor_kind.kind,
+            kind=processor_kind.kind,
+            subscribed_event_types=list(processor_kind.default_subscribed_event_types),
+            mimetype_prefixes=list(processor_kind.default_mimetype_prefixes),
+            extensions=list(processor_kind.default_extensions),
+            config={},
+        )
 
 
 def seed() -> None:
@@ -73,7 +94,7 @@ def seed() -> None:
         upsert_root_folder(db)
         upsert_admin_user(db)
         db.commit()
-        upsert_meta_extract_processor(db)
+        upsert_seeded_processors(db)
         db.commit()
 
 

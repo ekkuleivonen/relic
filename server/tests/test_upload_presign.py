@@ -4,7 +4,7 @@ import hashlib
 import pytest
 from api.app import app
 from database import get_db
-from enums import MetaExtractStatus, Permission
+from enums import Permission
 from fastapi.testclient import TestClient
 from models import (
     Base,
@@ -155,8 +155,8 @@ def test_presigned_put_creates_file_and_blob(
     assert file.folder_id == photos_folder.id
     assert file.blob_id == blob.id
     assert file.actor_id == user.id
-    assert file.meta_extract_status == MetaExtractStatus.PENDING
-    assert file.meta["kvs"]["album"] == "spring"
+    assert file.meta["sections"] == {}
+    assert file.meta["user_kvs"]["album"] == "spring"
     assert file.meta["original_filename"] == "cat.jpg"
     assert blob.size_bytes == len(b"cat photo")
     assert uploaded[0]["Bucket"] == "blobs"

@@ -5,9 +5,9 @@ import uuid as uuid_module
 import pytest
 from api.app import app
 from database import get_db
-from enums import MetaExtractStatus, Permission, UserRole
+from enums import Permission, UserRole
 from fastapi.testclient import TestClient
-from domain.files.meta import build_file_meta
+from domain.files.meta import init_file_meta
 from domain.exceptions import ConflictError, ResourceNotFound
 from models import (
     Base,
@@ -242,8 +242,8 @@ def test_put_object_uploads_new_blob_and_creates_file(
     assert file.name == "cat.jpg"
     assert file.blob_id == blob.id
     assert file.actor_id == user.id
-    assert file.meta_extract_status == MetaExtractStatus.PENDING
-    assert file.meta["kvs"]["album"] == "spring"
+    assert file.meta["sections"] == {}
+    assert file.meta["user_kvs"]["album"] == "spring"
     assert file.meta["original_filename"] == "cat.jpg"
 
 
@@ -348,7 +348,7 @@ def test_put_object_overwrites_existing_file_name(
         blob_id=old_blob.id,
         actor_id=owner.id,
         name="cat.jpg",
-        meta=build_file_meta(
+        meta=init_file_meta(
             file_name="cat.jpg", size=old_blob.size_bytes, user_meta={}
         ),
     )

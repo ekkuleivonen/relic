@@ -3,9 +3,9 @@
 import pytest
 from api.app import app
 from database import get_db
-from enums import MetaExtractStatus, Permission, UserRole
+from enums import Permission, UserRole
 from fastapi.testclient import TestClient
-from domain.files.meta import build_file_meta
+from domain.files.meta import init_file_meta
 from models import (
     Base,
     Blob,
@@ -170,7 +170,7 @@ def make_file(
         user_meta["summary"] = summary
     if kvs is not None:
         user_meta["kvs"] = kvs
-    meta = build_file_meta(
+    meta = init_file_meta(
         file_name=name,
         size=size if size is not None else blob.size_bytes,
         user_meta=user_meta,
@@ -181,7 +181,6 @@ def make_file(
         blob_id=blob.id,
         actor_id=user.id,
         name=name,
-        meta_extract_status=MetaExtractStatus.COMPLETED,
         meta=meta,
     )
     db_session.add(file)

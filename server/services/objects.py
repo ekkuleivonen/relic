@@ -13,8 +13,8 @@ from constants import (
     S3_METADATA_DIRECTIVE_COPY,
     S3_METADATA_DIRECTIVE_REPLACE,
 )
-from enums import MetaExtractStatus, Permission
-from domain.files.meta import build_file_meta, validate_file_meta_dict
+from enums import Permission
+from domain.files.meta import init_file_meta, validate_file_meta_dict
 from domain.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import Blob, Bucket, File, Folder, User
 from sqlalchemy import select
@@ -140,8 +140,7 @@ def put_object(
             blob_id=blob.id,
             actor_id=current_user.id,
             name=file_name,
-            meta_extract_status=MetaExtractStatus.PENDING,
-            meta=build_file_meta(
+            meta=init_file_meta(
                 file_name=file_name,
                 size=object_size,
                 user_meta=ingest_meta,
@@ -154,8 +153,7 @@ def put_object(
         old_blob = db.get(Blob, previous_blob_id)
         file.blob_id = blob.id
         file.actor_id = current_user.id
-        file.meta_extract_status = MetaExtractStatus.PENDING
-        file.meta = build_file_meta(
+        file.meta = init_file_meta(
             file_name=file_name,
             size=object_size,
             user_meta=ingest_meta,
@@ -527,7 +525,7 @@ def copy_object(
     copied_meta = (
         validate_file_meta_dict(dict(source_file.meta)).model_dump(mode="json")
         if metadata_directive == S3_METADATA_DIRECTIVE_COPY
-        else build_file_meta(
+        else init_file_meta(
             file_name=dest_file_name,
             size=blob.size_bytes,
             user_meta=ingest_meta,
@@ -539,7 +537,6 @@ def copy_object(
         blob_id=blob.id,
         actor_id=current_user.id,
         name=dest_file_name,
-        meta_extract_status=MetaExtractStatus.PENDING,
         meta=copied_meta,
     )
     db.add(new_file)

@@ -18,13 +18,6 @@ class Permission(enum.IntFlag):
     ENRICH = 8  # for processors updating meta
 
 
-class MetaExtractStatus(enum.IntEnum):
-    PENDING = 1
-    IN_PROGRESS = 2
-    COMPLETED = 3
-    FAILED = 4
-
-
 class ProcessorSource(enum.StrEnum):
     SEED = "seed"
     ADMIN = "admin"

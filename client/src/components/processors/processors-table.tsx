@@ -158,6 +158,12 @@ export function ProcessorsTable({
                             types={processor.subscribed_event_types}
                           />
                         </DetailBlock>
+                        <DetailBlock label="Mimetype filters">
+                          <FilterBadges values={processor.mimetype_prefixes} />
+                        </DetailBlock>
+                        <DetailBlock label="Extension filters">
+                          <FilterBadges values={processor.extensions} />
+                        </DetailBlock>
                       </div>
                       <div className="flex items-start justify-end gap-1">
                         <ActionButton
@@ -282,6 +288,21 @@ function SubscriptionList({ types }: { types: string[] }) {
       {types.map((type) => (
         <Badge key={type} variant="outline" className="font-mono text-xs">
           {type}
+        </Badge>
+      ))}
+    </div>
+  )
+}
+
+function FilterBadges({ values }: { values: string[] }) {
+  if (!values || values.length === 0) {
+    return <span className="text-xs text-muted-foreground">—</span>
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {values.map((value) => (
+        <Badge key={value} variant="outline" className="font-mono text-xs">
+          {value}
         </Badge>
       ))}
     </div>

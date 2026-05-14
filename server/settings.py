@@ -115,65 +115,64 @@ S3_ACCESS_KEY_LAST_USED_DEBOUNCE_SECONDS: int = env.int(
 )
 
 # =============================================================================
-# meta_extract toolchain byte caps
+# Per-kind metadata byte caps
 # =============================================================================
-# Per-toolchain hard caps on bytes fetched from object storage during the
-# warm-path meta_extract processor run. Each toolchain reads up to its cap via
-# a single S3 Range GET; files larger than the cap are parsed from the
-# truncated prefix (and the processor logs ``*_meta_extract_truncated``).
+# Each type-specific metadata processor reads up to its cap via a single
+# S3 Range GET; files larger than the cap are parsed from the truncated
+# prefix (and the processor logs ``<kind>_meta_truncated``).
 
-IMAGE_META_EXTRACT_MAX_BYTES: int = env.int(
-    "IMAGE_META_EXTRACT_MAX_BYTES",
+IMAGE_META_MAX_BYTES: int = env.int(
+    "IMAGE_META_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-TABULAR_META_EXTRACT_MAX_BYTES: int = env.int(
-    "TABULAR_META_EXTRACT_MAX_BYTES",
+CSV_META_MAX_BYTES: int = env.int(
+    "CSV_META_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-PARQUET_META_EXTRACT_MAX_BYTES: int = env.int(
-    "PARQUET_META_EXTRACT_MAX_BYTES",
+PARQUET_META_MAX_BYTES: int = env.int(
+    "PARQUET_META_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-JSON_META_EXTRACT_MAX_BYTES: int = env.int(
-    "JSON_META_EXTRACT_MAX_BYTES",
+JSON_META_MAX_BYTES: int = env.int(
+    "JSON_META_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-PDF_META_EXTRACT_MAX_BYTES: int = env.int(
-    "PDF_META_EXTRACT_MAX_BYTES",
+PDF_META_MAX_BYTES: int = env.int(
+    "PDF_META_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-TEXT_META_EXTRACT_MAX_BYTES: int = env.int(
-    "TEXT_META_EXTRACT_MAX_BYTES",
+TEXT_META_MAX_BYTES: int = env.int(
+    "TEXT_META_MAX_BYTES",
     default=16 * 1024 * 1024,
 )
 
-AUDIO_META_EXTRACT_MAX_BYTES: int = env.int(
-    "AUDIO_META_EXTRACT_MAX_BYTES",
+AUDIO_META_MAX_BYTES: int = env.int(
+    "AUDIO_META_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-VIDEO_META_EXTRACT_MAX_BYTES: int = env.int(
-    "VIDEO_META_EXTRACT_MAX_BYTES",
+VIDEO_META_MAX_BYTES: int = env.int(
+    "VIDEO_META_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-ARCHIVE_META_EXTRACT_MAX_BYTES: int = env.int(
-    "ARCHIVE_META_EXTRACT_MAX_BYTES",
+ARCHIVE_META_MAX_BYTES: int = env.int(
+    "ARCHIVE_META_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-OFFICE_DOC_META_EXTRACT_MAX_BYTES: int = env.int(
-    "OFFICE_DOC_META_EXTRACT_MAX_BYTES",
+OFFICE_DOC_META_MAX_BYTES: int = env.int(
+    "OFFICE_DOC_META_MAX_BYTES",
     default=128 * 1024 * 1024,
 )
 
-HTML_META_EXTRACT_MAX_BYTES: int = env.int(
-    "HTML_META_EXTRACT_MAX_BYTES",
+HTML_META_MAX_BYTES: int = env.int(
+    "HTML_META_MAX_BYTES",
     default=16 * 1024 * 1024,
 )
 

@@ -144,13 +144,15 @@ class ProcessorFactory(factory.Factory):
         model = Processor
 
     name = factory.Sequence(lambda n: f"processor-{n}")
-    kind = "meta_extract"
+    kind = "file_info"
     enabled = True
     source = ProcessorSource.SEED
     subscribed_event_types = factory.LazyFunction(
         lambda: ["file.created", "file.updated"]
     )
     folder_scopes = factory.LazyFunction(list)
+    mimetype_prefixes = factory.LazyFunction(list)
+    extensions = factory.LazyFunction(list)
     config = factory.LazyFunction(dict)
     dispatch_generation = 0
     last_committed_offset = 0

@@ -97,9 +97,10 @@ services:
 
   worker-processing:
     <<: *server-service
-    container_name: relic_worker_processing
     command: arq processors.worker_processing.WorkerSettings
     restart: unless-stopped
+    deploy:
+      replicas: 3
     depends_on:
       seed:
         condition: service_completed_successfully

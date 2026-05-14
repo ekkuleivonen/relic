@@ -42,6 +42,7 @@ def validate_subscribed_event_types(
     *, kind: str, event_types: Iterable[str]
 ) -> list[str]:
     processor = get_processor_kind(kind)
+    valid = set(processor.runtime_valid_event_types())
     cleaned: list[str] = []
     seen: set[str] = set()
     for raw in event_types:
@@ -50,15 +51,61 @@ def validate_subscribed_event_types(
             continue
         if value in seen:
             continue
-        if value not in processor.valid_event_types:
+        if value not in valid:
             raise BadRequestError(
                 f"event_type {value!r} is not valid for kind {kind!r}; "
-                f"allowed: {sorted(processor.valid_event_types)}"
+                f"allowed: {sorted(valid)}"
             )
         seen.add(value)
         cleaned.append(value)
     if not cleaned:
         raise BadRequestError("subscribed_event_types must include at least one type")
+    return cleaned
+
+
+def validate_mimetype_prefixes(
+    *, kind: str, prefixes: Iterable[str] | None
+) -> list[str]:
+    """Trim, dedupe, and normalize mimetype-prefix filters."""
+    if prefixes is None:
+        return []
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in prefixes:
+        if not isinstance(raw, str):
+            raise BadRequestError(
+                f"mimetype_prefixes for kind {kind!r} must be strings"
+            )
+        value = raw.strip().lower()
+        if not value:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        cleaned.append(value)
+    return cleaned
+
+
+def validate_extensions(
+    *, kind: str, extensions: Iterable[str] | None
+) -> list[str]:
+    """Trim, dedupe, and normalize extension filters (no leading dot)."""
+    if extensions is None:
+        return []
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in extensions:
+        if not isinstance(raw, str):
+            raise BadRequestError(
+                f"extensions for kind {kind!r} must be strings"
+            )
+        value = raw.strip().lower().lstrip(".")
+        if not value:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        cleaned.append(value)
     return cleaned
 
 
@@ -99,5 +146,7 @@ __all__ = [
     "list_processor_definitions",
     "register_processor",
     "validate_config",
+    "validate_extensions",
+    "validate_mimetype_prefixes",
     "validate_subscribed_event_types",
 ]

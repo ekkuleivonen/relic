@@ -8,7 +8,6 @@ transactions that don't move bytes — see `api-split.md`.
 import os
 import uuid
 
-from enums import MetaExtractStatus
 from enums import Permission
 from domain.exceptions import BadRequestError
 from models import File, User
@@ -74,8 +73,6 @@ def move_file(
 
     file.folder_id = destination.id
     file.name = new_name
-    if name is not None:
-        file.meta_extract_status = MetaExtractStatus.PENDING
     db.flush()
     if event_context is not None:
         event_type = "file.renamed" if old_name != new_name else "file.moved"
@@ -119,7 +116,6 @@ def rename_file(
     object_service.ensure_file_name_available(db, file.folder_id, name)
 
     file.name = name
-    file.meta_extract_status = MetaExtractStatus.PENDING
     db.flush()
     if event_context is not None:
         create_file_event(

@@ -8,10 +8,10 @@ from constants import (
     FILESYSTEM_LIST_SORT_ORDERS,
     FILESYSTEM_MAX_LIST_LIMIT,
 )
-from enums import MetaExtractStatus, Permission
+from enums import Permission
 from domain.exceptions import BadRequestError, ResourceNotFound
 from models import Blob, File, Folder, User
-from sqlalchemy import BigInteger, asc, case, cast, desc, func, nullslast, select
+from sqlalchemy import BigInteger, asc, case, cast, desc, func, literal, nullslast, select
 from sqlalchemy.orm import Session
 
 from services import folder_access as folder_access_service
@@ -34,7 +34,7 @@ class FolderStats:
 
     @property
     def enrichment_coverage(self) -> float | None:
-        """Fraction of files with COMPLETED meta extraction; ``None`` when empty."""
+        """Fraction of files with a completed file_info section; ``None`` when empty."""
         if self.file_count == 0:
             return None
         return self.enriched_file_count / self.file_count
@@ -158,8 +158,8 @@ def get_folder_stats(
     )
 
     scope_ids = collect_descendant_folder_ids(db, folder_id)
-    completed = int(MetaExtractStatus.COMPLETED)
-    enriched_expr = case((File.meta_extract_status == completed, 1), else_=0)
+    file_info_status = File.meta["sections"]["file_info"]["status"].as_string()
+    enriched_expr = case((file_info_status == literal("completed"), 1), else_=0)
 
     file_count, enriched_count, logical_size = db.execute(
         select(

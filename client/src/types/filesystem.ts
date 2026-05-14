@@ -28,6 +28,24 @@ export type Folder = {
   effective_preferred_bucket_id?: string | null
 }
 
+export type FileMetaSectionStatus =
+  | "pending"
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "skipped"
+
+export type FileMetaSection = {
+  status: FileMetaSectionStatus
+  extracted_at: string | null
+  tags: string[]
+  keywords: string[]
+  summary: string | null
+  kvs: Record<string, string | number | boolean | null>
+  error_class: string | null
+  error_message: string | null
+}
+
 export type FileMeta = {
   schema_version: string
   size: number
@@ -38,6 +56,11 @@ export type FileMeta = {
   keywords: string[]
   summary: string | null
   kvs: Record<string, string | number | boolean | null>
+  user_tags: string[]
+  user_keywords: string[]
+  user_summary: string | null
+  user_kvs: Record<string, string | number | boolean | null>
+  sections: Record<string, FileMetaSection>
 }
 
 export type FileSystemFile = {
@@ -47,7 +70,6 @@ export type FileSystemFile = {
   uploaded_by: string
   uploaded_by_name: string | null
   name: string
-  meta_extract_status: number
   meta: FileMeta
   created_at: string
   updated_at: string
