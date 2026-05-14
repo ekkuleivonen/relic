@@ -1,10 +1,10 @@
-"""Tests for processors.meta_extract.toolchains.office_doc."""
+"""Tests for processors.kinds.meta_extract.toolchains.office_doc."""
 
 import io
 import zipfile
 
 from domain.files.meta import FileMeta, build_file_meta
-from processors.meta_extract.toolchains.office_doc import empty_office_doc_meta, parse, parse_office_doc
+from processors.kinds.meta_extract.toolchains.office_doc import empty_office_doc_meta, parse, parse_office_doc
 
 
 def _base_meta(

@@ -8,7 +8,7 @@ from database import get_db
 from enums import UserRole
 from fastapi.testclient import TestClient
 from models import AuditEvent, Base, Processor
-from processors.registry import init_builtin_substrates
+from processors.registry import init_builtin_processors
 from services.auth import create_session_token
 from services.file_events import create_file_event
 from sqlalchemy import create_engine, select
@@ -18,8 +18,8 @@ from tests.factories.models import FolderFactory, ProcessorFactory, UserFactory
 
 
 @pytest.fixture(autouse=True)
-def _register_substrates() -> None:
-    init_builtin_substrates()
+def _register_processors() -> None:
+    init_builtin_processors()
 
 
 @pytest.fixture()
@@ -68,11 +68,16 @@ def _create_event(db_session, *, event_type="file.created"):
     )
 
 
-def test_list_substrates_includes_meta_extract(client):
-    response = client.get("/api/processors/substrates")
+def test_list_processor_kinds_includes_meta_extract(client):
+    response = client.get("/api/processors/kinds")
     assert response.status_code == 200
     body = response.json()
-    assert any(item["kind"] == "meta_extract" for item in body["items"])
+    meta_extract = next(
+        item for item in body["items"] if item["kind"] == "meta_extract"
+    )
+    assert meta_extract["display_name"] == "Metadata extraction"
+    assert meta_extract["default_task_queue"] == "relic:tasks:meta_extract"
+    assert meta_extract["default_concurrency"] == 16
 
 
 def test_create_processor_returns_lag(client, db_session):

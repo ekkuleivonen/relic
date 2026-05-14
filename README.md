@@ -14,7 +14,7 @@ At a high level, Relic separates logical files from physical blobs:
 - The backend deduplicates identical content by hash, tracks blob reference
   counts, and places bytes into tiered storage backends.
 - Background **processors** enrich files with searchable metadata (today: the
-  `meta_extract` substrate, with more substrates planned), and a separate
+  `meta_extract` processor kind, with more kinds planned), and a separate
   **maintenance** path runs cleanup, bucket probing, and lifecycle migration.
 
 ## Current Features
@@ -48,7 +48,7 @@ At a high level, Relic separates logical files from physical blobs:
 ### Metadata Extraction
 
 Uploaded and copied files are queued for asynchronous metadata extraction via
-the `meta_extract` processor substrate. It currently detects or enriches
+the `meta_extract` processor kind. It currently detects or enriches
 metadata for:
 
 - Images.
@@ -96,8 +96,8 @@ audience and write path:
   tables, emits events in the same transaction, returns. Does not own any
   async work; it only produces the triggers other tiers consume.
 - **Warm path** (`relic:processing` queue) — runs event-driven processor
-  substrates. The seeded `meta_extract` substrate enriches `File.meta`
-  today; future substrates (preview, thumbnail, external sinks) land as
+  kinds. The seeded `meta_extract` processor enriches `File.meta`
+  today; future kinds (preview, thumbnail, external sinks) land as
   siblings.
 - **Cold path** (`relic:maintenance` queue) — runs scheduled batches such as
   purge dereferenced blobs, bucket probes, blob rebalance, and event
@@ -119,13 +119,13 @@ fast metadata extraction.
   `meta`. The admin audit log UI filters by operation, status, request ID,
   actor, and time range with per-row metadata detail.
 - `file_events` (live) — durable content activity log and the warm-path
-  outbox. Carries `file.*`, `folder.*`, and `processor.<substrate>.*`
+  outbox. Carries `file.*`, `folder.*`, and `processor.<kind>.*`
   events. File and folder mutations write this table in the same
   transaction as the canonical change; the per-row monotonic `offset` is the
   replay primitive. Admins can browse the full log on the File Events page.
 - `processors` (live) — registry holding identity, config, enabled state,
   and the `last_committed_offset` cursor for every warm-path subscriber
-  (internal substrates today, external sinks planned). The Processors admin
+  (internal processor kinds today, external sinks planned). The Processors admin
   page surfaces cursor lag, lets admins pause/resume runs, and exposes
   auditable rewind and skip-stuck-event actions.
 - `maintenance_events` (live) — internal-only log of cold-path resource
@@ -174,8 +174,8 @@ dispatcher is pull-based:
 3. Enqueues one warm-queue job with `_job_id = f"{processor_id}:{event_id}"`,
    relying on arq's built-in dedup so a re-tick is safe.
 4. Does not advance the cursor on enqueue. The worker advances it only
-   after the handler returns successfully, inside the same DB transaction as
-   any canonical mutation the handler made.
+   after the processor run returns successfully, inside the same DB transaction as
+   any canonical mutation the processor made.
 
 The contract every warm processor inherits:
 
@@ -195,23 +195,25 @@ The contract every warm processor inherits:
   `max_jobs = 1` as defense-in-depth. Parallelism comes from running more
   worker pods, not more concurrent jobs per worker.
 - **Processor outcome events.** Workers emit
-  `processor.<substrate>.completed` or `processor.<substrate>.failed` to
+  `processor.<kind>.completed` or `processor.<kind>.failed` to
   `file_events` so external consumers can react to "metadata is now ready"
   the same way internal subscribers do.
 
-#### Processor substrates
+#### Processor Kinds
 
-A substrate is the warm-path handler for one `processors.kind`. Today there
-is one shipping substrate:
+A processor kind is the Python implementation for one `processors.kind`. Today
+there is one shipping kind:
 
 - `meta_extract` — reads bytes from object storage (capped per toolchain via
   `*_META_EXTRACT_MAX_BYTES`), runs the matching toolchain (image, PDF,
   CSV, JSON, parquet, audio, video, office-doc, archive, HTML, text), and
   writes the result to `File.meta`.
 
-New substrates plug in by registering a `kind`, a pydantic config model,
-and a handler. First-party substrates are upserted from `server/seed.py`;
-admin-managed substrates (future external sinks) are created from the API.
+New processor kinds plug in by adding a package under
+`server/processors/kinds/<kind>/` with a `BaseProcessor` subclass in
+`__init__.py` and any helper/toolchain modules beside it. First-party kinds are
+upserted from `server/seed.py`; admin-managed processor rows (future external
+sinks) are created from the API.
 
 ### Operational Visibility
 
@@ -277,10 +279,10 @@ Relic is split into a React client, a FastAPI server, and ARQ workers:
 - `server/api/` contains the HTTP API and S3 gateway routes.
 - `server/services/` contains the filesystem, object, bucket, search, access,
   placement, audit event, file event, processor, and maintenance logic.
-- `server/processors/` contains the warm-path runtime: the substrate
-  registry, the `meta_extract` substrate and its toolchains, the arq workers
-  for processing and maintenance, and the pull-based dispatcher that
-  consumes `file_events` and feeds the warm queue.
+- `server/processors/` contains the warm-path runtime, while
+  `server/processors/kinds/` contains first-party processor implementations
+  such as `meta_extract` and its toolchains. The arq workers and pull-based
+  dispatcher consume `file_events` and feed the warm queue.
 - PostgreSQL stores users, folders, files, blobs, access grants, access keys,
   bucket registrations, durable event tables, and the processor registry. The
   dispatcher uses Postgres `LISTEN/NOTIFY` on `file_event_emitted` to wake up
@@ -449,7 +451,7 @@ Relic is an early product with substantial core behavior in place. The web
 app, JSON API, object gateway, content-hash deduplication, tiered storage
 placement, `audit_events`, `file_events`, the `processors` registry, the
 `maintenance_events` cold-path log, the `LISTEN/NOTIFY` warm-path
-dispatcher, the seeded `meta_extract` substrate, and production health /
+dispatcher, the seeded `meta_extract` processor, and production health /
 readiness endpoints are all live and developed against. Still tracked in
 `ROADMAP.md`: external activity sinks (webhook, SQS, Kafka, object-store),
 native-client S3 compatibility work, Prometheus metrics endpoint,

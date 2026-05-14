@@ -19,7 +19,8 @@ from models import (
     FileEvent,
     Processor,
 )
-from processors.registry import init_builtin_substrates
+from processors.kinds.meta_extract.extractor import MetaExtractionResult
+from processors.registry import init_builtin_processors
 from services import processors as processor_service
 from services.event_context import EventContext
 from services.file_events import create_file_event
@@ -32,8 +33,8 @@ from tests.factories.models import (
 
 
 @pytest.fixture(autouse=True)
-def _register_substrates() -> None:
-    init_builtin_substrates()
+def _register_processors() -> None:
+    init_builtin_processors()
 
 
 @pytest.fixture()
@@ -75,7 +76,7 @@ def _make_event(
     )
 
 
-def test_create_processor_uses_substrate_defaults(db_session):
+def test_create_processor_uses_processor_kind_defaults(db_session):
     processor = processor_service.create_processor(
         db_session,
         name="meta_extract",
@@ -407,7 +408,10 @@ def test_execute_processor_event_advances_cursor_on_success(
     session_factory, monkeypatch
 ):
     monkeypatch.setattr(
-        "processors.meta_extract.base.parse_file", lambda db, file_id: None
+        "processors.kinds.meta_extract.extract_file_metadata",
+        lambda db, file_id, expected_blob_id: MetaExtractionResult(
+            status="completed"
+        ),
     )
 
     with session_factory() as bootstrap_db:
@@ -446,10 +450,10 @@ def test_execute_processor_event_advances_cursor_on_success(
 def test_execute_processor_event_emits_failure_without_advancing(
     session_factory, monkeypatch
 ):
-    def raise_exc(db, file_id):
+    def raise_exc(db, file_id, expected_blob_id):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr("processors.meta_extract.base.parse_file", raise_exc)
+    monkeypatch.setattr("processors.kinds.meta_extract.extract_file_metadata", raise_exc)
 
     with session_factory() as bootstrap_db:
         processor = ProcessorFactory.build(
@@ -491,10 +495,10 @@ def test_execute_processor_event_emits_failure_without_advancing(
 def test_collect_pending_jobs_suppresses_stored_failed_event(
     session_factory, monkeypatch
 ):
-    def raise_exc(db, file_id):
+    def raise_exc(db, file_id, expected_blob_id):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr("processors.meta_extract.base.parse_file", raise_exc)
+    monkeypatch.setattr("processors.kinds.meta_extract.extract_file_metadata", raise_exc)
 
     with session_factory() as bootstrap_db:
         processor = ProcessorFactory.build(
@@ -522,10 +526,11 @@ def test_execute_processor_event_skips_when_already_processed(
 ):
     parse_calls: list[uuid.UUID] = []
 
-    def handler(db, file_id):
+    def handler(db, file_id, expected_blob_id):
         parse_calls.append(file_id)
+        return MetaExtractionResult(status="completed")
 
-    monkeypatch.setattr("processors.meta_extract.base.parse_file", handler)
+    monkeypatch.setattr("processors.kinds.meta_extract.extract_file_metadata", handler)
 
     with session_factory() as bootstrap_db:
         processor = ProcessorFactory.build(
@@ -554,10 +559,11 @@ def test_execute_processor_event_skips_stale_dispatch_generation(
 ):
     parse_calls: list[uuid.UUID] = []
 
-    def handler(db, file_id):
+    def handler(db, file_id, expected_blob_id):
         parse_calls.append(file_id)
+        return MetaExtractionResult(status="completed")
 
-    monkeypatch.setattr("processors.meta_extract.base.parse_file", handler)
+    monkeypatch.setattr("processors.kinds.meta_extract.extract_file_metadata", handler)
 
     with session_factory() as bootstrap_db:
         processor = ProcessorFactory.build(
@@ -597,7 +603,10 @@ def test_execute_processor_event_refuses_non_subscribed(
     """
 
     monkeypatch.setattr(
-        "processors.meta_extract.base.parse_file", lambda db, file_id: None
+        "processors.kinds.meta_extract.extract_file_metadata",
+        lambda db, file_id, expected_blob_id: MetaExtractionResult(
+            status="completed"
+        ),
     )
 
     with session_factory() as bootstrap_db:
@@ -629,7 +638,10 @@ def test_execute_processor_event_refuses_folder_scope_mismatch(
     session_factory, monkeypatch
 ):
     monkeypatch.setattr(
-        "processors.meta_extract.base.parse_file", lambda db, file_id: None
+        "processors.kinds.meta_extract.extract_file_metadata",
+        lambda db, file_id, expected_blob_id: MetaExtractionResult(
+            status="completed"
+        ),
     )
 
     with session_factory() as bootstrap_db:
@@ -867,7 +879,10 @@ def test_execute_processor_event_double_run_emits_outcome_once(
     """Two concurrent workers must not emit duplicate completion events."""
 
     monkeypatch.setattr(
-        "processors.meta_extract.base.parse_file", lambda db, file_id: None
+        "processors.kinds.meta_extract.extract_file_metadata",
+        lambda db, file_id, expected_blob_id: MetaExtractionResult(
+            status="completed"
+        ),
     )
 
     with session_factory() as bootstrap_db:
@@ -903,11 +918,12 @@ def test_execute_processor_event_double_run_emits_outcome_once(
 def test_meta_extract_runs_on_rename(session_factory, monkeypatch):
     parsed: list[uuid.UUID] = []
 
-    def fake_parse(db, file_id):
+    def fake_parse(db, file_id, expected_blob_id):
         parsed.append(file_id)
+        return MetaExtractionResult(status="completed")
 
     monkeypatch.setattr(
-        "processors.meta_extract.base.parse_file", fake_parse
+        "processors.kinds.meta_extract.extract_file_metadata", fake_parse
     )
 
     with session_factory() as bootstrap_db:

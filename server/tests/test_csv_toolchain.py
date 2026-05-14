@@ -1,7 +1,7 @@
-"""Tests for processors.meta_extract.toolchains.csv."""
+"""Tests for processors.kinds.meta_extract.toolchains.csv."""
 
 from domain.files.meta import FileMeta, build_file_meta
-from processors.meta_extract.toolchains.csv import empty_csv_meta, parse, parse_csv
+from processors.kinds.meta_extract.toolchains.csv import empty_csv_meta, parse, parse_csv
 
 
 def _base_meta() -> dict:

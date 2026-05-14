@@ -1,9 +1,9 @@
-"""Tests for processors.meta_extract.toolchains.video."""
+"""Tests for processors.kinds.meta_extract.toolchains.video."""
 
 import struct
 
 from domain.files.meta import FileMeta, build_file_meta
-from processors.meta_extract.toolchains.video import empty_video_meta, parse, parse_video
+from processors.kinds.meta_extract.toolchains.video import empty_video_meta, parse, parse_video
 
 
 def _base_meta(file_name: str = "video.mp4", mimetype: str = "video/mp4") -> dict:

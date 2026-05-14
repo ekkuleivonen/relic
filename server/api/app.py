@@ -6,7 +6,7 @@ import settings as S
 from constants import API_PREFIX
 from enums import HealthStatus
 from database import DbSession
-from processors.registry import init_builtin_substrates
+from processors.registry import init_builtin_processors
 from services import health as health_service
 from .access_keys import router as access_keys_router
 from .audit_events import router as audit_events_router
@@ -24,7 +24,7 @@ from .s3_gateway import router as s3_gateway_router
 from .uploads import router as uploads_router
 from .users import router as users_router
 
-init_builtin_substrates()
+init_builtin_processors()
 
 app = FastAPI(
     title="Relic API",

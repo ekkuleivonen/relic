@@ -10,13 +10,13 @@ from constants import (
 from database import get_sessionmaker
 from enums import UserRole
 from models import Folder, User
-from processors.registry import init_builtin_substrates
+from processors.registry import init_builtin_processors
 from services import processors as processor_service
 from sqlalchemy import select
 from utils.logging import get_logger
 from utils.passwords import hash_password
 
-init_builtin_substrates()
+init_builtin_processors()
 
 log = get_logger(__name__)
 SERVER_DIR = Path(__file__).resolve().parent

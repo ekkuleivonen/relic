@@ -31,12 +31,19 @@ export type ProcessorListResponse = {
   offset: number
 }
 
-export type ProcessorSubstrate = {
+export type ProcessorKind = {
   kind: string
+  display_name: string
+  description: string
+  default_task_queue: string
+  default_concurrency: number
+  max_concurrency: number
+  default_subscribed_event_types: string[]
+  valid_event_types: string[]
 }
 
-export type ProcessorSubstratesResponse = {
-  items: ProcessorSubstrate[]
+export type ProcessorKindsResponse = {
+  items: ProcessorKind[]
 }
 
 export type ProcessorCreateInput = {

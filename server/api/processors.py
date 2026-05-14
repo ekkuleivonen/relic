@@ -81,16 +81,23 @@ class ProcessorListResponse(BaseModel):
     offset: int
 
 
-class ProcessorSubstrateRead(BaseModel):
+class ProcessorKindRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: str
+    display_name: str
+    description: str
+    default_task_queue: str
+    default_concurrency: int
+    max_concurrency: int
+    default_subscribed_event_types: list[str]
+    valid_event_types: list[str]
 
 
-class ProcessorSubstratesResponse(BaseModel):
+class ProcessorKindsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    items: list[ProcessorSubstrateRead]
+    items: list[ProcessorKindRead]
 
 
 class ProcessorFolderScope(BaseModel):
@@ -153,16 +160,27 @@ async def list_processors_route(
     )
 
 
-@router.get("/substrates")
-async def list_substrates_route() -> ProcessorSubstratesResponse:
-    """Discover the substrate kinds the running server supports.
+@router.get("/kinds")
+async def list_processor_kinds_route() -> ProcessorKindsResponse:
+    """Discover the processor kinds the running server supports.
 
     Useful for the admin UI when creating a new processor row.
     """
-    return ProcessorSubstratesResponse(
+    return ProcessorKindsResponse(
         items=[
-            ProcessorSubstrateRead(kind=kind)
-            for kind in processor_service.list_substrates()
+            ProcessorKindRead(
+                kind=processor.kind,
+                display_name=processor.display_name,
+                description=processor.description,
+                default_task_queue=processor.default_task_queue,
+                default_concurrency=processor.default_concurrency,
+                max_concurrency=processor.max_concurrency,
+                default_subscribed_event_types=list(
+                    processor.default_subscribed_event_types
+                ),
+                valid_event_types=list(processor.valid_event_types),
+            )
+            for processor in processor_service.list_processor_definitions()
         ]
     )
 

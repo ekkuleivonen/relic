@@ -10,13 +10,13 @@ import asyncio
 import uuid
 
 from database import get_sessionmaker
-from processors.registry import init_builtin_substrates
+from processors.registry import init_builtin_processors
 from services import processors as processor_service
 from infra.arq import arq_redis_settings
 
 import settings as S
 
-init_builtin_substrates()
+init_builtin_processors()
 
 
 async def run_processor_event(

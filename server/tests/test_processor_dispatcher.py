@@ -18,7 +18,7 @@ from sqlalchemy.pool import StaticPool
 
 from models import Base, Processor
 from processors import dispatcher as dispatcher_module
-from processors.registry import init_builtin_substrates
+from processors.registry import init_builtin_processors
 from services.file_events import create_file_event
 from tests.factories.models import FolderFactory, ProcessorFactory
 
@@ -53,8 +53,8 @@ class FakeArqRedis:
 
 
 @pytest.fixture(autouse=True)
-def _register_substrates() -> None:
-    init_builtin_substrates()
+def _register_processors() -> None:
+    init_builtin_processors()
 
 
 @pytest.fixture()

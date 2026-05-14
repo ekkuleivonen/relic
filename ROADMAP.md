@@ -5,10 +5,10 @@ like a file manager and more like dependable storage infrastructure.
 
 The async processor architecture (hot/warm/cold tiers, `audit_events`,
 `file_events`, `maintenance_events`, `processors` registry, pull-model
-dispatcher, `meta_extract` substrate, audited rewind / skip-stuck-event
+dispatcher, `meta_extract` processor, audited rewind / skip-stuck-event
 admin actions) is **live**. Its design contract lives in `README.md` under
 "Event Log and Processors". This roadmap covers what extends or builds on
-top of that substrate.
+top of that processor runtime.
 
 ## Near Term
 
@@ -40,7 +40,7 @@ file/blob inspection if operator inventory is the bigger UX gap.
 
 ### External Activity Sinks
 
-External delivery substrates are warm-path processors. Each is a row in the
+External delivery processor kinds are warm-path processors. Each is a row in the
 `processors` table with a sink-specific `kind` (`webhook`, `sqs`, `kafka`,
 `object_store`) and a `config` payload, and is dispatched through the same
 pull loop as `meta_extract`. The first external sink is the moment Relic
@@ -99,9 +99,9 @@ on the `file_events.offset` primitive and per-processor cursors.
 - Admin tool to rehydrate downstream indexes after outages or
   `schema_version` bumps by rewinding the relevant processor's cursor.
 
-### Future processor substrates
+### Future Processor Kinds
 
-The warm-path runtime is generic; the immediate substrates beyond
+The warm-path runtime is generic; the immediate processor kinds beyond
 `meta_extract` and the external sinks above are:
 
 - `preview` — render preview assets for documents and images.
@@ -112,13 +112,13 @@ The warm-path runtime is generic; the immediate substrates beyond
   size, placement breakdown) maintained from `file_events` rather than
   re-computed on every request.
 
-Each substrate registers a `kind`, a pydantic config model, and a handler
-under `server/processors/<substrate>/`, and is seeded into the `processors`
-table when first-party.
+Each kind is a package under `server/processors/kinds/<kind>/` with a
+`BaseProcessor` subclass, pydantic config model, task builder, queue defaults,
+and handler. It is seeded into the `processors` table when first-party.
 
 ### Observability and Storage Intelligence
 
-Storage intelligence is derived from the durable substrates plus canonical
+Storage intelligence is derived from durable processor output plus canonical
 tables:
 
 | Source | Best at |
@@ -127,9 +127,9 @@ tables:
 | `audit_events` | Actor and admin forensics, including every processor cursor change. |
 | `file_events` | Content history, derived rollups, external delivery. |
 | `maintenance_events` | Lifecycle forensics: why a blob moved, when a probe failed, what a purge batch did. |
-| `processors` | Per-substrate cursor position, config, enabled state, lag. |
+| `processors` | Per-processor cursor position, config, enabled state, lag. |
 | Prometheus | Aggregate latency, error rate, throughput, queue depth, cursor lag, and high-volume read activity. |
-| Operational logs | Per-event handler errors that previously lived in a per-attempt table. |
+| Operational logs | Per-event processor run errors that previously lived in a per-attempt table. |
 
 Derived views:
 

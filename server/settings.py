@@ -118,9 +118,9 @@ S3_ACCESS_KEY_LAST_USED_DEBOUNCE_SECONDS: int = env.int(
 # meta_extract toolchain byte caps
 # =============================================================================
 # Per-toolchain hard caps on bytes fetched from object storage during the
-# warm-path meta_extract substrate run. Each toolchain reads up to its cap via
+# warm-path meta_extract processor run. Each toolchain reads up to its cap via
 # a single S3 Range GET; files larger than the cap are parsed from the
-# truncated prefix (and the substrate logs ``*_meta_extract_truncated``).
+# truncated prefix (and the processor logs ``*_meta_extract_truncated``).
 
 IMAGE_META_EXTRACT_MAX_BYTES: int = env.int(
     "IMAGE_META_EXTRACT_MAX_BYTES",

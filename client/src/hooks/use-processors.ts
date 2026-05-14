@@ -5,10 +5,10 @@ import { apiRequest, extractApiError } from "@/lib/api"
 import type {
   Processor,
   ProcessorCreateInput,
+  ProcessorKindsResponse,
   ProcessorListResponse,
   ProcessorRewindInput,
   ProcessorSkipInput,
-  ProcessorSubstratesResponse,
   ProcessorUpdateInput,
 } from "@/types/processors"
 
@@ -17,9 +17,9 @@ export const PROCESSORS_PAGE_SIZE = 50
 export const processorsQueryRootKey = ["processors"] as const
 export const processorsListQueryKey = (limit: number, offset: number) =>
   [...processorsQueryRootKey, "list", { limit, offset }] as const
-export const processorsSubstratesQueryKey = [
+export const processorKindsQueryKey = [
   ...processorsQueryRootKey,
-  "substrates",
+  "kinds",
 ] as const
 
 export function useProcessors(
@@ -36,11 +36,10 @@ export function useProcessors(
   })
 }
 
-export function useProcessorSubstrates() {
+export function useProcessorKinds() {
   return useQuery({
-    queryKey: processorsSubstratesQueryKey,
-    queryFn: () =>
-      apiRequest<ProcessorSubstratesResponse>("/processors/substrates"),
+    queryKey: processorKindsQueryKey,
+    queryFn: () => apiRequest<ProcessorKindsResponse>("/processors/kinds"),
   })
 }
 

@@ -16,11 +16,11 @@ import type { FolderPathEntry } from "@/lib/folder-path"
 import type {
   ProcessorCreateInput,
   ProcessorFolderScope,
-  ProcessorSubstrate,
+  ProcessorKind,
 } from "@/types/processors"
 
 type ProcessorFormProps = {
-  substrates: ProcessorSubstrate[]
+  processorKinds: ProcessorKind[]
   folders: FolderPathEntry[]
   isSubmitting: boolean
   onCancel: () => void
@@ -28,7 +28,7 @@ type ProcessorFormProps = {
 }
 
 export function ProcessorForm({
-  substrates,
+  processorKinds,
   folders,
   isSubmitting,
   onCancel,
@@ -46,7 +46,8 @@ export function ProcessorForm({
   const [configRaw, setConfigRaw] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
 
-  const effectiveKind = kind ?? substrates[0]?.kind ?? ""
+  const effectiveKind = kind ?? processorKinds[0]?.kind ?? ""
+  const selectedKind = processorKinds.find((item) => item.kind === effectiveKind)
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -138,19 +139,25 @@ export function ProcessorForm({
         <Select
           value={effectiveKind || undefined}
           onValueChange={setKind}
-          disabled={substrates.length === 0}
+          disabled={processorKinds.length === 0}
         >
           <SelectTrigger id="processor-kind" className="w-full">
-            <SelectValue placeholder="Choose a substrate" />
+            <SelectValue placeholder="Choose a processor kind" />
           </SelectTrigger>
           <SelectContent>
-            {substrates.map((substrate) => (
-              <SelectItem key={substrate.kind} value={substrate.kind}>
-                {substrate.kind}
+            {processorKinds.map((processorKind) => (
+              <SelectItem key={processorKind.kind} value={processorKind.kind}>
+                {processorKind.display_name || processorKind.kind}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+        {selectedKind && (
+          <p className="text-xs text-muted-foreground">
+            Queue <code>{selectedKind.default_task_queue}</code>, default
+            concurrency {selectedKind.default_concurrency}.
+          </p>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -159,11 +166,11 @@ export function ProcessorForm({
           id="processor-types"
           value={subscribedTypesRaw}
           onChange={(event) => setSubscribedTypesRaw(event.target.value)}
-          placeholder="leave blank for substrate defaults"
+          placeholder="leave blank for processor defaults"
           autoComplete="off"
         />
         <p className="text-xs text-muted-foreground">
-          Comma- or space-separated. Empty falls back to the substrate's defaults.
+          Comma- or space-separated. Empty falls back to the processor kind's defaults.
         </p>
       </div>
 

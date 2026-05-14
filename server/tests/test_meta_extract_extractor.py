@@ -1,17 +1,18 @@
-"""Tests for the meta_extract substrate base helpers."""
+"""Tests for metadata extraction helpers."""
 
 import pytest
-from enums import MetaExtractStatus
-from domain.files.meta import build_file_meta
-from models import (
-    AuditEvent,
-    Base,
-    File,
-)
-from processors.meta_extract.base import detect_mime_type, is_parquet_file, parse_file
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+
+from domain.files.meta import build_file_meta
+from enums import MetaExtractStatus
+from models import AuditEvent, Base, File
+from processors.kinds.meta_extract.extractor import (
+    detect_mime_type,
+    extract_file_metadata,
+    is_parquet_file,
+)
 from tests.factories.models import (
     BlobFactory,
     BucketFactory,
@@ -47,7 +48,7 @@ def test_is_parquet_file_accepts_generic_mime_with_parquet_extension() -> None:
     )
 
 
-def test_parse_csv_file_accepts_legacy_meta_missing_summary(
+def test_extract_csv_file_accepts_existing_meta_missing_summary(
     db_session, monkeypatch
 ) -> None:
     user = UserFactory.build()
@@ -58,41 +59,45 @@ def test_parse_csv_file_accepts_legacy_meta_missing_summary(
     blob = BlobFactory.build(bucket_id=bucket.id, bucket_key="objects/legacy.csv")
     db_session.add(blob)
     db_session.flush()
-    legacy_meta = build_file_meta(
+    existing_meta = build_file_meta(
         file_name="legacy.csv",
         size=13,
         user_meta={},
         mimetype="text/csv",
     )
-    legacy_meta.pop("summary")
+    existing_meta.pop("summary")
     file = File(
         folder_id=folder.id,
         blob_id=blob.id,
         actor_id=user.id,
         name="legacy.csv",
-        meta=legacy_meta,
+        meta=existing_meta,
     )
     db_session.add(file)
     db_session.commit()
 
     csv_bytes = b"a,b\n1,2\n3,4\n"
     monkeypatch.setattr(
-        "processors.meta_extract.base.read_blob_prefix", lambda **kwargs: csv_bytes
+        "processors.kinds.meta_extract.extractor.read_blob_prefix", lambda **kwargs: csv_bytes
     )
     monkeypatch.setattr(
-        "processors.meta_extract.base.read_blob_bytes_capped",
+        "processors.kinds.meta_extract.extractor.read_blob_bytes_capped",
         lambda **kwargs: csv_bytes,
     )
 
-    parsed = parse_file(db_session, file.id)
+    result = extract_file_metadata(
+        db_session, file_id=file.id, expected_blob_id=file.blob_id
+    )
 
-    assert parsed.meta_extract_status == MetaExtractStatus.COMPLETED
-    assert parsed.meta["summary"] == "CSV table with 2 rows and 2 columns"
-    assert parsed.meta["kvs"]["row_count"] == 2
+    assert result.status == "completed"
+    assert result.file is not None
+    assert result.file.meta_extract_status == MetaExtractStatus.COMPLETED
+    assert result.file.meta["summary"] == "CSV table with 2 rows and 2 columns"
+    assert result.file.meta["kvs"]["row_count"] == 2
     assert db_session.scalars(select(AuditEvent)).all() == []
 
 
-def test_parse_failure_marks_file_failed_without_audit_event(
+def test_extract_failure_marks_file_failed_without_audit_event(
     db_session, monkeypatch
 ) -> None:
     user = UserFactory.build()
@@ -117,11 +122,13 @@ def test_parse_failure_marks_file_failed_without_audit_event(
         raise RuntimeError("source object is unreadable")
 
     monkeypatch.setattr(
-        "processors.meta_extract.base.read_blob_prefix", fail_read_prefix
+        "processors.kinds.meta_extract.extractor.read_blob_prefix", fail_read_prefix
     )
 
     with pytest.raises(RuntimeError):
-        parse_file(db_session, file.id)
+        extract_file_metadata(
+            db_session, file_id=file.id, expected_blob_id=file.blob_id
+        )
 
     db_session.refresh(file)
     assert file.meta_extract_status == MetaExtractStatus.FAILED

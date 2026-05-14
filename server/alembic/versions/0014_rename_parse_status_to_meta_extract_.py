@@ -1,7 +1,7 @@
 """rename parse_status to meta_extract_status
 
 Renames ``files.parse_status`` -> ``files.meta_extract_status`` to align the
-denormalized per-file status column with the substrate that writes it. The
+denormalized per-file status column with the processor that writes it. The
 column semantics are unchanged: 1=pending, 2=in_progress, 3=completed,
 4=failed.
 

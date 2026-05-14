@@ -20,7 +20,7 @@ from arq.connections import ArqRedis
 
 from constants import FILE_EVENT_CHANNEL
 from database import get_libpq_dsn, get_sessionmaker
-from processors.registry import init_builtin_substrates
+from processors.registry import init_builtin_processors
 from services import processors as processor_service
 from infra.arq import arq_redis_settings
 from utils.logging import get_logger
@@ -31,7 +31,7 @@ log = get_logger(__name__)
 
 
 async def main() -> None:
-    init_builtin_substrates()
+    init_builtin_processors()
     redis = await create_pool(
         arq_redis_settings(), default_queue_name=S.PROCESSING_QUEUE_NAME
     )

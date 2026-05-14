@@ -4,13 +4,13 @@ This module owns:
   * CRUD for the `processors` table (admin-managed and seeded rows).
   * The pull-based dispatcher query that surfaces undispatched events for
     each enabled processor.
-  * The transactional worker handler that runs a substrate, emits the
+  * The transactional worker handler that runs a processor kind, emits the
     `processor.<kind>.{completed,failed}` outcome event, and advances the
     durable cursor on success.
   * Operator actions (rewind, skip-stuck, enable/disable) that touch the
     cursor and write a corresponding `audit_events` row.
 
-See `ROADMAP.md` for the architectural contract: handlers must be idempotent
+See `ROADMAP.md` for the architectural contract: processors must be idempotent
 over `event_id`, per-processor concurrency is 1 (enforced by `SELECT ... FOR
 UPDATE` on the processor row), and the cursor only advances on success.
 """
@@ -38,10 +38,10 @@ from models import (
     Folder,
     Processor,
 )
+from processors.base import BaseProcessor
 from processors.registry import (
-    ProcessorContext,
-    get_substrate,
-    list_substrate_kinds,
+    get_processor_kind,
+    list_processor_definitions as list_registered_processor_definitions,
     validate_config,
     validate_subscribed_event_types,
 )
@@ -105,13 +105,13 @@ def create_processor(
 ) -> Processor:
     cleaned_name = _clean_required(name, "name")
     cleaned_kind = _clean_required(kind, "kind")
-    substrate = get_substrate(cleaned_kind)
+    processor_kind = get_processor_kind(cleaned_kind)
     types = (
         validate_subscribed_event_types(
             kind=cleaned_kind, event_types=subscribed_event_types
         )
         if subscribed_event_types is not None
-        else list(substrate.default_subscribed_event_types)
+        else list(processor_kind.default_subscribed_event_types)
     )
 
     cleaned_config = validate_config(kind=cleaned_kind, config=config)
@@ -447,7 +447,7 @@ def execute_processor_event(
     dispatch_generation: int = 0,
     now: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.UTC),
 ) -> ExecutionResult:
-    """Run the substrate handler, emit the outcome event, and advance the cursor.
+    """Run the processor handler, emit the outcome event, and advance the cursor.
 
     One transaction holds a row lock on the processor for the whole handler run.
     This enforces per-processor concurrency=1 and commits DB side effects,
@@ -520,22 +520,16 @@ def execute_processor_event(
             )
             return _result("skipped_missing_event", None, started_at)
 
-        substrate = get_substrate(processor.kind)
-        ctx = ProcessorContext(
-            processor_id=processor.id,
-            processor_name=processor.name,
-            config=dict(processor.config or {}),
-            file_event=event,
-        )
         error_class: str | None = None
         error_message: str | None = None
         try:
-            substrate.handler(db, ctx)
+            processor_kind = get_processor_kind(processor.kind)
+            processor_kind.execute_event(db, processor, event)
         except Exception as exc:  # noqa: BLE001 - capture for outcome event
             error_class = type(exc).__name__
             error_message = str(exc)[:1000]
             log.warning(
-                "processor_handler_failed",
+                "processor_run_failed",
                 processor_id=str(processor_id),
                 processor_name=processor.name,
                 kind=processor.kind,
@@ -726,8 +720,8 @@ def clear_processors(db: Session) -> int:
     return result.rowcount or 0
 
 
-def list_substrates() -> list[str]:
-    return list_substrate_kinds()
+def list_processor_definitions() -> list[BaseProcessor]:
+    return list_registered_processor_definitions()
 
 
 # ---------------------------------------------------------------------------
@@ -841,7 +835,7 @@ __all__ = [
     "execute_processor_event",
     "get_processor_with_lag",
     "list_processors",
-    "list_substrates",
+    "list_processor_definitions",
     "require_processor",
     "rewind_cursor",
     "skip_stuck_event",

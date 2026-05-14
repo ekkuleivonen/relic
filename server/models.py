@@ -287,7 +287,7 @@ class File(Base, TimestampMixin):
         GUID(), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # Status of the latest meta_extract substrate run on this file. The column
+    # Status of the latest meta_extract processor run on this file. The column
     # is denormalized — file_events.processor.meta_extract.{completed,failed}
     # is the source of truth for processor outcomes. We keep this here so the
     # filesystem UI can render per-file badges without a per-row event lookup.
@@ -479,7 +479,7 @@ class Processor(Base, TimestampMixin):
 
     Each row is one logical consumer of `file_events`. The dispatcher reads
     `last_committed_offset` to find new events to enqueue; the worker advances
-    it after the substrate handler succeeds. See ROADMAP `Async Processors`
+    it after the processor run succeeds. See ROADMAP `Async Processors`
     for the full invariants.
     """
 

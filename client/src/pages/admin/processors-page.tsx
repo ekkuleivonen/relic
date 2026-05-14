@@ -32,7 +32,7 @@ import {
   PROCESSORS_PAGE_SIZE,
   useCreateProcessor,
   useDeleteProcessor,
-  useProcessorSubstrates,
+  useProcessorKinds,
   useProcessors,
   useRewindProcessor,
   useSkipStuckEvent,
@@ -59,7 +59,7 @@ export function ProcessorsPage() {
     limit: PROCESSORS_PAGE_SIZE,
     offset,
   })
-  const substratesQuery = useProcessorSubstrates()
+  const processorKindsQuery = useProcessorKinds()
   const folderTreeQuery = useFolderTree()
   const folders = React.useMemo(
     () =>
@@ -202,7 +202,7 @@ export function ProcessorsPage() {
             </DialogDescription>
           </DialogHeader>
           <ProcessorForm
-            substrates={substratesQuery.data?.items ?? []}
+            processorKinds={processorKindsQuery.data?.items ?? []}
             folders={folders}
             isSubmitting={createMutation.isPending}
             onCancel={() => setCreateOpen(false)}

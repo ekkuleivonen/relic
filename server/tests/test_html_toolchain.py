@@ -1,7 +1,7 @@
-"""Tests for processors.meta_extract.toolchains.html."""
+"""Tests for processors.kinds.meta_extract.toolchains.html."""
 
 from domain.files.meta import FileMeta, build_file_meta
-from processors.meta_extract.toolchains.html import empty_html_meta, parse, parse_html
+from processors.kinds.meta_extract.toolchains.html import empty_html_meta, parse, parse_html
 
 
 def _base_meta(

@@ -1,4 +1,4 @@
-"""Tests for processors.meta_extract.toolchains.image."""
+"""Tests for processors.kinds.meta_extract.toolchains.image."""
 
 import io
 
@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from domain.files.meta import FileMeta, build_file_meta
-from processors.meta_extract.toolchains.image import (
+from processors.kinds.meta_extract.toolchains.image import (
     _parse_exif_datetime,
     _parse_gps_coord,
     empty_image_meta,

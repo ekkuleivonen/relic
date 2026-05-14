@@ -1,7 +1,7 @@
-"""Tests for processors.meta_extract.toolchains.json."""
+"""Tests for processors.kinds.meta_extract.toolchains.json."""
 
 from domain.files.meta import FileMeta, build_file_meta
-from processors.meta_extract.toolchains.json import empty_json_meta, parse, parse_json
+from processors.kinds.meta_extract.toolchains.json import empty_json_meta, parse, parse_json
 
 
 def _base_meta(file_name: str = "x.json") -> dict:

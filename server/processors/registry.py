@@ -1,92 +1,47 @@
-"""Substrate registry for warm processors.
+"""Auto-discovered registry for processor kinds."""
 
-Maps a processor `kind` (the discriminator persisted on each `Processor` row)
-to the python callable that knows how to act on a `FileEvent`.
+import importlib
+import inspect
+import pkgutil
+from collections.abc import Iterable
 
-Substrate handlers are pure functions over a session and the inbound event.
-The worker is responsible for the cursor commit and the `processor.<kind>.*`
-outcome event — handlers must not write to those tables themselves.
-"""
-
-import uuid
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
-
-from pydantic import BaseModel, ConfigDict, ValidationError
-from sqlalchemy.orm import Session
+from pydantic import ValidationError
 
 from domain.exceptions import BadRequestError
-from models import FileEvent
+from processors.base import BaseProcessor
 from utils.logging import get_logger
 
 log = get_logger(__name__)
 
-
-@dataclass(frozen=True)
-class ProcessorContext:
-    """What the worker hands the substrate handler."""
-
-    processor_id: uuid.UUID
-    processor_name: str
-    config: dict
-    file_event: FileEvent
+_PROCESSORS: dict[str, BaseProcessor] = {}
 
 
-SubstrateHandler = Callable[[Session, ProcessorContext], None]
+def register_processor(processor_cls: type[BaseProcessor]) -> BaseProcessor:
+    if inspect.isabstract(processor_cls):
+        raise ValueError(f"{processor_cls.__name__} cannot be abstract")
+    processor_cls.validate_definition()
+    processor = processor_cls()
+    if processor.kind in _PROCESSORS:
+        log.debug("processor_kind_re_registered", kind=processor.kind)
+    _PROCESSORS[processor.kind] = processor
+    return processor
 
 
-class EmptyProcessorConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-
-@dataclass(frozen=True)
-class Substrate:
-    kind: str
-    handler: SubstrateHandler
-    default_subscribed_event_types: tuple[str, ...]
-    valid_event_types: tuple[str, ...]
-    config_model: type[BaseModel]
-
-
-_SUBSTRATES: dict[str, Substrate] = {}
-
-
-def register(
-    *,
-    kind: str,
-    handler: SubstrateHandler,
-    default_subscribed_event_types: Iterable[str],
-    valid_event_types: Iterable[str],
-    config_model: type[BaseModel] = EmptyProcessorConfig,
-) -> Substrate:
-    if kind in _SUBSTRATES:
-        log.debug("substrate_re_registered", kind=kind)
-    substrate = Substrate(
-        kind=kind,
-        handler=handler,
-        default_subscribed_event_types=tuple(default_subscribed_event_types),
-        valid_event_types=tuple(valid_event_types),
-        config_model=config_model,
-    )
-    _SUBSTRATES[kind] = substrate
-    return substrate
-
-
-def get_substrate(kind: str) -> Substrate:
-    substrate = _SUBSTRATES.get(kind)
-    if substrate is None:
+def get_processor_kind(kind: str) -> BaseProcessor:
+    processor = _PROCESSORS.get(kind)
+    if processor is None:
         raise BadRequestError(f"Unknown processor kind: {kind!r}")
-    return substrate
+    return processor
 
 
-def list_substrate_kinds() -> list[str]:
-    return sorted(_SUBSTRATES.keys())
+def list_processor_definitions() -> list[BaseProcessor]:
+    return [_PROCESSORS[kind] for kind in sorted(_PROCESSORS.keys())]
 
 
 def validate_subscribed_event_types(
     *, kind: str, event_types: Iterable[str]
 ) -> list[str]:
-    substrate = get_substrate(kind)
+    processor = get_processor_kind(kind)
     cleaned: list[str] = []
     seen: set[str] = set()
     for raw in event_types:
@@ -95,10 +50,10 @@ def validate_subscribed_event_types(
             continue
         if value in seen:
             continue
-        if value not in substrate.valid_event_types:
+        if value not in processor.valid_event_types:
             raise BadRequestError(
                 f"event_type {value!r} is not valid for kind {kind!r}; "
-                f"allowed: {sorted(substrate.valid_event_types)}"
+                f"allowed: {sorted(processor.valid_event_types)}"
             )
         seen.add(value)
         cleaned.append(value)
@@ -108,20 +63,41 @@ def validate_subscribed_event_types(
 
 
 def validate_config(*, kind: str, config: dict | None) -> dict:
-    substrate = get_substrate(kind)
+    processor = get_processor_kind(kind)
     try:
-        parsed = substrate.config_model.model_validate(config or {})
+        parsed = processor.parse_config(config)
     except ValidationError as exc:
         raise BadRequestError(f"config invalid for kind {kind!r}: {exc}") from exc
     return parsed.model_dump(mode="json")
 
 
-def init_builtin_substrates() -> None:
-    """Idempotently register first-party substrates.
+def autodiscover_processors() -> None:
+    """Import every first-party processor kind module and register its classes."""
+    import processors.kinds as processor_kinds
 
-    Called from API and worker startup. Importing the substrate module triggers
-    its `register(...)` call.
-    """
-    from processors.meta_extract import register_substrate as register_meta_extract
+    for module in pkgutil.iter_modules(processor_kinds.__path__):
+        imported = importlib.import_module(f"{processor_kinds.__name__}.{module.name}")
+        for _, obj in inspect.getmembers(imported, inspect.isclass):
+            if (
+                issubclass(obj, BaseProcessor)
+                and obj is not BaseProcessor
+                and not inspect.isabstract(obj)
+                and obj.__module__ == imported.__name__
+            ):
+                register_processor(obj)
 
-    register_meta_extract()
+
+def init_builtin_processors() -> None:
+    """Idempotently register first-party processor kinds."""
+    autodiscover_processors()
+
+
+__all__ = [
+    "autodiscover_processors",
+    "get_processor_kind",
+    "init_builtin_processors",
+    "list_processor_definitions",
+    "register_processor",
+    "validate_config",
+    "validate_subscribed_event_types",
+]

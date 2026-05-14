@@ -1,4 +1,4 @@
-"""Tests for processors.meta_extract.toolchains.parquet."""
+"""Tests for processors.kinds.meta_extract.toolchains.parquet."""
 
 import io
 
@@ -6,7 +6,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from domain.files.meta import FileMeta, build_file_meta
-from processors.meta_extract.toolchains.parquet import empty_parquet_meta, parse, parse_parquet
+from processors.kinds.meta_extract.toolchains.parquet import empty_parquet_meta, parse, parse_parquet
 
 
 def _base_meta(file_name: str = "events.parquet") -> dict:
