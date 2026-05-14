@@ -3,14 +3,10 @@ from pathlib import Path
 import settings as S
 from alembic import command
 from alembic.config import Config
-from constants import (
-    META_EXTRACT_DEFAULT_SUBSCRIBED_EVENT_TYPES,
-    META_EXTRACT_PROCESSOR_KIND,
-)
 from database import get_sessionmaker
 from enums import UserRole
 from models import Folder, User
-from processors.registry import init_builtin_processors
+from processors.registry import get_processor_kind, init_builtin_processors
 from services import processors as processor_service
 from sqlalchemy import select
 from utils.logging import get_logger
@@ -61,11 +57,12 @@ def upsert_admin_user(db) -> User:
 
 
 def upsert_meta_extract_processor(db) -> None:
+    processor_kind = get_processor_kind("meta_extract")
     processor_service.upsert_seed_processor(
         db,
-        name=META_EXTRACT_PROCESSOR_KIND,
-        kind=META_EXTRACT_PROCESSOR_KIND,
-        subscribed_event_types=list(META_EXTRACT_DEFAULT_SUBSCRIBED_EVENT_TYPES),
+        name=processor_kind.kind,
+        kind=processor_kind.kind,
+        subscribed_event_types=list(processor_kind.default_subscribed_event_types),
         config={},
     )
 

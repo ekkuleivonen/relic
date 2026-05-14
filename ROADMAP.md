@@ -41,15 +41,16 @@ file/blob inspection if operator inventory is the bigger UX gap.
 ### External Activity Sinks
 
 External delivery processor kinds are warm-path processors. Each is a row in the
-`processors` table with a sink-specific `kind` (`webhook`, `sqs`, `kafka`,
-`object_store`) and a `config` payload, and is dispatched through the same
-pull loop as `meta_extract`. The first external sink is the moment Relic
-becomes a streaming platform for downstream consumers, not just an internal
-metadata enricher.
+`processors` table with a sink-specific `kind` (`webhook_event_dispatch`, `sqs`,
+`kafka`, `object_store`) and a `config` payload, and is dispatched through the
+same pull loop as `meta_extract`. The first external sink makes Relic a
+streaming platform for downstream consumers, not just an internal metadata
+enricher.
 
-- HTTP webhook sink (`kind=webhook`) with request signing, exponential
-  backoff inside the handler, and per-event audit via
-  `processor.webhook.failed` events.
+- HTTP webhook sink (`kind=webhook_event_dispatch`) is shipped with request
+  signing, event-derived idempotency keys, and processor outcome events.
+  Remaining work: exponential backoff / dead-letter ergonomics beyond the
+  generic cursor retry behavior.
 - SQS-compatible sink (`kind=sqs`).
 - Kafka or NATS sink (`kind=kafka`) for infrastructure users.
 - Object-store sink (`kind=object_store`) that writes event batches to a

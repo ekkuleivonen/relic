@@ -234,9 +234,10 @@ def update_processor(
     if config is not None:
         cleaned_config = validate_config(kind=processor.kind, config=config)
         if cleaned_config != processor.config:
+            processor_kind = get_processor_kind(processor.kind)
             changes["config"] = {
-                "from": dict(processor.config),
-                "to": dict(cleaned_config),
+                "from": processor_kind.public_config(processor.config),
+                "to": processor_kind.public_config(cleaned_config),
             }
             processor.config = cleaned_config
 
@@ -724,6 +725,11 @@ def list_processor_definitions() -> list[BaseProcessor]:
     return list_registered_processor_definitions()
 
 
+def public_processor_config(processor: Processor) -> dict:
+    processor_kind = get_processor_kind(processor.kind)
+    return processor_kind.public_config(processor.config)
+
+
 # ---------------------------------------------------------------------------
 # Event matching
 # ---------------------------------------------------------------------------
@@ -836,6 +842,7 @@ __all__ = [
     "get_processor_with_lag",
     "list_processors",
     "list_processor_definitions",
+    "public_processor_config",
     "require_processor",
     "rewind_cursor",
     "skip_stuck_event",

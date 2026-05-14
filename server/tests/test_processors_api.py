@@ -78,6 +78,36 @@ def test_list_processor_kinds_includes_meta_extract(client):
     assert meta_extract["display_name"] == "Metadata extraction"
     assert meta_extract["default_task_queue"] == "relic:tasks:meta_extract"
     assert meta_extract["default_concurrency"] == 16
+    webhook = next(
+        item for item in body["items"] if item["kind"] == "webhook_event_dispatch"
+    )
+    assert webhook["display_name"] == "Webhook event dispatch"
+    assert webhook["default_task_queue"] == "relic:tasks:webhook_event_dispatch"
+    assert "processor.meta_extract.completed" in webhook["valid_event_types"]
+    assert {
+        "value": "file.created",
+        "label": "file.created",
+        "default": True,
+    } in webhook["event_type_options"]
+    assert webhook["config_schema"]["properties"]["url"]["format"] == "uri"
+    assert webhook["config_schema"]["properties"]["secret"]["writeOnly"] is True
+
+
+def test_list_processor_folder_options_returns_flat_paths(client, db_session):
+    root = FolderFactory.build(name="")
+    db_session.add(root)
+    db_session.flush()
+    child = FolderFactory.build(name="inbox", parent_id=root.id)
+    db_session.add(child)
+    db_session.commit()
+
+    response = client.get("/api/processors/folder-options")
+
+    assert response.status_code == 200
+    assert response.json()["items"] == [
+        {"id": str(root.id), "name": "", "path": "/"},
+        {"id": str(child.id), "name": "inbox", "path": "/inbox"},
+    ]
 
 
 def test_create_processor_returns_lag(client, db_session):
@@ -97,6 +127,25 @@ def test_create_processor_returns_lag(client, db_session):
         ["file.created", "file.updated", "file.copied", "file.renamed"]
     )
     assert body["folder_scopes"] == []
+
+
+def test_create_webhook_processor_redacts_secret(client):
+    response = client.post(
+        "/api/processors/",
+        json={
+            "name": "webhook:acme",
+            "kind": "webhook_event_dispatch",
+            "config": {
+                "url": "https://example.com/relic",
+                "secret": "a" * 32,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["config"]["url"] == "https://example.com/relic"
+    assert body["config"]["secret"] == "********"
 
 
 def test_create_processor_accepts_folder_scopes(client, db_session):

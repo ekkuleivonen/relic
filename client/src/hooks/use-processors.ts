@@ -5,6 +5,7 @@ import { apiRequest, extractApiError } from "@/lib/api"
 import type {
   Processor,
   ProcessorCreateInput,
+  ProcessorFolderOptionsResponse,
   ProcessorKindsResponse,
   ProcessorListResponse,
   ProcessorRewindInput,
@@ -20,6 +21,10 @@ export const processorsListQueryKey = (limit: number, offset: number) =>
 export const processorKindsQueryKey = [
   ...processorsQueryRootKey,
   "kinds",
+] as const
+export const processorFolderOptionsQueryKey = [
+  ...processorsQueryRootKey,
+  "folder-options",
 ] as const
 
 export function useProcessors(
@@ -40,6 +45,14 @@ export function useProcessorKinds() {
   return useQuery({
     queryKey: processorKindsQueryKey,
     queryFn: () => apiRequest<ProcessorKindsResponse>("/processors/kinds"),
+  })
+}
+
+export function useProcessorFolderOptions() {
+  return useQuery({
+    queryKey: processorFolderOptionsQueryKey,
+    queryFn: () =>
+      apiRequest<ProcessorFolderOptionsResponse>("/processors/folder-options"),
   })
 }
 

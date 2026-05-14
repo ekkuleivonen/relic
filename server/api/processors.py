@@ -11,11 +11,13 @@ import uuid
 
 from fastapi import APIRouter, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 
 from api.dependencies import AdminUser
 from constants import PROCESSOR_DEFAULT_LIST_LIMIT, PROCESSOR_MAX_LIST_LIMIT
 from database import DbSession
-from models import Processor
+from models import Folder, Processor
+from services import folder_access as folder_access_service
 from services import processors as processor_service
 from services.event_context import context_from_headers
 
@@ -58,7 +60,7 @@ class ProcessorRead(BaseModel):
                 ProcessorFolderScope.model_validate(scope)
                 for scope in processor.folder_scopes
             ],
-            config=dict(processor.config),
+            config=processor_service.public_processor_config(processor),
             last_committed_offset=int(processor.last_committed_offset),
             last_committed_at=processor.last_committed_at,
             last_failed_event_id=processor.last_failed_event_id,
@@ -92,12 +94,36 @@ class ProcessorKindRead(BaseModel):
     max_concurrency: int
     default_subscribed_event_types: list[str]
     valid_event_types: list[str]
+    event_type_options: list["ProcessorEventTypeOptionRead"]
+    config_schema: dict
+
+
+class ProcessorEventTypeOptionRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: str
+    label: str
+    default: bool = False
 
 
 class ProcessorKindsResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     items: list[ProcessorKindRead]
+
+
+class ProcessorFolderOptionRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID
+    name: str
+    path: str
+
+
+class ProcessorFolderOptionsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ProcessorFolderOptionRead]
 
 
 class ProcessorFolderScope(BaseModel):
@@ -179,8 +205,35 @@ async def list_processor_kinds_route() -> ProcessorKindsResponse:
                     processor.default_subscribed_event_types
                 ),
                 valid_event_types=list(processor.valid_event_types),
+                event_type_options=[
+                    ProcessorEventTypeOptionRead.model_validate(
+                        option.model_dump(mode="json")
+                    )
+                    for option in processor.event_type_options()
+                ],
+                config_schema=processor.config_schema(),
             )
             for processor in processor_service.list_processor_definitions()
+        ]
+    )
+
+
+@router.get("/folder-options")
+async def list_processor_folder_options(db: DbSession) -> ProcessorFolderOptionsResponse:
+    """Flat folder list for processor scope selectors."""
+    folders = list(db.scalars(select(Folder)).all())
+    paths = folder_access_service.compute_folder_paths(
+        db,
+        {folder.id for folder in folders},
+    )
+    return ProcessorFolderOptionsResponse(
+        items=[
+            ProcessorFolderOptionRead(
+                id=folder.id,
+                name=folder.name,
+                path=paths[folder.id],
+            )
+            for folder in sorted(folders, key=lambda item: paths[item.id])
         ]
     )
 

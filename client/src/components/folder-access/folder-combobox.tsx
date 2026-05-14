@@ -15,11 +15,15 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import type { FolderPathEntry } from "@/lib/folder-path"
 import { cn } from "@/lib/utils"
 
+type FolderSelectOption = {
+  id: string
+  path: string
+}
+
 type FolderComboboxProps = {
-  folders: FolderPathEntry[]
+  folders: FolderSelectOption[]
   value: string | undefined
   onChange: (folderId: string) => void
   disabled?: boolean

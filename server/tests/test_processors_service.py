@@ -218,6 +218,44 @@ def test_create_processor_validates_config_for_kind(db_session):
         )
 
 
+def test_create_webhook_processor_validates_config_and_defaults(db_session):
+    processor = processor_service.create_processor(
+        db_session,
+        name="webhook:acme",
+        kind="webhook_event_dispatch",
+        config={
+            "url": "https://example.com/relic",
+            "secret": "a" * 32,
+        },
+    )
+
+    assert processor.kind == "webhook_event_dispatch"
+    assert processor.subscribed_event_types == [
+        "file.created",
+        "file.updated",
+        "file.deleted",
+        "processor.meta_extract.completed",
+        "processor.meta_extract.failed",
+    ]
+    assert processor.config["url"] == "https://example.com/relic"
+    assert processor.config["timeout_seconds"] == 5.0
+
+
+def test_create_webhook_processor_accepts_file_moved_subscription(db_session):
+    processor = processor_service.create_processor(
+        db_session,
+        name="webhook:moves",
+        kind="webhook_event_dispatch",
+        subscribed_event_types=["file.moved"],
+        config={
+            "url": "https://example.com/relic",
+            "secret": "a" * 32,
+        },
+    )
+
+    assert processor.subscribed_event_types == ["file.moved"]
+
+
 def test_delete_processor_blocks_seeded_rows(db_session):
     processor = processor_service.upsert_seed_processor(
         db_session, name="meta_extract", kind="meta_extract"

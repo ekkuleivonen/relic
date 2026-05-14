@@ -202,12 +202,15 @@ The contract every warm processor inherits:
 #### Processor Kinds
 
 A processor kind is the Python implementation for one `processors.kind`. Today
-there is one shipping kind:
+the first-party kinds are:
 
 - `meta_extract` — reads bytes from object storage (capped per toolchain via
   `*_META_EXTRACT_MAX_BYTES`), runs the matching toolchain (image, PDF,
   CSV, JSON, parquet, audio, video, office-doc, archive, HTML, text), and
   writes the result to `File.meta`.
+- `webhook_event_dispatch` — signs and POSTs selected `file_events` rows to a
+  configured HTTP endpoint with an idempotency key derived from the processor
+  row and event ID.
 
 New processor kinds plug in by adding a package under
 `server/processors/kinds/<kind>/` with a `BaseProcessor` subclass in
@@ -451,9 +454,10 @@ Relic is an early product with substantial core behavior in place. The web
 app, JSON API, object gateway, content-hash deduplication, tiered storage
 placement, `audit_events`, `file_events`, the `processors` registry, the
 `maintenance_events` cold-path log, the `LISTEN/NOTIFY` warm-path
-dispatcher, the seeded `meta_extract` processor, and production health /
-readiness endpoints are all live and developed against. Still tracked in
-`ROADMAP.md`: external activity sinks (webhook, SQS, Kafka, object-store),
-native-client S3 compatibility work, Prometheus metrics endpoint,
+dispatcher, the seeded `meta_extract` processor, `webhook_event_dispatch`,
+and production health / readiness endpoints are all live and developed
+against. Still tracked in `ROADMAP.md`: additional external activity sinks
+(SQS, Kafka, object-store), native-client S3 compatibility work,
+Prometheus metrics endpoint,
 import-from-bucket flows, quotas, retention, versioning, and richer admin
 file/blob inspection beyond the current placeholder UI pages.

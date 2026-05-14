@@ -40,10 +40,52 @@ export type ProcessorKind = {
   max_concurrency: number
   default_subscribed_event_types: string[]
   valid_event_types: string[]
+  event_type_options: ProcessorEventTypeOption[]
+  config_schema: ProcessorConfigSchema
 }
 
 export type ProcessorKindsResponse = {
   items: ProcessorKind[]
+}
+
+export type ProcessorEventTypeOption = {
+  value: string
+  label: string
+  default: boolean
+}
+
+export type ProcessorFolderOption = {
+  id: string
+  name: string
+  path: string
+}
+
+export type ProcessorFolderOptionsResponse = {
+  items: ProcessorFolderOption[]
+}
+
+export type ProcessorConfigSchema = {
+  title?: string
+  description?: string
+  type?: string
+  required?: string[]
+  properties?: Record<string, ProcessorConfigSchemaProperty>
+}
+
+export type ProcessorConfigSchemaProperty = {
+  title?: string
+  description?: string
+  type?: string | string[]
+  format?: string
+  default?: unknown
+  minLength?: number
+  maxLength?: number
+  minimum?: number
+  maximum?: number
+  exclusiveMinimum?: number
+  exclusiveMaximum?: number
+  writeOnly?: boolean
+  additionalProperties?: boolean | ProcessorConfigSchemaProperty
 }
 
 export type ProcessorCreateInput = {

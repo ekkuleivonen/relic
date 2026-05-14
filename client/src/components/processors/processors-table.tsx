@@ -1,11 +1,12 @@
 import {
-  FolderCogIcon,
+  ChevronRightIcon,
   PauseIcon,
   PlayIcon,
   RotateCcwIcon,
   SkipForwardIcon,
   Trash2Icon,
 } from "lucide-react"
+import * as React from "react"
 import type { ComponentProps, ReactNode } from "react"
 
 import { Badge } from "@/components/ui/badge"
@@ -24,15 +25,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import type { FolderPathEntry } from "@/lib/folder-path"
-import type { Processor } from "@/types/processors"
+import type { Processor, ProcessorFolderOption } from "@/types/processors"
 
 type ProcessorsTableProps = {
   processors: Processor[]
-  folders: FolderPathEntry[]
+  folders: ProcessorFolderOption[]
   isLoading: boolean
   onToggleEnabled: (processor: Processor) => void
-  onEditScopes: (processor: Processor) => void
   onRewind: (processor: Processor) => void
   onSkipStuck: (processor: Processor) => void
   onDelete: (processor: Processor) => void
@@ -44,12 +43,25 @@ export function ProcessorsTable({
   folders,
   isLoading,
   onToggleEnabled,
-  onEditScopes,
   onRewind,
   onSkipStuck,
   onDelete,
   pendingProcessorId,
 }: ProcessorsTableProps) {
+  const [expandedIds, setExpandedIds] = React.useState<Set<string>>(new Set())
+
+  function toggleExpanded(processorId: string) {
+    setExpandedIds((current) => {
+      const next = new Set(current)
+      if (next.has(processorId)) {
+        next.delete(processorId)
+      } else {
+        next.add(processorId)
+      }
+      return next
+    })
+  }
+
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -75,121 +87,147 @@ export function ProcessorsTable({
           <TableHead>Kind</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Failure</TableHead>
-          <TableHead>Source</TableHead>
-          <TableHead>Subscriptions</TableHead>
           <TableHead>Folder scopes</TableHead>
-          <TableHead className="text-right">Cursor</TableHead>
-          <TableHead className="text-right">Head</TableHead>
           <TableHead className="text-right">Pending</TableHead>
-          <TableHead>Last commit</TableHead>
-          <TableHead className="text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {processors.map((processor) => {
           const isPending = pendingProcessorId === processor.id
           const isSeed = processor.source === "seed"
+          const isExpanded = expandedIds.has(processor.id)
           return (
-            <TableRow key={processor.id}>
-              <TableCell className="font-medium">{processor.name}</TableCell>
-              <TableCell>
-                <Badge variant="outline" className="font-mono text-xs">
-                  {processor.kind}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <StatusBadge enabled={processor.enabled} />
-              </TableCell>
-              <TableCell>
-                <FailureBadge processor={processor} />
-              </TableCell>
-              <TableCell>
-                <Badge variant={isSeed ? "secondary" : "outline"}>
-                  {processor.source}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <SubscriptionList types={processor.subscribed_event_types} />
-              </TableCell>
-              <TableCell>
-                <FolderScopeBadges processor={processor} folders={folders} />
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs">
-                {processor.last_committed_offset.toLocaleString()}
-              </TableCell>
-              <TableCell className="text-right font-mono text-xs">
-                {processor.head_offset.toLocaleString()}
-              </TableCell>
-              <TableCell className="text-right">
-                <PendingBadge count={processor.pending_count} />
-              </TableCell>
-              <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                {processor.last_committed_at
-                  ? formatDate(processor.last_committed_at)
-                  : "—"}
-              </TableCell>
-              <TableCell>
-                <div className="flex justify-end gap-1">
-                  <ActionButton
-                    label={processor.enabled ? "Pause" : "Resume"}
-                    tooltip={
-                      processor.enabled
-                        ? "Pause this processor. The dispatcher stops enqueueing until resumed."
-                        : "Resume this processor. The dispatcher will pick up from the cursor."
-                    }
-                    onClick={() => onToggleEnabled(processor)}
-                    disabled={isPending}
+            <React.Fragment key={processor.id}>
+              <TableRow>
+                <TableCell className="font-medium">
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 text-left hover:text-foreground"
+                    onClick={() => toggleExpanded(processor.id)}
+                    aria-expanded={isExpanded}
                   >
-                    {processor.enabled ? <PauseIcon /> : <PlayIcon />}
-                  </ActionButton>
-                  <ActionButton
-                    label="Edit folder scopes"
-                    tooltip={
-                      isSeed
-                        ? "Seeded processors cannot change folder scopes."
-                        : "Limit this processor to selected folders."
-                    }
-                    onClick={() => onEditScopes(processor)}
-                    disabled={isPending || isSeed}
-                  >
-                    <FolderCogIcon />
-                  </ActionButton>
-                  <ActionButton
-                    label="Rewind cursor"
-                    tooltip="Move the cursor backward to replay events. Handlers must be idempotent."
-                    onClick={() => onRewind(processor)}
-                    disabled={isPending}
-                  >
-                    <RotateCcwIcon />
-                  </ActionButton>
-                  <ActionButton
-                    label="Skip stuck event"
-                    tooltip="Advance the cursor past a poisoned event. The action is audited."
-                    onClick={() => onSkipStuck(processor)}
-                    disabled={isPending || processor.pending_count === 0}
-                  >
-                    <SkipForwardIcon />
-                  </ActionButton>
-                  <ActionButton
-                    label="Delete processor"
-                    tooltip={
-                      isSeed
-                        ? "Seeded processors cannot be deleted."
-                        : "Delete this admin-managed processor."
-                    }
-                    variant="destructive"
-                    onClick={() => onDelete(processor)}
-                    disabled={isPending || isSeed}
-                  >
-                    <Trash2Icon />
-                  </ActionButton>
-                </div>
-              </TableCell>
-            </TableRow>
+                    <ChevronRightIcon
+                      className={`size-3.5 shrink-0 transition-transform ${
+                        isExpanded ? "rotate-90" : ""
+                      }`}
+                    />
+                    {processor.name}
+                  </button>
+                </TableCell>
+                <TableCell>
+                  <Badge variant="outline" className="font-mono text-xs">
+                    {processor.kind}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <StatusBadge enabled={processor.enabled} />
+                </TableCell>
+                <TableCell>
+                  <FailureBadge processor={processor} />
+                </TableCell>
+                <TableCell>
+                  <FolderScopeBadges processor={processor} folders={folders} />
+                </TableCell>
+                <TableCell className="text-right">
+                  <PendingBadge count={processor.pending_count} />
+                </TableCell>
+              </TableRow>
+              {isExpanded && (
+                <TableRow>
+                  <TableCell colSpan={6} className="bg-muted/20 p-4">
+                    <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <DetailBlock label="Source">
+                          <Badge variant={isSeed ? "secondary" : "outline"}>
+                            {processor.source}
+                          </Badge>
+                        </DetailBlock>
+                        <DetailBlock label="Cursor">
+                          <span className="font-mono">
+                            {processor.last_committed_offset.toLocaleString()} /{" "}
+                            {processor.head_offset.toLocaleString()}
+                          </span>
+                        </DetailBlock>
+                        <DetailBlock label="Last commit">
+                          {processor.last_committed_at
+                            ? formatDate(processor.last_committed_at)
+                            : "—"}
+                        </DetailBlock>
+                        <DetailBlock label="Subscriptions">
+                          <SubscriptionList
+                            types={processor.subscribed_event_types}
+                          />
+                        </DetailBlock>
+                      </div>
+                      <div className="flex items-start justify-end gap-1">
+                        <ActionButton
+                          label={processor.enabled ? "Pause" : "Resume"}
+                          tooltip={
+                            processor.enabled
+                              ? "Pause this processor. The dispatcher stops enqueueing until resumed."
+                              : "Resume this processor. The dispatcher will pick up from the cursor."
+                          }
+                          onClick={() => onToggleEnabled(processor)}
+                          disabled={isPending}
+                        >
+                          {processor.enabled ? <PauseIcon /> : <PlayIcon />}
+                        </ActionButton>
+                        <ActionButton
+                          label="Rewind cursor"
+                          tooltip="Move the cursor backward to replay events. Handlers must be idempotent."
+                          onClick={() => onRewind(processor)}
+                          disabled={isPending}
+                        >
+                          <RotateCcwIcon />
+                        </ActionButton>
+                        <ActionButton
+                          label="Skip stuck event"
+                          tooltip="Advance the cursor past a poisoned event. The action is audited."
+                          onClick={() => onSkipStuck(processor)}
+                          disabled={isPending || processor.pending_count === 0}
+                        >
+                          <SkipForwardIcon />
+                        </ActionButton>
+                        <ActionButton
+                          label="Delete processor"
+                          tooltip={
+                            isSeed
+                              ? "Seeded processors cannot be deleted."
+                              : "Delete this admin-managed processor."
+                          }
+                          variant="destructive"
+                          onClick={() => onDelete(processor)}
+                          disabled={isPending || isSeed}
+                        >
+                          <Trash2Icon />
+                        </ActionButton>
+                      </div>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
+            </React.Fragment>
           )
         })}
       </TableBody>
     </Table>
+  )
+}
+
+function DetailBlock({
+  label,
+  children,
+}: {
+  label: string
+  children: ReactNode
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="text-xs">{children}</div>
+    </div>
   )
 }
 
@@ -255,7 +293,7 @@ function FolderScopeBadges({
   folders,
 }: {
   processor: Processor
-  folders: FolderPathEntry[]
+  folders: ProcessorFolderOption[]
 }) {
   if (processor.folder_scopes.length === 0) {
     return <span className="text-xs text-muted-foreground">all folders</span>

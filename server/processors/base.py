@@ -34,6 +34,14 @@ class EmptyProcessorConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class EventTypeOption(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: str
+    label: str
+    default: bool = False
+
+
 class ProcessorTask(BaseModel):
     """Portable work descriptor emitted from a durable file event.
 
@@ -155,6 +163,23 @@ class BaseProcessor(ABC):
 
     def parse_config(self, raw_config: dict | None) -> BaseModel:
         return self.config_model.model_validate(raw_config or {})
+
+    def public_config(self, raw_config: dict | None) -> dict[str, Any]:
+        return self.parse_config(raw_config).model_dump(mode="json")
+
+    def config_schema(self) -> dict[str, Any]:
+        return self.config_model.model_json_schema()
+
+    def event_type_options(self) -> list[EventTypeOption]:
+        defaults = set(self.default_subscribed_event_types)
+        return [
+            EventTypeOption(
+                value=event_type,
+                label=event_type,
+                default=event_type in defaults,
+            )
+            for event_type in self.valid_event_types
+        ]
 
     def should_enqueue(self, ctx: EnqueueContext) -> bool:
         return True

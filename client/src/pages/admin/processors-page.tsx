@@ -1,7 +1,6 @@
 import * as React from "react"
 import { RefreshCw } from "lucide-react"
 
-import { FolderCombobox } from "@/components/folder-access/folder-combobox"
 import { OffsetPaginationBar } from "@/components/pagination-offset"
 import { ProcessorForm } from "@/components/processors/processor-form"
 import { ProcessorsTable } from "@/components/processors/processors-table"
@@ -32,25 +31,22 @@ import {
   PROCESSORS_PAGE_SIZE,
   useCreateProcessor,
   useDeleteProcessor,
+  useProcessorFolderOptions,
   useProcessorKinds,
   useProcessors,
   useRewindProcessor,
   useSkipStuckEvent,
   useUpdateProcessor,
 } from "@/hooks/use-processors"
-import { useFolderTree } from "@/hooks/use-filesystem"
 import { extractApiError } from "@/lib/api"
-import { flattenFolderTree, type FolderPathEntry } from "@/lib/folder-path"
 import type {
   Processor,
   ProcessorCreateInput,
-  ProcessorFolderScope,
 } from "@/types/processors"
 
 export function ProcessorsPage() {
   const [offset, setOffset] = React.useState(0)
   const [createOpen, setCreateOpen] = React.useState(false)
-  const [scopeTarget, setScopeTarget] = React.useState<Processor | null>(null)
   const [rewindTarget, setRewindTarget] = React.useState<Processor | null>(null)
   const [skipTarget, setSkipTarget] = React.useState<Processor | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<Processor | null>(null)
@@ -60,12 +56,8 @@ export function ProcessorsPage() {
     offset,
   })
   const processorKindsQuery = useProcessorKinds()
-  const folderTreeQuery = useFolderTree()
-  const folders = React.useMemo(
-    () =>
-      folderTreeQuery.data ? flattenFolderTree(folderTreeQuery.data) : [],
-    [folderTreeQuery.data]
-  )
+  const folderOptionsQuery = useProcessorFolderOptions()
+  const folders = folderOptionsQuery.data?.items ?? []
 
   const createMutation = useCreateProcessor()
   const updateMutation = useUpdateProcessor()
@@ -173,7 +165,6 @@ export function ProcessorsPage() {
                 folders={folders}
                 isLoading={processorsQuery.isLoading}
                 onToggleEnabled={handleToggleEnabled}
-                onEditScopes={setScopeTarget}
                 onRewind={setRewindTarget}
                 onSkipStuck={setSkipTarget}
                 onDelete={setDeleteTarget}
@@ -193,7 +184,7 @@ export function ProcessorsPage() {
       </Card>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)] sm:max-w-3xl lg:max-w-4xl">
           <DialogHeader>
             <DialogTitle>Add Processor</DialogTitle>
             <DialogDescription>
@@ -201,30 +192,17 @@ export function ProcessorsPage() {
               its next tick.
             </DialogDescription>
           </DialogHeader>
-          <ProcessorForm
-            processorKinds={processorKindsQuery.data?.items ?? []}
-            folders={folders}
-            isSubmitting={createMutation.isPending}
-            onCancel={() => setCreateOpen(false)}
-            onSubmit={handleCreate}
-          />
+          <div className="min-h-0 overflow-y-auto pr-1">
+            <ProcessorForm
+              processorKinds={processorKindsQuery.data?.items ?? []}
+              folders={folders}
+              isSubmitting={createMutation.isPending}
+              onCancel={() => setCreateOpen(false)}
+              onSubmit={handleCreate}
+            />
+          </div>
         </DialogContent>
       </Dialog>
-
-      <FolderScopesDialog
-        processor={scopeTarget}
-        folders={folders}
-        isSubmitting={updateMutation.isPending}
-        onCancel={() => setScopeTarget(null)}
-        onSubmit={async (folder_scopes) => {
-          if (!scopeTarget) return
-          await updateMutation.mutateAsync({
-            processorId: scopeTarget.id,
-            input: { folder_scopes },
-          })
-          setScopeTarget(null)
-        }}
-      />
 
       <RewindDialog
         processor={rewindTarget}
@@ -291,196 +269,6 @@ function ErrorState({
         <RefreshCw className="size-3.5" />
         Retry
       </Button>
-    </div>
-  )
-}
-
-function FolderScopesDialog({
-  processor,
-  folders,
-  isSubmitting,
-  onCancel,
-  onSubmit,
-}: {
-  processor: Processor | null
-  folders: FolderPathEntry[]
-  isSubmitting: boolean
-  onCancel: () => void
-  onSubmit: (folder_scopes: ProcessorFolderScope[]) => Promise<void>
-}) {
-  return (
-    <Dialog
-      open={processor !== null}
-      onOpenChange={(open) => {
-        if (!open) onCancel()
-      }}
-    >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Edit folder scopes</DialogTitle>
-          <DialogDescription>
-            {processor
-              ? `Restrict ${processor.name} to specific folders. Empty means all folders.`
-              : ""}
-          </DialogDescription>
-        </DialogHeader>
-        {processor && (
-          <FolderScopesForm
-            key={processor.id}
-            initialScopes={processor.folder_scopes}
-            folders={folders}
-            isSubmitting={isSubmitting}
-            onCancel={onCancel}
-            onSubmit={onSubmit}
-          />
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function FolderScopesForm({
-  initialScopes,
-  folders,
-  isSubmitting,
-  onCancel,
-  onSubmit,
-}: {
-  initialScopes: ProcessorFolderScope[]
-  folders: FolderPathEntry[]
-  isSubmitting: boolean
-  onCancel: () => void
-  onSubmit: (folder_scopes: ProcessorFolderScope[]) => Promise<void>
-}) {
-  const [scopes, setScopes] = React.useState<ProcessorFolderScope[]>(initialScopes)
-  const [folderId, setFolderId] = React.useState("")
-  const [cascade, setCascade] = React.useState(true)
-  const [error, setError] = React.useState<string | null>(null)
-
-  function addScope() {
-    if (!folderId) {
-      setError("Choose a folder scope before adding it")
-      return
-    }
-    setError(null)
-    setScopes((current) => {
-      const existing = current.find((scope) => scope.folder_id === folderId)
-      if (existing) {
-        return current.map((scope) =>
-          scope.folder_id === folderId
-            ? { ...scope, cascade: scope.cascade || cascade }
-            : scope
-        )
-      }
-      return [...current, { folder_id: folderId, cascade }]
-    })
-    setFolderId("")
-    setCascade(true)
-  }
-
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    await onSubmit(scopes)
-  }
-
-  return (
-    <form className="space-y-4" onSubmit={handleSubmit}>
-      <div className="space-y-2">
-        <Label>Folder</Label>
-        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <FolderCombobox
-            folders={folders}
-            value={folderId || undefined}
-            onChange={setFolderId}
-            disabled={folders.length === 0}
-            placeholder={
-              folders.length === 0 ? "No folders available" : "Select a folder"
-            }
-          />
-          <Button type="button" variant="outline" onClick={addScope}>
-            Add Scope
-          </Button>
-        </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={cascade}
-            onChange={(event) => setCascade(event.target.checked)}
-            className="size-4"
-          />
-          Include descendants
-        </label>
-      </div>
-      <FolderScopesList
-        scopes={scopes}
-        folders={folders}
-        onRemove={(removedFolderId) =>
-          setScopes((current) =>
-            current.filter((scope) => scope.folder_id !== removedFolderId)
-          )
-        }
-      />
-      {error && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
-          {error}
-        </div>
-      )}
-      <DialogFooter>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onCancel}
-          disabled={isSubmitting}
-        >
-          Cancel
-        </Button>
-        <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? "Saving..." : "Save scopes"}
-        </Button>
-      </DialogFooter>
-    </form>
-  )
-}
-
-function FolderScopesList({
-  scopes,
-  folders,
-  onRemove,
-}: {
-  scopes: ProcessorFolderScope[]
-  folders: FolderPathEntry[]
-  onRemove: (folderId: string) => void
-}) {
-  if (scopes.length === 0) {
-    return (
-      <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-        All folders are in scope.
-      </div>
-    )
-  }
-  return (
-    <div className="flex flex-wrap gap-2">
-      {scopes.map((scope) => {
-        const folder = folders.find((entry) => entry.id === scope.folder_id)
-        return (
-          <div
-            key={scope.folder_id}
-            className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs"
-          >
-            <span className="font-mono">
-              {folder?.path ?? scope.folder_id}
-              {scope.cascade ? "/*" : ""}
-            </span>
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground"
-              onClick={() => onRemove(scope.folder_id)}
-            >
-              Remove
-            </button>
-          </div>
-        )
-      })}
     </div>
   )
 }
