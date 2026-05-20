@@ -21,7 +21,7 @@ class SqlAlchemySearchStorePostgres(SqlAlchemySearchStorePortable):
         if not scope_folder_ids:
             return SearchPage(items=[], total=0)
 
-        if query.kvs:
+        if query.meta:
             matched = self.match_files(scope_folder_ids=scope_folder_ids, query=query)
             matched.sort(key=sort_key(query.sort), reverse=query.order == "desc")
             return SearchPage(
@@ -53,7 +53,7 @@ class SqlAlchemySearchStorePostgres(SqlAlchemySearchStorePortable):
         ).options(selectinload(File.blob))
 
         files = list(self._session.scalars(stmt).unique().all())
-        if not query.kvs:
+        if not query.meta:
             return files
 
         return [file for file in files if matches_text_filters(file, query)]
@@ -87,25 +87,6 @@ def _postgres_base_stmt(*, scope_folder_ids: set[uuid.UUID], query: SearchQuery)
         if query.max_size is not None:
             stmt = stmt.where(Blob.size_bytes <= query.max_size)
 
-    if query.tags:
-        normalized = [tag.strip().lower() for tag in query.tags if tag.strip()]
-        if query.require_all_tags:
-            for tag in normalized:
-                stmt = stmt.where(meta["tags"].contains([tag]))
-        else:
-            tag_clauses = [meta["tags"].contains([tag]) for tag in normalized]
-            if tag_clauses:
-                stmt = stmt.where(or_(*tag_clauses))
-
-    if query.keywords:
-        keyword_clauses = [
-            meta["keywords"].contains([keyword.strip()])
-            for keyword in query.keywords
-            if keyword.strip()
-        ]
-        if keyword_clauses:
-            stmt = stmt.where(or_(*keyword_clauses))
-
     if query.q:
         for term in query.q.split():
             cleaned = term.strip()
@@ -115,9 +96,7 @@ def _postgres_base_stmt(*, scope_folder_ids: set[uuid.UUID], query: SearchQuery)
             stmt = stmt.where(
                 or_(
                     File.name.ilike(pattern),
-                    meta["summary"].as_string().ilike(pattern),
-                    cast(meta["tags"], String).ilike(pattern),
-                    cast(meta["keywords"], String).ilike(pattern),
+                    cast(meta, String).ilike(pattern),
                 )
             )
 

@@ -43,7 +43,7 @@ def client(db_session, admin):
 def test_list_audit_events_returns_recent_events_first(client, db_session):
     batch_id = uuid.uuid4()
     older = AuditEventFactory.build(
-        job="bucket_probe",
+        job="storage_backend_probe",
         operation="bucket.probe_ok",
         batch_id=batch_id,
         meta={"put_ms": 1},
@@ -80,12 +80,12 @@ def test_list_audit_events_filters_and_paginates(client, db_session):
     db_session.add_all(
         [
             AuditEventFactory.build(
-                job="bucket_probe",
+                job="storage_backend_probe",
                 operation="bucket.probe_ok",
                 status="succeeded",
             ),
             AuditEventFactory.build(
-                job="bucket_probe",
+                job="storage_backend_probe",
                 operation="bucket.probe_failed",
                 status="failed",
             ),
@@ -100,7 +100,7 @@ def test_list_audit_events_filters_and_paginates(client, db_session):
 
     response = client.get(
         "/api/audit-events/",
-        params={"job": "bucket_probe", "status": "failed", "limit": 1},
+        params={"job": "storage_backend_probe", "status": "failed", "limit": 1},
     )
 
     assert response.status_code == 200

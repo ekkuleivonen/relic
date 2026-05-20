@@ -4,9 +4,14 @@ import uuid
 
 from application.context import Actor
 from application.uow import UnitOfWork
+from domain.exceptions import BadRequestError
 from enums import Permission
 from infra.gateway import object_paths
 from ports.entities import File, Folder
+
+ROOT_FOLDER_UPLOAD_MESSAGE = (
+    "Files must be uploaded into a subfolder, not the root folder."
+)
 
 
 def require_folder_for_write(
@@ -14,6 +19,12 @@ def require_folder_for_write(
 ) -> Folder:
     folder = uow.permissions.require_folder(folder_id)
     uow.permissions.require_folder_permission(actor, folder.id, Permission.WRITE)
+    return folder
+
+
+def require_folder_accepts_files(folder: Folder) -> Folder:
+    if folder.parent_id is None:
+        raise BadRequestError(ROOT_FOLDER_UPLOAD_MESSAGE)
     return folder
 
 

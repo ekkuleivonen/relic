@@ -14,11 +14,6 @@ type FacetSidebarProps = {
   className?: string
 }
 
-/** Faceted browsing panel. Each axis (tags, MIME, extension) shows top values
- * with their counts; clicking toggles that value in the matching SearchQuery
- * filter. Counts ignore the active filter on the same axis, so the panel
- * keeps working as the user
- * narrows. */
 export function FacetSidebar({
   facets,
   isLoading,
@@ -31,7 +26,6 @@ export function FacetSidebar({
   if (isLoading && !facets) {
     return (
       <div className={cn("space-y-6", className)}>
-        <FacetGroupSkeleton title="Tags" />
         <FacetGroupSkeleton title="MIME type" />
         <FacetGroupSkeleton title="Extension" />
       </div>
@@ -56,7 +50,7 @@ export function FacetSidebar({
   }
 
   const allEmpty =
-    facets.tags.length === 0 &&
+    facets.meta_keys.length === 0 &&
     facets.mimetypes.length === 0 &&
     facets.extensions.length === 0
 
@@ -70,19 +64,6 @@ export function FacetSidebar({
 
   return (
     <div className={cn("space-y-6", className)}>
-      <FacetGroup
-        title="Tags"
-        values={facets.tags}
-        selected={query.tags}
-        onToggle={(value) =>
-          onChange({
-            ...query,
-            tags: toggleStringFilter(query.tags, value),
-            offset: 0,
-          })
-        }
-        emptyMessage="No tags yet."
-      />
       <FacetGroup
         title="MIME type"
         values={facets.mimetypes}
@@ -108,6 +89,30 @@ export function FacetSidebar({
         }
         valuePrefix="."
       />
+      {facets.meta_keys.length > 0 && (
+        <section>
+          <h3 className="mb-2 text-[0.625rem] font-semibold uppercase tracking-wide text-muted-foreground">
+            Metadata keys
+          </h3>
+          <p className="mb-2 text-xs text-muted-foreground">
+            Keys present in the current result set. Use “Add metadata filter”
+            below to filter by value.
+          </p>
+          <ul className="space-y-0.5">
+            {facets.meta_keys.map((item) => (
+              <li
+                key={item.value}
+                className="flex items-center justify-between rounded-md px-2 py-1 text-xs text-muted-foreground"
+              >
+                <code className="truncate font-mono text-foreground">
+                  {item.value}
+                </code>
+                <span className="shrink-0 tabular-nums">{item.count}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   )
 }

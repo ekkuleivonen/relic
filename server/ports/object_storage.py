@@ -24,30 +24,30 @@ class ObjectStorage(Protocol):
     def capabilities(self) -> StorageCapabilities: ...
 
     def put(
-        self, *, bucket: str, key: str, body: BinaryIO, size: int
+        self, *, namespace: str, key: str, body: BinaryIO, size: int
     ) -> PutResult: ...
 
     def get(
-        self, *, bucket: str, key: str, start: int | None = None, end: int | None = None
+        self, *, namespace: str, key: str, start: int | None = None, end: int | None = None
     ) -> bytes: ...
 
-    def head(self, *, bucket: str, key: str) -> int: ...
+    def head(self, *, namespace: str, key: str) -> int: ...
 
-    def delete(self, *, bucket: str, key: str) -> None: ...
+    def delete(self, *, namespace: str, key: str) -> None: ...
 
     def copy(
         self,
         *,
-        src_bucket: str,
+        src_namespace: str,
         src_key: str,
-        dest_bucket: str,
+        dest_namespace: str,
         dest_key: str,
     ) -> PutResult: ...
 
     def compose_parts(
         self,
         *,
-        bucket: str,
+        namespace: str,
         dest_key: str,
         source_keys: list[str],
     ) -> PutResult: ...

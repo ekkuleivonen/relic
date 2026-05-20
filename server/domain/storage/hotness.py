@@ -1,8 +1,8 @@
-"""Pure bucket hotness ranking math."""
+"""Pure storage backend hotness ranking math."""
 
 from dataclasses import dataclass
 
-from infra.db.models import Bucket
+from infra.db.models import StorageBackend
 
 _PROBE_OPS = ("put_ms", "head_ms", "get_ms", "delete_ms")
 _UNREACHABLE_SCORE = 10**12
@@ -17,8 +17,8 @@ class ProbeSample:
 
 
 @dataclass(frozen=True)
-class BucketHotnessScore:
-    bucket: Bucket
+class StorageBackendHotnessScore:
+    storage_backend: StorageBackend
     avg_latency_ms: float
     reachable: bool
     sample_count: int
@@ -41,29 +41,33 @@ def average_probe_latency(samples: list[ProbeSample]) -> float | None:
     return sum(averaged) / len(averaged)
 
 
-def score_bucket_hotness(bucket: Bucket, samples: list[ProbeSample]) -> BucketHotnessScore:
+def score_storage_backend_hotness(
+    storage_backend: StorageBackend, samples: list[ProbeSample]
+) -> StorageBackendHotnessScore:
     avg = average_probe_latency(samples)
     if avg is None:
-        return BucketHotnessScore(
-            bucket=bucket,
+        return StorageBackendHotnessScore(
+            storage_backend=storage_backend,
             avg_latency_ms=float(_UNREACHABLE_SCORE),
             reachable=False,
             sample_count=len(samples),
         )
-    return BucketHotnessScore(
-        bucket=bucket,
+    return StorageBackendHotnessScore(
+        storage_backend=storage_backend,
         avg_latency_ms=avg,
         reachable=True,
         sample_count=len(samples),
     )
 
 
-def rank_hotness(scores: list[BucketHotnessScore]) -> list[BucketHotnessScore]:
+def rank_hotness(
+    scores: list[StorageBackendHotnessScore],
+) -> list[StorageBackendHotnessScore]:
     return sorted(
         scores,
         key=lambda score: (
             0 if score.reachable else 1,
             score.avg_latency_ms,
-            score.bucket.name,
+            score.storage_backend.name,
         ),
     )

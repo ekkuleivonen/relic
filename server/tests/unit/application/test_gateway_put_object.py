@@ -4,7 +4,7 @@ import pytest
 from infra.gateway import object_writes
 from enums import UserRole
 from infra.db.models import Folder
-from tests.factories.models import BucketFactory, BucketProbeFactory, UserFactory
+from tests.factories.models import StorageBackendFactory, StorageBackendProbeFactory, UserFactory
 from tests.fakes.memory_storage_registry import MemoryStorageRegistry
 
 
@@ -25,12 +25,12 @@ def photos_folder(db_session, root_folder):
 
 
 def _add_bucket(db_session, **overrides):
-    bucket = BucketFactory.build(**overrides)
+    bucket = StorageBackendFactory.build(**overrides)
     db_session.add(bucket)
     db_session.flush()
     db_session.add(
-        BucketProbeFactory.build(
-            bucket_id=bucket.id,
+        StorageBackendProbeFactory.build(
+            storage_backend_id=bucket.id,
             put_ms=5,
             head_ms=5,
             get_ms=5,
@@ -64,7 +64,7 @@ def test_put_object_with_memory_storage(db_session, photos_folder):
     assert result.etag == digest_hex
     assert result.file.name == "cat.jpg"
     assert result.file.meta["album"] == "spring"
-    assert storage.storage.get(bucket="blobs", key=result.blob.bucket_key) == body
+    assert storage.storage.get(namespace="blobs", key=result.blob.bucket_key) == body
 
 
 def test_put_object_deduplicates_identical_bytes(db_session, photos_folder):

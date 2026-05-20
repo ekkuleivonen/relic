@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 import settings as S
 from enums import HealthStatus
-from infra.db.models import Bucket
-from infra.db.stores.placement import bucket_is_reachable
+from infra.db.models import StorageBackend
+from infra.db.stores.placement import storage_backend_is_reachable
 from infra.arq import arq_redis_settings
 from infra.worker_heartbeats import maintenance_heartbeat_status
 
@@ -96,14 +96,14 @@ async def close_redis(redis: ArqRedis) -> None:
 
 def check_object_stores(db: Session) -> dict[str, Any]:
     try:
-        buckets = list(db.scalars(select(Bucket).order_by(Bucket.name)))
+        buckets = list(db.scalars(select(StorageBackend).order_by(StorageBackend.name)))
     except Exception as exc:
         return failed_check(exc)
 
     unhealthy = [
         {"id": str(bucket.id), "name": bucket.name}
         for bucket in buckets
-        if not bucket_is_reachable(db, bucket)
+        if not storage_backend_is_reachable(db, bucket)
     ]
     return {
         "status": HealthStatus.FAILED.value if unhealthy else HealthStatus.OK.value,

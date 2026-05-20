@@ -8,7 +8,7 @@ import {
   CreateFolderDialog,
   DeleteFolderDialog,
   DuplicateFolderDialog,
-  PreferredBucketDialog,
+  PreferredStorageBackendDialog,
   RenameFolderDialog,
 } from "@/components/filesystem/folder-dialogs"
 import type { FolderTreeNode } from "@/types/filesystem"
@@ -31,7 +31,8 @@ export function FolderActionsProvider({ children }: { children: React.ReactNode 
       openDuplicate: (folder) => setState({ kind: "duplicate", folder }),
       openDelete: (folder, onDeleted) =>
         setState({ kind: "delete", folder, onDeleted }),
-      openPreferredBucket: (folder) => setState({ kind: "preferred", folder }),
+      openPreferredStorageBackend: (folder) =>
+        setState({ kind: "preferred", folder }),
     }),
     []
   )
@@ -75,7 +76,7 @@ export function FolderActionsProvider({ children }: { children: React.ReactNode 
         />
       )}
       {state.kind === "preferred" && (
-        <PreferredBucketDialog
+        <PreferredStorageBackendDialog
           open
           onOpenChange={close}
           folder={state.folder}

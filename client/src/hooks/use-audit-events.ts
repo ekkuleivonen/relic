@@ -47,7 +47,7 @@ function toQueryString(query: AuditEventsQuery) {
   addString(params, "request_id", query.request_id)
   addString(params, "job", query.job)
   addString(params, "batch_id", query.batch_id)
-  addString(params, "bucket_id", query.bucket_id)
+  addString(params, "storage_backend_id", query.storage_backend_id)
   addString(params, "blob_id", query.blob_id)
   addString(params, "created_after", query.created_after)
   addString(params, "created_before", query.created_before)

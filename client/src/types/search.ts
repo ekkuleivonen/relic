@@ -1,12 +1,12 @@
 import type { FileSystemFile } from "@/types/filesystem"
 
-export type KvsOp = "eq" | "neq" | "gte" | "lte" | "gt" | "lt"
+export type MetaOp = "eq" | "neq" | "gte" | "lte" | "gt" | "lt"
 
-export const KVS_OPS: KvsOp[] = ["eq", "neq", "gte", "lte", "gt", "lt"]
+export const META_OPS: MetaOp[] = ["eq", "neq", "gte", "lte", "gt", "lt"]
 
-export type KvsFilter = {
+export type MetaFilter = {
   key: string
-  op: KvsOp
+  op: MetaOp
   value: string
 }
 
@@ -15,9 +15,6 @@ export type SearchOrder = "asc" | "desc"
 
 export type SearchQuery = {
   q: string
-  tags: string[]
-  require_all_tags: boolean
-  keywords: string[]
   mimetypes: string[]
   extensions: string[]
   min_size: number | null
@@ -27,7 +24,7 @@ export type SearchQuery = {
   recursive: boolean
   created_after: string | null
   created_before: string | null
-  kvs: KvsFilter[]
+  meta: MetaFilter[]
   sort: SearchSort
   order: SearchOrder
   limit: number
@@ -47,18 +44,14 @@ export type FacetValue = {
 }
 
 export type Facets = {
-  tags: FacetValue[]
+  meta_keys: FacetValue[]
   mimetypes: FacetValue[]
   extensions: FacetValue[]
-  kvs_keys: FacetValue[]
   total: number
 }
 
 export const DEFAULT_SEARCH_QUERY: SearchQuery = {
   q: "",
-  tags: [],
-  require_all_tags: false,
-  keywords: [],
   mimetypes: [],
   extensions: [],
   min_size: null,
@@ -68,7 +61,7 @@ export const DEFAULT_SEARCH_QUERY: SearchQuery = {
   recursive: false,
   created_after: null,
   created_before: null,
-  kvs: [],
+  meta: [],
   sort: "updated_at",
   order: "desc",
   limit: 50,

@@ -77,7 +77,7 @@ def _requires_blob_join(query: SearchQuery) -> bool:
 
 
 def _requires_python_filtering(query: SearchQuery) -> bool:
-    return bool(query.tags or query.keywords or query.q or query.kvs)
+    return bool(query.q or query.meta)
 
 
 def _base_stmt(*, scope_folder_ids: set[uuid.UUID], query: SearchQuery):

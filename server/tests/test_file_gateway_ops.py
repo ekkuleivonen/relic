@@ -20,7 +20,7 @@ from infra.maintenance.storage import purge_dereferenced_blobs_batch
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from tests.factories.models import AccessKeyFactory, BucketFactory, UserFactory
+from tests.factories.models import AccessKeyFactory, StorageBackendFactory, UserFactory
 
 
 
@@ -81,12 +81,12 @@ def archives_folder(db_session, root_folder):
 
 @pytest.fixture()
 def physical_bucket(db_session):
-    from tests.factories.models import BucketProbeFactory
+    from tests.factories.models import StorageBackendProbeFactory
 
-    bucket = BucketFactory.build(name="hot")
+    bucket = StorageBackendFactory.build(name="hot")
     db_session.add(bucket)
     db_session.flush()
-    db_session.add(BucketProbeFactory.build(bucket_id=bucket.id))
+    db_session.add(StorageBackendProbeFactory.build(storage_backend_id=bucket.id))
     db_session.commit()
     return bucket
 
@@ -139,7 +139,7 @@ class FakeStreamingBody:
         return self._buffer.read(size)
 
 
-class FakeBucketStore:
+class FakeStorageBackendStore:
     """In-memory fake of a bucket; supports put/get/delete."""
 
     def __init__(self):
@@ -213,7 +213,7 @@ class FakeBucketStore:
 
 @pytest.fixture()
 def fake_storage(monkeypatch):
-    store = FakeBucketStore()
+    store = FakeStorageBackendStore()
     monkeypatch.setattr(
         "infra.object_storage.registry.boto3.client",
         lambda **kwargs: store.make_client(),
@@ -266,7 +266,7 @@ def test_native_header_put_creates_file_and_marks_key_used(
     assert file.actor_id == user.id
     assert file.meta["album"] == "native"
     blob = db_session.get(Blob, file.blob_id)
-    assert fake_storage.objects[(physical_bucket.bucket, blob.bucket_key)] == body
+    assert fake_storage.objects[(physical_bucket.namespace, blob.bucket_key)] == body
 
 
 def test_native_header_list_head_get_and_delete(
@@ -377,7 +377,7 @@ def test_native_header_multipart_upload(
     blob = db_session.get(Blob, file.blob_id)
     assert blob.size_bytes == len(b"native multipart")
     assert (
-        fake_storage.objects[(physical_bucket.bucket, blob.bucket_key)]
+        fake_storage.objects[(physical_bucket.namespace, blob.bucket_key)]
         == b"native multipart"
     )
 
@@ -832,12 +832,12 @@ def test_multipart_upload_completes_object(
     blob = db_session.get(Blob, file.blob_id)
     assert blob.size_bytes == len(b"hello world")
     assert (
-        fake_storage.objects[(physical_bucket.bucket, blob.bucket_key)]
+        fake_storage.objects[(physical_bucket.namespace, blob.bucket_key)]
         == b"hello world"
     )
     assert fake_storage.compose_calls == [
         (
-            physical_bucket.bucket,
+            physical_bucket.namespace,
             blob.bucket_key,
             [
                 f"__relic_multipart_uploads/{upload_id}/1",

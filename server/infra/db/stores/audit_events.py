@@ -30,7 +30,7 @@ def create_audit_event(
     request_id: str | None = None,
     job: str | None = None,
     batch_id: uuid.UUID | None = None,
-    bucket_id: uuid.UUID | None = None,
+    storage_backend_id: uuid.UUID | None = None,
     blob_id: uuid.UUID | None = None,
     duration_ms: int | None = None,
     metadata: dict | None = None,
@@ -42,7 +42,7 @@ def create_audit_event(
         request_id=_clean_optional(request_id),
         job=_clean_optional(job),
         batch_id=batch_id,
-        bucket_id=bucket_id,
+        storage_backend_id=storage_backend_id,
         blob_id=blob_id,
         duration_ms=duration_ms,
         meta=dict(metadata or {}),
@@ -61,7 +61,7 @@ def record_audit_event(
     request_id: str | None = None,
     job: str | None = None,
     batch_id: uuid.UUID | None = None,
-    bucket_id: uuid.UUID | None = None,
+    storage_backend_id: uuid.UUID | None = None,
     blob_id: uuid.UUID | None = None,
     duration_ms: int | None = None,
     metadata: dict | None = None,
@@ -74,7 +74,7 @@ def record_audit_event(
         request_id=request_id,
         job=job,
         batch_id=batch_id,
-        bucket_id=bucket_id,
+        storage_backend_id=storage_backend_id,
         blob_id=blob_id,
         duration_ms=duration_ms,
         metadata=metadata,
@@ -107,7 +107,7 @@ def list_audit_events(
     request_id: str | None = None,
     job: str | None = None,
     batch_id: uuid.UUID | None = None,
-    bucket_id: uuid.UUID | None = None,
+    storage_backend_id: uuid.UUID | None = None,
     blob_id: uuid.UUID | None = None,
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
@@ -128,7 +128,7 @@ def list_audit_events(
         request_id=request_id,
         job=job,
         batch_id=batch_id,
-        bucket_id=bucket_id,
+        storage_backend_id=storage_backend_id,
         blob_id=blob_id,
         created_after=created_after,
         created_before=created_before,
@@ -138,7 +138,7 @@ def list_audit_events(
         db.scalars(
             stmt.options(
                 selectinload(AuditEvent.actor),
-                selectinload(AuditEvent.bucket),
+                selectinload(AuditEvent.storage_backend),
             )
             .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
             .limit(limit)
@@ -156,7 +156,7 @@ def _filtered_stmt(
     request_id: str | None,
     job: str | None,
     batch_id: uuid.UUID | None,
-    bucket_id: uuid.UUID | None,
+    storage_backend_id: uuid.UUID | None,
     blob_id: uuid.UUID | None,
     created_after: dt.datetime | None,
     created_before: dt.datetime | None,
@@ -174,8 +174,8 @@ def _filtered_stmt(
         stmt = stmt.where(AuditEvent.job == job)
     if batch_id is not None:
         stmt = stmt.where(AuditEvent.batch_id == batch_id)
-    if bucket_id is not None:
-        stmt = stmt.where(AuditEvent.bucket_id == bucket_id)
+    if storage_backend_id is not None:
+        stmt = stmt.where(AuditEvent.storage_backend_id == storage_backend_id)
     if blob_id is not None:
         stmt = stmt.where(AuditEvent.blob_id == blob_id)
     if created_after is not None:

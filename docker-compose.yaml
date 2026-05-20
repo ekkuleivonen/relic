@@ -13,12 +13,18 @@ x-server-environment: &server-environment
   SESSION_COOKIE_SECURE: "false"
   S3_CORS_ALLOWED_ORIGINS: ${S3_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8000}
   EVENT_RETENTION_DAYS: "${EVENT_RETENTION_DAYS:-90}"
+  # Default base path for filesystem storage backends (register in admin UI).
+  STORAGE_FILESYSTEM_BASE_PATH: /var/relic/storage
+
+x-server-volumes: &server-volumes
+  - filesystem_data:/var/relic/storage
 
 x-server-service: &server-service
   image: relic-server:local
   build:
     context: ./server
   environment: *server-environment
+  volumes: *server-volumes
 
 services:
   postgres:
@@ -167,6 +173,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  filesystem_data:
   garage_hot_meta:
   garage_hot_data:
   garage_cold_meta:

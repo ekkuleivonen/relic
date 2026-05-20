@@ -8,7 +8,7 @@ from infra.db.stores.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from tests.factories.models import BlobFactory, BucketFactory
+from tests.factories.models import BlobFactory, StorageBackendFactory
 from utils.passwords import hash_password
 
 
@@ -145,10 +145,10 @@ def test_delete_user_with_uploaded_files_returns_conflict(client, db_session):
         name="photos",
         parent_id=root.id,
     )
-    bucket = BucketFactory.build()
+    bucket = StorageBackendFactory.build()
     db_session.add_all([folder, bucket])
     db_session.flush()
-    blob = BlobFactory.build(bucket_id=bucket.id)
+    blob = BlobFactory.build(storage_backend_id=bucket.id)
     db_session.add(blob)
     db_session.flush()
     db_session.add(

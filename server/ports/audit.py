@@ -26,7 +26,7 @@ class AuditPort(Protocol):
         request_id: str | None = None,
         job: str | None = None,
         batch_id: uuid.UUID | None = None,
-        bucket_id: uuid.UUID | None = None,
+        storage_backend_id: uuid.UUID | None = None,
         blob_id: uuid.UUID | None = None,
         duration_ms: int | None = None,
         metadata: dict[str, Any] | None = None,

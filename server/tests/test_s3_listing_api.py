@@ -11,7 +11,7 @@ from application.gateway import object_signing
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from tests.factories.models import BucketFactory, UserFactory
+from tests.factories.models import StorageBackendFactory, UserFactory
 
 
 
@@ -65,15 +65,15 @@ def grant(db_session, user, folder: Folder, permissions: int = int(Permission.RE
 
 
 def add_file(db_session, folder: Folder, user, filename: str, body: bytes) -> File:
-    physical_bucket = db_session.query(BucketFactory._meta.model).first()
+    physical_bucket = db_session.query(StorageBackendFactory._meta.model).first()
     if physical_bucket is None:
-        physical_bucket = BucketFactory.build(name="hot")
+        physical_bucket = StorageBackendFactory.build(name="hot")
         db_session.add(physical_bucket)
         db_session.flush()
 
     digest = hashlib.sha256(body).digest()
     blob = Blob(
-        bucket_id=physical_bucket.id,
+        storage_backend_id=physical_bucket.id,
         bucket_key=f"objects/{digest.hex()}",
         content_hash=digest,
         size_bytes=len(body),

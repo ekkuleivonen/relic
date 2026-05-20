@@ -1,4 +1,4 @@
-"""S3 ListBuckets / ListObjectsV2 use cases."""
+"""S3 ListStorageBackends / ListObjectsV2 use cases."""
 
 from application.uow import UnitOfWork
 from infra.gateway import object_listing

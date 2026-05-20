@@ -81,7 +81,7 @@ export function AuditEventsTable({
           const isExpanded = expandedIds.has(auditEvent.id)
           const hasMetadata = Object.keys(auditEvent.metadata).length > 0
           const hasResourceIds = Boolean(
-            auditEvent.bucket_id || auditEvent.blob_id
+            auditEvent.storage_backend_id || auditEvent.blob_id
           )
           const hasDetails =
             hasMetadata || hasResourceIds || Boolean(auditEvent.request_id)
@@ -199,7 +199,7 @@ function ResourceBadges({
   auditEvent: AuditEventRecord
 }) {
   const parts = [
-    auditEvent.bucket_id ? "bucket" : null,
+    auditEvent.storage_backend_id ? "storage backend" : null,
     auditEvent.blob_id ? "blob" : null,
   ].filter(isString)
 
@@ -225,7 +225,7 @@ function ResourceIds({
 }) {
   return (
     <div className="grid gap-2 text-xs md:grid-cols-2">
-      <IdBlock label="Bucket" id={auditEvent.bucket_id} />
+      <IdBlock label="Storage backend" id={auditEvent.storage_backend_id} />
       <IdBlock label="Blob" id={auditEvent.blob_id} />
     </div>
   )

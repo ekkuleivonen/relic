@@ -13,7 +13,7 @@ import { FileMenuItems } from "@/components/filesystem/file-menu-items"
 import { FileTree } from "@/components/filesystem/file-tree"
 import { SidebarFooter } from "@/components/layout/sidebar-footer"
 import { SidebarHeader } from "@/components/layout/sidebar-header"
-import { Badge } from "@/components/ui/badge"
+import { FileMetaPanel } from "@/components/filesystem/file-meta-panel"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -38,13 +38,7 @@ import { formatBytes } from "@/lib/format"
 import { PERM, can } from "@/lib/permissions"
 import { buildSingleFilterHref } from "@/lib/search-query"
 import { cn } from "@/lib/utils"
-import {
-  metaKvs,
-  metaString,
-  metaStringList,
-  type FileSystemFile,
-  type FolderTreeNode,
-} from "@/types/filesystem"
+import type { FileSystemFile, FolderTreeNode } from "@/types/filesystem"
 
 export function FileDetailPage() {
   return (
@@ -144,13 +138,12 @@ function FileDetailContent({
   const canRename = Boolean(
     folder && can(folder.effective_permissions, PERM.WRITE)
   )
+  const canEnrich = Boolean(
+    folder && can(folder.effective_permissions, PERM.ENRICH)
+  )
   const [titleEditing, setTitleEditing] = React.useState(false)
   const [titleDraft, setTitleDraft] = React.useState(file.name)
   const renameCommitRef = React.useRef(false)
-  const tags = metaStringList(file.meta, "tags")
-  const keywords = metaStringList(file.meta, "keywords")
-  const kvEntries = Object.entries(metaKvs(file.meta))
-
   function beginTitleRename() {
     setTitleDraft(file.name)
     setTitleEditing(true)
@@ -278,8 +271,8 @@ function FileDetailContent({
       </div>
 
       <Card>
-        <CardHeader className="gap-2 sm:flex sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>File Metadata</CardTitle>
+        <CardHeader>
+          <CardTitle>About this file</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <DetailGrid
@@ -315,7 +308,6 @@ function FileDetailContent({
                 hint: "Find files with this MIME type",
               },
               { label: "Size", value: formatBytes(file.size_bytes) },
-              { label: "Summary", value: metaString(file.meta, "summary") ?? "—" },
               { label: "Created", value: formatDateTime(file.created_at) },
               { label: "Updated", value: formatDateTime(file.updated_at) },
             ]}
@@ -324,45 +316,15 @@ function FileDetailContent({
       </Card>
 
       <Card>
-        <CardHeader className="gap-2 sm:flex sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>Tags & Keywords</CardTitle>
-          <Badge variant="outline">{tags.length + keywords.length} terms</Badge>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <TokenGroup
-            label="Tags"
-            values={tags}
-            tone="tag"
-            buildHref={(value) =>
-              buildSingleFilterHref({ tags: [value] })
-            }
-            hint="Find files tagged"
-          />
-          <TokenGroup
-            label="Keywords"
-            values={keywords}
-            tone="keyword"
-            buildHref={(value) =>
-              buildSingleFilterHref({ keywords: [value] })
-            }
-            hint="Find files with keyword"
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="gap-2 sm:flex sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>Key Values</CardTitle>
-          <Badge variant="outline">{kvEntries.length} fields</Badge>
+        <CardHeader>
+          <CardTitle>Metadata</CardTitle>
         </CardHeader>
         <CardContent>
-          {kvEntries.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No key/value metadata is attached to this file.
-            </p>
-          ) : (
-            <KeyValueCollection entries={kvEntries} />
-          )}
+          <FileMetaPanel
+            meta={file.meta}
+            fileId={file.id}
+            canEdit={canEnrich}
+          />
         </CardContent>
       </Card>
 
@@ -463,80 +425,6 @@ function DetailGrid({ rows }: { rows: DetailRow[] }) {
         </React.Fragment>
       ))}
     </dl>
-  )
-}
-
-function TokenGroup({
-  label,
-  values,
-  tone,
-  buildHref,
-  hint,
-}: {
-  label: string
-  values: string[]
-  tone: "tag" | "keyword"
-  buildHref?: (value: string) => string
-  hint?: string
-}) {
-  return (
-    <section>
-      <h3 className="mb-3 text-sm font-medium">{label}</h3>
-      {values.length === 0 ? (
-        <p className="text-sm text-muted-foreground">None yet.</p>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          {values.map((value) => {
-            const className = cn(
-              "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-              tone === "tag"
-                ? "border-primary/20 bg-primary/10 text-primary"
-                : "border-muted-foreground/20 bg-muted text-muted-foreground",
-              buildHref && "hover:border-primary/40 hover:text-primary"
-            )
-            if (buildHref) {
-              return (
-                <Link
-                  key={value}
-                  to={buildHref(value)}
-                  className={className}
-                  title={hint ? `${hint} ${value}` : undefined}
-                >
-                  {value}
-                </Link>
-              )
-            }
-            return (
-              <div key={value} className={className}>
-                {value}
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </section>
-  )
-}
-
-function KeyValueCollection({
-  entries,
-}: {
-  entries: Array<[string, string | number | boolean | null]>
-}) {
-  return (
-    <div className="divide-y rounded-md border">
-      {entries.map(([key, value]) => (
-        <div
-          key={key}
-          className="grid gap-1 px-3 py-2 text-sm sm:grid-cols-[12rem_1fr] sm:gap-4"
-        >
-          <div className="font-medium text-muted-foreground">{key}</div>
-          <div className="break-words font-mono text-xs">
-            {formatDetailValue(value)}
-          </div>
-        </div>
-      ))}
-    </div>
   )
 }
 

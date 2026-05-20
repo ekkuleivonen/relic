@@ -58,7 +58,7 @@ def test_remove_file_by_id_deletes_and_invalidates_cache():
     file_id = uuid.uuid4()
     blob = Blob(
         id=uuid.uuid4(),
-        bucket_id=uuid.uuid4(),
+        storage_backend_id=uuid.uuid4(),
         bucket_key="k",
         content_hash=b"\x00" * 32,
         size_bytes=1,

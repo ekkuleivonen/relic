@@ -26,37 +26,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { META_OP_LABELS } from "@/lib/file-meta"
 import {
-  KVS_OPS,
+  META_OPS,
   type FacetValue,
-  type KvsFilter,
-  type KvsOp,
+  type MetaFilter,
+  type MetaOp,
 } from "@/types/search"
 
-type KvsFilterEditorProps = {
-  onAdd: (filter: KvsFilter) => void
-  /** kvs keys that exist in the matching result set, with file counts.
-   * Used to populate the key picker so the user picks from real data
-   * instead of guessing. The user can still enter a custom key. */
+type MetaFilterEditorProps = {
+  onAdd: (filter: MetaFilter) => void
+  /** Top-level meta keys in the matching result set, with file counts. */
   availableKeys: FacetValue[]
 }
 
-const OP_LABELS: Record<KvsOp, string> = {
-  eq: "= equals",
-  neq: "≠ not equals",
-  gt: "> greater than",
-  gte: "≥ at least",
-  lt: "< less than",
-  lte: "≤ at most",
-}
-
-/** Inline popover for adding a kvs predicate (e.g. row_count >= 1000). The
- * panel keeps the affordance for power-user range queries discoverable
- * without giving every kvs key its own dedicated UI. */
-export function KvsFilterEditor({ onAdd, availableKeys }: KvsFilterEditorProps) {
+export function MetaFilterEditor({ onAdd, availableKeys }: MetaFilterEditorProps) {
   const [open, setOpen] = React.useState(false)
   const [key, setKey] = React.useState("")
-  const [op, setOp] = React.useState<KvsOp>("gte")
+  const [op, setOp] = React.useState<MetaOp>("gte")
   const [value, setValue] = React.useState("")
   const valueInputRef = React.useRef<HTMLInputElement>(null)
 
@@ -93,15 +80,16 @@ export function KvsFilterEditor({ onAdd, availableKeys }: KvsFilterEditorProps) 
       <PopoverTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="w-full">
           <Plus className="size-3" />
-          Add kvs filter
+          Add metadata filter
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 gap-3">
         <PopoverHeader>
-          <PopoverTitle>Add kvs filter</PopoverTitle>
+          <PopoverTitle>Add metadata filter</PopoverTitle>
           <p className="text-muted-foreground">
-            Predicate over a single <code>meta.kvs</code> key, like{" "}
-            <code>row_count ≥ 1000</code>.
+            Predicate over a metadata path, like{" "}
+            <code>row_count ≥ 1000</code> or <code>department = legal</code>.
+            Use dot paths for nested keys.
           </p>
         </PopoverHeader>
 
@@ -109,7 +97,7 @@ export function KvsFilterEditor({ onAdd, availableKeys }: KvsFilterEditorProps) 
           <Label className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">
             Key
           </Label>
-          <KvsKeyPicker
+          <MetaKeyPicker
             value={key}
             availableKeys={availableKeys}
             onPick={handleKeyPicked}
@@ -120,14 +108,14 @@ export function KvsFilterEditor({ onAdd, availableKeys }: KvsFilterEditorProps) 
           <Label className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">
             Operator
           </Label>
-          <Select value={op} onValueChange={(next) => setOp(next as KvsOp)}>
+          <Select value={op} onValueChange={(next) => setOp(next as MetaOp)}>
             <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {KVS_OPS.map((value) => (
+              {META_OPS.map((value) => (
                 <SelectItem key={value} value={value}>
-                  {OP_LABELS[value]}
+                  {META_OP_LABELS[value]}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -136,13 +124,13 @@ export function KvsFilterEditor({ onAdd, availableKeys }: KvsFilterEditorProps) 
 
         <div className="space-y-2">
           <Label
-            htmlFor="kvs-value"
+            htmlFor="meta-filter-value"
             className="text-[0.625rem] uppercase tracking-wide text-muted-foreground"
           >
             Value
           </Label>
           <Input
-            id="kvs-value"
+            id="meta-filter-value"
             ref={valueInputRef}
             value={value}
             onChange={(event) => setValue(event.target.value)}
@@ -182,19 +170,13 @@ export function KvsFilterEditor({ onAdd, availableKeys }: KvsFilterEditorProps) 
   )
 }
 
-type KvsKeyPickerProps = {
+type MetaKeyPickerProps = {
   value: string
   availableKeys: FacetValue[]
   onPick: (key: string) => void
 }
 
-/** Searchable picker for `meta.kvs` keys present in the dataset. Falls
- * back to a "use as custom key" option when the typed text doesn't match
- * any known key, so we never block niche keys produced by new toolchains. */
-function KvsKeyPicker({ value, availableKeys, onPick }: KvsKeyPickerProps) {
-  // The popover unmounts on close, so component state naturally resets per
-  // open. We don't sync `value` -> `search`: the search input is just a
-  // filter; the selected key lives in the parent and is rendered separately.
+function MetaKeyPicker({ value, availableKeys, onPick }: MetaKeyPickerProps) {
   const [search, setSearch] = React.useState("")
 
   const trimmed = search.trim()
@@ -212,15 +194,15 @@ function KvsKeyPicker({ value, availableKeys, onPick }: KvsKeyPickerProps) {
           onValueChange={setSearch}
           placeholder={
             availableKeys.length > 0
-              ? "Search kvs keys…"
-              : "Type a kvs key…"
+              ? "Search metadata keys…"
+              : "Type a metadata key…"
           }
           autoFocus
         />
         <CommandList className="max-h-44">
           {availableKeys.length === 0 && !trimmed ? (
             <CommandEmpty>
-              No kvs keys in the current result set yet. Type one to use
+              No metadata keys in the current result set yet. Type one to use
               anyway.
             </CommandEmpty>
           ) : (

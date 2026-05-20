@@ -14,7 +14,7 @@ import { DRAG_TYPE_FOLDER } from "@/hooks/use-folder-dnd"
 import { useFolderDragState } from "@/hooks/use-folder-drag-state"
 import { useNativeFileDrop } from "@/hooks/use-native-file-drop"
 import { useUpdateFolder } from "@/hooks/use-folders"
-import { PERM, can } from "@/lib/permissions"
+import { PERM, can, canAcceptFiles, isRootFolder } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import type { FolderTreeNode } from "@/types/filesystem"
 
@@ -66,8 +66,9 @@ function TreeNode({
   const [open, setOpen] = React.useState(expandedFolderIds.has(node.id))
 
   const dragState = useFolderDragState()
-  const isRoot = node.parent_id === null
+  const isRoot = isRootFolder(node)
   const canWriteHere = can(node.effective_permissions, PERM.WRITE)
+  const acceptsFiles = canAcceptFiles(node)
   const canRename = !isRoot && canWriteHere
   const [editing, setEditing] = React.useState(false)
   const [draftName, setDraftName] = React.useState(node.name)
@@ -88,7 +89,7 @@ function TreeNode({
   })
   const nativeDrop = useNativeFileDrop({
     folderId: node.id,
-    disabled: !canWriteHere,
+    disabled: !acceptsFiles,
   })
 
   const setRefs = React.useCallback(

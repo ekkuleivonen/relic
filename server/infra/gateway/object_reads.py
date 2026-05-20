@@ -1,7 +1,7 @@
 """Session-level GetObject/HeadObject — internal gateway primitive."""
 from enums import Permission
 from domain.exceptions import ResourceNotFound
-from infra.db.models import Blob, Bucket, File, User
+from infra.db.models import Blob, StorageBackend, File, User
 from ports.storage_registry import StorageRegistry
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -37,7 +37,7 @@ def get_object(
     if blob is None:
         raise ResourceNotFound("Object bytes not found")
 
-    bucket = db.get(Bucket, blob.bucket_id)
+    bucket = db.get(StorageBackend, blob.storage_backend_id)
     if bucket is None:
         raise ResourceNotFound("Backing bucket not found")
 

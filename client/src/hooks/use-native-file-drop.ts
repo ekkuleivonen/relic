@@ -5,9 +5,15 @@ import { useFileUpload } from "@/hooks/use-file-upload"
 type UseNativeFileDropArgs = {
   folderId: string
   disabled?: boolean
+  /** When set, drop/select does not upload immediately — caller opens a dialog. */
+  onFilesSelected?: (files: File[]) => void
 }
 
-export function useNativeFileDrop({ folderId, disabled }: UseNativeFileDropArgs) {
+export function useNativeFileDrop({
+  folderId,
+  disabled,
+  onFilesSelected,
+}: UseNativeFileDropArgs) {
   const upload = useFileUpload()
   const [isOver, setIsOver] = React.useState(false)
   const dragDepth = React.useRef(0)
@@ -19,6 +25,15 @@ export function useNativeFileDrop({ folderId, disabled }: UseNativeFileDropArgs)
   function reset() {
     dragDepth.current = 0
     setIsOver(false)
+  }
+
+  function handleFiles(files: File[]) {
+    if (files.length === 0) return
+    if (onFilesSelected) {
+      onFilesSelected(files)
+      return
+    }
+    void uploadAll(files, folderId, upload)
   }
 
   const handlers = {
@@ -51,7 +66,7 @@ export function useNativeFileDrop({ folderId, disabled }: UseNativeFileDropArgs)
       event.stopPropagation()
       reset()
       const files = Array.from(event.dataTransfer?.files ?? [])
-      void uploadAll(files, folderId, upload)
+      handleFiles(files)
     },
   }
 

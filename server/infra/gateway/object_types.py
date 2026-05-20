@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from infra.db.models import Blob, Bucket, File
+from infra.db.models import Blob, StorageBackend, File
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,7 @@ class CopyObjectResult:
 class GetObjectResult:
     file: File
     blob: Blob
-    bucket: Bucket
+    bucket: StorageBackend
 
 
 @dataclass(frozen=True)

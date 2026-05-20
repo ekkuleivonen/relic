@@ -17,7 +17,7 @@ from infra.db.stores.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from tests.factories.models import BucketFactory, UserFactory
+from tests.factories.models import StorageBackendFactory, UserFactory
 
 
 
@@ -75,12 +75,12 @@ def photos_folder(db_session, root_folder):
 
 @pytest.fixture()
 def physical_bucket(db_session):
-    from tests.factories.models import BucketProbeFactory
+    from tests.factories.models import StorageBackendProbeFactory
 
-    bucket = BucketFactory.build(name="hot")
+    bucket = StorageBackendFactory.build(name="hot")
     db_session.add(bucket)
     db_session.flush()
-    db_session.add(BucketProbeFactory.build(bucket_id=bucket.id))
+    db_session.add(StorageBackendProbeFactory.build(storage_backend_id=bucket.id))
     db_session.commit()
     return bucket
 
@@ -156,6 +156,17 @@ def test_presign_requires_write_permission(client, db_session, user, photos_fold
     response = presign(client, photos_folder)
 
     assert response.status_code == 403
+
+
+def test_presign_rejects_root_folder(client, db_session, user, root_folder):
+    grant(db_session, user, root_folder, int(Permission.READ | Permission.WRITE))
+
+    response = presign(client, root_folder)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Files must be uploaded into a subfolder, not the root folder."
+    )
 
 
 def test_put_rechecks_write_permission(
@@ -261,7 +272,7 @@ def test_replayed_url_hits_file_unique_constraint(
 
     assert first.status_code == 200
     assert second.status_code == 409
-    assert "BucketAlreadyExists" in second.text or "Conflict" in second.text
+    assert "StorageBackendAlreadyExists" in second.text or "Conflict" in second.text
 
 
 def test_unsigned_gateway_put_is_rejected(client):

@@ -14,7 +14,7 @@ from infra.db.stores.auth import create_session_token
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from tests.factories.models import BlobFactory, BucketFactory, UserFactory
+from tests.factories.models import BlobFactory, StorageBackendFactory, UserFactory
 from utils.passwords import hash_password
 
 
@@ -105,10 +105,10 @@ def test_get_folder_tree_omits_storage_preference_for_non_admin(
     client, db_session, user, root_folder
 ):
     photos = add_folder(db_session, root_folder, "photos")
-    bucket = BucketFactory.build()
+    bucket = StorageBackendFactory.build()
     db_session.add(bucket)
     db_session.commit()
-    photos.preferred_bucket_id = bucket.id
+    photos.preferred_storage_backend_id = bucket.id
     db_session.commit()
 
     grant_access(db_session, user, root_folder, int(Permission.READ))
@@ -118,16 +118,16 @@ def test_get_folder_tree_omits_storage_preference_for_non_admin(
     assert response.status_code == 200
     tree = response.json()
     photos_node = next(c for c in tree["children"] if c["name"] == "photos")
-    assert photos_node.get("preferred_bucket_id") is None
-    assert photos_node.get("effective_preferred_bucket_id") is None
+    assert photos_node.get("preferred_storage_backend_id") is None
+    assert photos_node.get("effective_preferred_storage_backend_id") is None
 
 
 def test_get_folder_tree_includes_storage_preference_for_admin(db_session, root_folder):
     photos = add_folder(db_session, root_folder, "photos")
-    bucket = BucketFactory.build()
+    bucket = StorageBackendFactory.build()
     db_session.add(bucket)
     db_session.commit()
-    photos.preferred_bucket_id = bucket.id
+    photos.preferred_storage_backend_id = bucket.id
     db_session.commit()
 
     admin = UserFactory.build(email="admin-pref@relic.local", role=UserRole.ADMIN)
@@ -148,8 +148,8 @@ def test_get_folder_tree_includes_storage_preference_for_admin(db_session, root_
     assert response.status_code == 200
     tree = response.json()
     node = next(c for c in tree["children"] if c["name"] == "photos")
-    assert node["preferred_bucket_id"] == str(bucket.id)
-    assert node["effective_preferred_bucket_id"] == str(bucket.id)
+    assert node["preferred_storage_backend_id"] == str(bucket.id)
+    assert node["effective_preferred_storage_backend_id"] == str(bucket.id)
 
 
 def test_admin_get_folder_tree_bypasses_folder_access(db_session, root_folder):
@@ -234,10 +234,10 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
     photos = add_folder(db_session, root_folder, "photos")
     docs = add_folder(db_session, root_folder, "docs")
     grant_access(db_session, user, photos, int(Permission.READ))
-    bucket = BucketFactory.build()
+    bucket = StorageBackendFactory.build()
     db_session.add(bucket)
     db_session.flush()
-    blob = BlobFactory.build(bucket_id=bucket.id, size_bytes=1024)
+    blob = BlobFactory.build(storage_backend_id=bucket.id, size_bytes=1024)
     db_session.add(blob)
     db_session.flush()
     db_session.add_all(
@@ -288,10 +288,10 @@ def test_recursive_list_files_excludes_unreadable_descendants(
     raw = add_folder(db_session, photos, "raw")
     docs = add_folder(db_session, root_folder, "docs")
     grant_access(db_session, user, photos, int(Permission.READ))
-    bucket = BucketFactory.build()
+    bucket = StorageBackendFactory.build()
     db_session.add(bucket)
     db_session.flush()
-    blob = BlobFactory.build(bucket_id=bucket.id)
+    blob = BlobFactory.build(storage_backend_id=bucket.id)
     db_session.add(blob)
     db_session.flush()
     db_session.add_all(
@@ -332,10 +332,10 @@ def test_recursive_list_files_excludes_unreadable_descendants(
 def test_list_files_pagination(client, db_session, user, root_folder):
     photos = add_folder(db_session, root_folder, "photos")
     grant_access(db_session, user, photos, int(Permission.READ))
-    bucket = BucketFactory.build()
+    bucket = StorageBackendFactory.build()
     db_session.add(bucket)
     db_session.flush()
-    blob = BlobFactory.build(bucket_id=bucket.id)
+    blob = BlobFactory.build(storage_backend_id=bucket.id)
     db_session.add(blob)
     db_session.flush()
     names = ["e.bin", "d.bin", "c.bin", "b.bin", "a.bin"]

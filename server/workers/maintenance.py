@@ -37,7 +37,7 @@ async def purge_dereferenced_blobs_worker(ctx) -> None:
     await _run_maintenance_job("purge_dereferenced_blobs", run)
 
 
-async def refresh_all_bucket_probes_worker(ctx) -> None:
+async def refresh_all_storage_backend_probes_worker(ctx) -> None:
     del ctx
 
     def run() -> None:
@@ -46,15 +46,15 @@ async def refresh_all_bucket_probes_worker(ctx) -> None:
         with sm() as db:
             run_with_uow(
                 db,
-                lambda uow: storage_maintenance.probe_all_buckets(
+                lambda uow: storage_maintenance.probe_all_storage_backends(
                     uow, batch_id=batch_id
                 ),
             )
 
-    await _run_maintenance_job("refresh_all_bucket_probes", run)
+    await _run_maintenance_job("refresh_all_storage_backend_probes", run)
 
 
-async def trim_old_bucket_probes_worker(ctx) -> None:
+async def trim_old_storage_backend_probes_worker(ctx) -> None:
     del ctx
 
     def run() -> None:
@@ -63,14 +63,14 @@ async def trim_old_bucket_probes_worker(ctx) -> None:
         with sm() as db:
             run_with_uow(
                 db,
-                lambda uow: storage_maintenance.trim_old_bucket_probes_batch(
+                lambda uow: storage_maintenance.trim_old_storage_backend_probes_batch(
                     uow,
                     retention_days=S.PROBES_RETENTION_DAYS,
                     batch_id=batch_id,
                 ),
             )
 
-    await _run_maintenance_job("trim_old_bucket_probes", run)
+    await _run_maintenance_job("trim_old_storage_backend_probes", run)
 
 
 async def demote_pressured_buckets_worker(ctx) -> None:
@@ -82,7 +82,7 @@ async def demote_pressured_buckets_worker(ctx) -> None:
         with sm() as db:
             run_with_uow(
                 db,
-                lambda uow: storage_maintenance.demote_pressured_buckets_batch(
+                lambda uow: storage_maintenance.demote_pressured_storage_backends_batch(
                     uow,
                     demote_limit=S.STORAGE_DEMOTE_BATCH,
                     pressure_ratio=S.STORAGE_DEMOTION_PRESSURE_RATIO,
@@ -175,10 +175,10 @@ async def storage_maintenance_tick(ctx) -> None:
     redis = ctx["redis"]
     try:
         await redis.enqueue_job("purge_dereferenced_blobs_worker")
-        await redis.enqueue_job("refresh_all_bucket_probes_worker")
+        await redis.enqueue_job("refresh_all_storage_backend_probes_worker")
         await redis.enqueue_job("demote_pressured_buckets_worker")
         await redis.enqueue_job("promote_recently_accessed_worker")
-        await redis.enqueue_job("trim_old_bucket_probes_worker")
+        await redis.enqueue_job("trim_old_storage_backend_probes_worker")
         await redis.enqueue_job("trim_old_audit_events_worker")
         await redis.enqueue_job("abort_incomplete_multipart_uploads_worker")
         queue_depth = int(await redis.zcard(S.MAINTENANCE_QUEUE_NAME))
@@ -218,8 +218,8 @@ async def _run_maintenance_job(job: str, run) -> None:
 class WorkerSettings:
     functions = [
         purge_dereferenced_blobs_worker,
-        refresh_all_bucket_probes_worker,
-        trim_old_bucket_probes_worker,
+        refresh_all_storage_backend_probes_worker,
+        trim_old_storage_backend_probes_worker,
         demote_pressured_buckets_worker,
         promote_recently_accessed_worker,
         trim_old_audit_events_worker,

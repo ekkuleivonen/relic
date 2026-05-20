@@ -3,21 +3,21 @@
 The cron has four independent jobs (see ``workers/maintenance.py``):
 
 * ``purge_dereferenced_blobs_batch`` — drop refcount=0 blob rows + remote bytes
-* ``probe_all_buckets`` — write a fresh ``BucketProbe`` row for every bucket
-* ``demote_pressured_buckets_batch`` — when a bucket reaches the demotion
+* ``probe_all_storage_backends`` — write a fresh ``StorageBackendProbe`` row for every bucket
+* ``demote_pressured_storage_backends_batch`` — when a bucket reaches the demotion
   pressure ratio, push oldest-by-accessed_at blobs to the next-hottest bucket
   with capacity (latency-driven hotness ranking).
 * ``promote_recently_accessed_batch`` — bubble up blobs whose ``accessed_at``
   is within the recency window into the hottest bucket that still has
   promotion headroom.
-* ``trim_old_bucket_probes_batch`` — drop ``BucketProbe`` rows older than
+* ``trim_old_storage_backend_probes_batch`` — drop ``StorageBackendProbe`` rows older than
   ``PROBES_RETENTION_DAYS`` so the table stays small.
 
 Hysteresis: ``STORAGE_PROMOTION_HEADROOM_RATIO`` < ``STORAGE_DEMOTION_PRESSURE_RATIO``
 plus a per-blob ``STORAGE_MIGRATION_MIN_RESIDENCY_HOURS`` cooloff prevents
 the same blob from ping-ponging between buckets across consecutive ticks.
 
-The migration helper writes the DB transition (`Blob.bucket_id`,
+The migration helper writes the DB transition (`Blob.storage_backend_id`,
 `migrated_at`) BEFORE deleting the source bytes, so a crash between upload
 and src-delete leaves a recoverable orphan in the source bucket rather than
 a missing blob row.
@@ -32,22 +32,22 @@ from typing import Any
 import settings as S
 from botocore.exceptions import BotoCoreError, ClientError
 from infra import metrics
-from infra.db.models import Blob, Bucket, File
+from infra.db.models import Blob, StorageBackend, File
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from utils.logging import get_logger
 
-from infra.db.stores import bucket_reads
-from infra.db.stores.bucket_probe import probe_bucket as probe_bucket_mutation
+from infra.db.stores import storage_backend_reads
+from infra.db.stores.storage_backend_probe import probe_storage_backend as probe_storage_backend_mutation
 from ports.uow import UnitOfWork
 from utils.timing import elapsed_ms, timer_start
 from infra.gateway import blob_storage
 from infra.db.stores.placement import (
-    BucketHotness,
-    adjust_bucket_usage_cache,
-    agreed_preferred_bucket_id,
-    get_bucket_usages,
-    hotness_ranked_buckets,
+    StorageBackendHotness,
+    adjust_storage_backend_usage_cache,
+    agreed_preferred_storage_backend_id,
+    get_storage_backend_usages,
+    hotness_ranked_storage_backends,
 )
 
 log = get_logger(__name__)
@@ -87,14 +87,14 @@ def purge_dereferenced_blobs_batch(
     errors = 0
     for blob in blobs:
         started_at = timer_start()
-        bucket_id = blob.bucket_id
+        storage_backend_id = blob.storage_backend_id
         blob_id = blob.id
         size_bytes = int(blob.size_bytes)
         bucket_key = blob.bucket_key
         try:
             with db.begin_nested():
                 db_started = timer_start()
-                bucket = db.get(Bucket, bucket_id)
+                bucket = db.get(StorageBackend, storage_backend_id)
                 db_latency_ms += elapsed_ms(db_started, minimum=0)
                 if bucket is not None:
                     try:
@@ -109,12 +109,12 @@ def purge_dereferenced_blobs_batch(
                         log.warning(
                             "blob_purge_remote_delete_failed",
                             blob_id=str(blob.id),
-                            bucket_id=str(blob.bucket_id),
+                            storage_backend_id=str(blob.storage_backend_id),
                             error=str(exc),
                         )
                         raise
                     db_started = timer_start()
-                    adjust_bucket_usage_cache(
+                    adjust_storage_backend_usage_cache(
                         bucket.id,
                         object_count_delta=-1,
                         size_bytes_delta=-blob.size_bytes,
@@ -128,7 +128,7 @@ def purge_dereferenced_blobs_batch(
                 operation="blob.purged",
                 status="succeeded",
                 batch_id=effective_batch_id,
-                bucket_id=bucket_id,
+                storage_backend_id=storage_backend_id,
                 blob_id=blob_id,
                 duration_ms=elapsed_ms(started_at, minimum=0),
                 metadata={
@@ -143,7 +143,7 @@ def purge_dereferenced_blobs_batch(
                 operation="blob.purge_failed",
                 status="failed",
                 batch_id=effective_batch_id,
-                bucket_id=bucket_id,
+                storage_backend_id=storage_backend_id,
                 blob_id=blob_id,
                 duration_ms=elapsed_ms(started_at, minimum=0),
                 metadata={
@@ -174,19 +174,19 @@ def purge_dereferenced_blobs_batch(
 # ---------------------------------------------------------------------------
 
 
-def probe_all_buckets(
+def probe_all_storage_backends(
     uow: UnitOfWork,
     *,
     batch_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     effective_batch_id = batch_id or uuid.uuid4()
-    all_buckets = bucket_reads.list_buckets(uow.session)
+    all_buckets = storage_backend_reads.list_storage_backends(uow.session)
     ok = 0
     failed = 0
     for b in all_buckets:
         started_at = timer_start()
         try:
-            result = probe_bucket_mutation(uow, b.id)
+            result = probe_storage_backend_mutation(uow, b.id)
             probe = result.probe
             metadata = {
                 "put_ms": probe.put_ms,
@@ -196,28 +196,28 @@ def probe_all_buckets(
             }
             if result.reachable:
                 ok += 1
-                metrics.observe_bucket_probe(status="succeeded")
+                metrics.observe_storage_backend_probe(status="succeeded")
             else:
                 failed += 1
-                metrics.observe_bucket_probe(status="failed")
+                metrics.observe_storage_backend_probe(status="failed")
                 uow.audit.emit(
-                    job="bucket_probe",
+                    job="storage_backend_probe",
                     operation="bucket.probe_failed",
                     status="failed",
                     batch_id=effective_batch_id,
-                    bucket_id=result.bucket.id,
+                    storage_backend_id=result.storage_backend.id,
                     duration_ms=elapsed_ms(started_at, minimum=0),
                     metadata=metadata,
                 )
         except Exception as exc:
             failed += 1
-            metrics.observe_bucket_probe(status="failed")
+            metrics.observe_storage_backend_probe(status="failed")
             uow.audit.emit(
-                job="bucket_probe",
+                job="storage_backend_probe",
                 operation="bucket.probe_failed",
                 status="failed",
                 batch_id=effective_batch_id,
-                bucket_id=b.id,
+                storage_backend_id=b.id,
                 duration_ms=elapsed_ms(started_at, minimum=0),
                 metadata={
                     "error_class": exc.__class__.__name__,
@@ -225,14 +225,14 @@ def probe_all_buckets(
                 },
             )
             log.warning(
-                "bucket_probe_failed_in_batch",
-                bucket_id=str(b.id),
+                "storage_backend_probe_failed_in_batch",
+                storage_backend_id=str(b.id),
                 error=str(exc),
             )
     return {"bucket_count": len(all_buckets), "ok": ok, "failed": failed}
 
 
-def trim_old_bucket_probes_batch(
+def trim_old_storage_backend_probes_batch(
     uow: UnitOfWork,
     *,
     retention_days: int,
@@ -244,11 +244,11 @@ def trim_old_bucket_probes_batch(
     cutoff = effective_now - dt.timedelta(days=retention_days)
 
     started_at = timer_start()
-    deleted_rows = uow.buckets.delete_probes_older_than(cutoff)
+    deleted_rows = uow.storage_backends.delete_probes_older_than(cutoff)
     if deleted_rows > 0:
         uow.audit.emit(
-            job="trim_bucket_probes",
-            operation="bucket_probe.trimmed",
+            job="trim_storage_backend_probes",
+            operation="storage_backend_probe.trimmed",
             status="succeeded",
             batch_id=effective_batch_id,
             duration_ms=elapsed_ms(started_at, minimum=0),
@@ -258,7 +258,7 @@ def trim_old_bucket_probes_batch(
             },
         )
     log.info(
-        "bucket_probe_retention_trimmed",
+        "storage_backend_probe_retention_trimmed",
         retention_days=retention_days,
         deleted_rows=deleted_rows,
     )
@@ -273,7 +273,7 @@ def trim_old_bucket_probes_batch(
 def _migrate_blob_to_bucket_inner(
     uow: UnitOfWork,
     blob: Blob,
-    destination: Bucket,
+    destination: StorageBackend,
     *,
     headroom_ratio: float | None = None,
 ) -> BlobMigrationResult:
@@ -282,21 +282,21 @@ def _migrate_blob_to_bucket_inner(
     Order of operations is crash-safety motivated:
         1. fetch source bytes
         2. upload to destination (may overwrite a prior partial copy)
-        3. COMMIT the DB row (Blob.bucket_id, migrated_at)
+        3. COMMIT the DB row (Blob.storage_backend_id, migrated_at)
         4. best-effort delete of the source bytes
 
     A crash between (3) and (4) leaves an orphan in the source bucket; the
     DB still resolves the blob to the destination, so reads are uninterrupted.
     Garbage collection of those orphans is acceptable cost vs. a missing blob.
     """
-    if destination.id == blob.bucket_id:
+    if destination.id == blob.storage_backend_id:
         return BlobMigrationResult(migrated=False, reason="same_bucket")
 
     db = uow.session
     db_latency_ms = 0
     remote_latency_ms = 0
     db_started = timer_start()
-    src = db.get(Bucket, blob.bucket_id)
+    src = db.get(StorageBackend, blob.storage_backend_id)
     if src is None:
         return BlobMigrationResult(
             migrated=False,
@@ -304,7 +304,7 @@ def _migrate_blob_to_bucket_inner(
             db_latency_ms=elapsed_ms(db_started, minimum=0),
         )
 
-    destination_usage = get_bucket_usages(db, [destination.id])[destination.id]
+    destination_usage = get_storage_backend_usages(db, [destination.id])[destination.id]
     projected = destination_usage.current_size_bytes + blob.size_bytes
     if projected > destination.max_size_bytes:
         log.warning(
@@ -366,13 +366,13 @@ def _migrate_blob_to_bucket_inner(
 
     try:
         db_started = timer_start()
-        blob.bucket_id = destination.id
+        blob.storage_backend_id = destination.id
         blob.migrated_at = dt.datetime.now(dt.UTC)
         db.flush()
-        adjust_bucket_usage_cache(
+        adjust_storage_backend_usage_cache(
             src.id, object_count_delta=-1, size_bytes_delta=-blob.size_bytes
         )
-        adjust_bucket_usage_cache(
+        adjust_storage_backend_usage_cache(
             destination.id, object_count_delta=1, size_bytes_delta=blob.size_bytes
         )
         uow.commit()
@@ -423,7 +423,7 @@ def _migrate_blob_to_bucket_inner(
 # ---------------------------------------------------------------------------
 
 
-def demote_pressured_buckets_batch(
+def demote_pressured_storage_backends_batch(
     uow: UnitOfWork,
     *,
     demote_limit: int,
@@ -432,7 +432,7 @@ def demote_pressured_buckets_batch(
     min_residency_hours: int,
     batch_id: uuid.UUID | None = None,
     now: dt.datetime | None = None,
-    only_bucket_ids: set[uuid.UUID] | None = None,
+    only_storage_backend_ids: set[uuid.UUID] | None = None,
 ) -> dict[str, Any]:
     """Push oldest blobs out of buckets above the pressure threshold.
 
@@ -448,29 +448,29 @@ def demote_pressured_buckets_batch(
     residency_cutoff = effective_now - dt.timedelta(hours=min_residency_hours)
 
     db = uow.session
-    ranked = hotness_ranked_buckets(db)
+    ranked = hotness_ranked_storage_backends(db)
     if not ranked:
         return {"moved": 0, "skipped": 0, "failed": 0, "scanned": 0}
 
-    bucket_ids = [h.bucket.id for h in ranked]
-    usages = get_bucket_usages(db, bucket_ids)
+    storage_backend_ids = [h.storage_backend.id for h in ranked]
+    usages = get_storage_backend_usages(db, storage_backend_ids)
 
     pressured_ids = {
-        h.bucket.id
+        h.storage_backend.id
         for h in ranked
-        if h.bucket.max_size_bytes > 0
-        and usages[h.bucket.id].current_size_bytes * 1000
-        >= int(h.bucket.max_size_bytes * pressure_ratio * 1000)
+        if h.storage_backend.max_size_bytes > 0
+        and usages[h.storage_backend.id].current_size_bytes * 1000
+        >= int(h.storage_backend.max_size_bytes * pressure_ratio * 1000)
     }
     if not pressured_ids:
         return {"moved": 0, "skipped": 0, "failed": 0, "scanned": 0}
-    if only_bucket_ids is not None:
-        pressured_ids &= only_bucket_ids
+    if only_storage_backend_ids is not None:
+        pressured_ids &= only_storage_backend_ids
         if not pressured_ids:
             return {"moved": 0, "skipped": 0, "failed": 0, "scanned": 0}
 
     blobs = uow.blobs.list_pressured_candidates(
-        bucket_ids=pressured_ids,
+        storage_backend_ids=pressured_ids,
         limit=demote_limit * 8,
     )
 
@@ -486,7 +486,7 @@ def demote_pressured_buckets_batch(
         started_at = timer_start()
         destination = _next_colder_destination(
             ranked,
-            from_bucket_id=blob.bucket_id,
+            from_storage_backend_id=blob.storage_backend_id,
             blob=blob,
             usages=usages,
             headroom_ratio=headroom_ratio,
@@ -498,19 +498,19 @@ def demote_pressured_buckets_batch(
                 operation="blob.demotion_skipped",
                 status="skipped",
                 batch_id=effective_batch_id,
-                bucket_id=blob.bucket_id,
+                storage_backend_id=blob.storage_backend_id,
                 blob_id=blob.id,
                 duration_ms=elapsed_ms(started_at, minimum=0),
                 metadata={
-                    "from_bucket_id": str(blob.bucket_id),
+                    "from_storage_backend_id": str(blob.storage_backend_id),
                     "reason": "no_colder_bucket_with_headroom",
                     "size_bytes": blob.size_bytes,
                 },
             )
             continue
 
-        from_bucket_id = blob.bucket_id
-        to_bucket_id = destination.id
+        from_storage_backend_id = blob.storage_backend_id
+        to_storage_backend_id = destination.id
         migration = _migrate_blob_to_bucket_inner(
             uow, blob, destination, headroom_ratio=headroom_ratio
         )
@@ -522,18 +522,18 @@ def demote_pressured_buckets_batch(
             skip_action="blob.demotion_skipped",
             migration=migration,
             blob=blob,
-            from_bucket_id=from_bucket_id,
-            to_bucket_id=to_bucket_id,
+            from_storage_backend_id=from_storage_backend_id,
+            to_storage_backend_id=to_storage_backend_id,
             batch_id=effective_batch_id,
             duration_ms=elapsed_ms(started_at, minimum=0),
         )
         if migration.migrated:
             moved += 1
-            usages[from_bucket_id] = _usage_after_delta(
-                usages[from_bucket_id], -blob.size_bytes
+            usages[from_storage_backend_id] = _usage_after_delta(
+                usages[from_storage_backend_id], -blob.size_bytes
             )
-            usages[to_bucket_id] = _usage_after_delta(
-                usages[to_bucket_id], blob.size_bytes
+            usages[to_storage_backend_id] = _usage_after_delta(
+                usages[to_storage_backend_id], blob.size_bytes
             )
         elif migration.status == "failed":
             failed += 1
@@ -555,10 +555,10 @@ def demote_pressured_buckets_batch(
     }
 
 
-def drain_bucket_batch(
+def drain_storage_backend_batch(
     uow: UnitOfWork,
     *,
-    bucket_id: uuid.UUID,
+    storage_backend_id: uuid.UUID,
     demote_limit: int,
     headroom_ratio: float,
     min_residency_hours: int = 0,
@@ -573,17 +573,17 @@ def drain_bucket_batch(
     residency_cutoff = effective_now - dt.timedelta(hours=min_residency_hours)
 
     db = uow.session
-    ranked = hotness_ranked_buckets(db)
+    ranked = hotness_ranked_storage_backends(db)
     if not ranked:
         return {"moved": 0, "skipped": 0, "failed": 0, "scanned": 0}
 
-    bucket_ids = [h.bucket.id for h in ranked]
-    if bucket_id not in bucket_ids:
+    storage_backend_ids = [h.storage_backend.id for h in ranked]
+    if storage_backend_id not in storage_backend_ids:
         return {"moved": 0, "skipped": 0, "failed": 0, "scanned": 0}
 
-    usages = get_bucket_usages(db, bucket_ids)
+    usages = get_storage_backend_usages(db, storage_backend_ids)
     blobs = uow.blobs.list_pressured_candidates(
-        bucket_ids={bucket_id},
+        storage_backend_ids={storage_backend_id},
         limit=demote_limit * 8,
     )
 
@@ -599,7 +599,7 @@ def drain_bucket_batch(
         started_at = timer_start()
         destination = _next_colder_destination(
             ranked,
-            from_bucket_id=blob.bucket_id,
+            from_storage_backend_id=blob.storage_backend_id,
             blob=blob,
             usages=usages,
             headroom_ratio=headroom_ratio,
@@ -607,46 +607,46 @@ def drain_bucket_batch(
         if destination is None:
             skipped += 1
             uow.audit.emit(
-                job="drain_bucket",
+                job="drain_storage_backend",
                 operation="blob.drain_skipped",
                 status="skipped",
                 batch_id=effective_batch_id,
-                bucket_id=blob.bucket_id,
+                storage_backend_id=blob.storage_backend_id,
                 blob_id=blob.id,
                 duration_ms=elapsed_ms(started_at, minimum=0),
                 metadata={
-                    "from_bucket_id": str(blob.bucket_id),
+                    "from_storage_backend_id": str(blob.storage_backend_id),
                     "reason": "no_colder_bucket_with_headroom",
                     "size_bytes": blob.size_bytes,
                 },
             )
             continue
 
-        from_bucket_id = blob.bucket_id
-        to_bucket_id = destination.id
+        from_storage_backend_id = blob.storage_backend_id
+        to_storage_backend_id = destination.id
         migration = _migrate_blob_to_bucket_inner(
             uow, blob, destination, headroom_ratio=headroom_ratio
         )
         _record_migration_event(
             uow,
-            job="drain_bucket",
+            job="drain_storage_backend",
             success_action="blob.drained",
             failure_action="blob.drain_failed",
             skip_action="blob.drain_skipped",
             migration=migration,
             blob=blob,
-            from_bucket_id=from_bucket_id,
-            to_bucket_id=to_bucket_id,
+            from_storage_backend_id=from_storage_backend_id,
+            to_storage_backend_id=to_storage_backend_id,
             batch_id=effective_batch_id,
             duration_ms=elapsed_ms(started_at, minimum=0),
         )
         if migration.migrated:
             moved += 1
-            usages[from_bucket_id] = _usage_after_delta(
-                usages[from_bucket_id], -blob.size_bytes
+            usages[from_storage_backend_id] = _usage_after_delta(
+                usages[from_storage_backend_id], -blob.size_bytes
             )
-            usages[to_bucket_id] = _usage_after_delta(
-                usages[to_bucket_id], blob.size_bytes
+            usages[to_storage_backend_id] = _usage_after_delta(
+                usages[to_storage_backend_id], blob.size_bytes
             )
         elif migration.status == "failed":
             failed += 1
@@ -655,7 +655,7 @@ def drain_bucket_batch(
 
     log.info(
         "bucket_drain_batch",
-        bucket_id=str(bucket_id),
+        storage_backend_id=str(storage_backend_id),
         moved=moved,
         skipped=skipped,
         failed=failed,
@@ -693,10 +693,10 @@ def promote_recently_accessed_batch(
     residency_cutoff = effective_now - dt.timedelta(hours=min_residency_hours)
 
     db = uow.session
-    ranked = hotness_ranked_buckets(db)
+    ranked = hotness_ranked_storage_backends(db)
     if len(ranked) < 2:
         return {"moved": 0, "skipped": 0, "failed": 0, "scanned": 0}
-    usages = get_bucket_usages(db, [h.bucket.id for h in ranked])
+    usages = get_storage_backend_usages(db, [h.storage_backend.id for h in ranked])
 
     blobs = uow.blobs.list_recently_accessed_candidates(
         recency_cutoff=recency_cutoff,
@@ -714,18 +714,18 @@ def promote_recently_accessed_batch(
 
         destination = _hotter_destination_with_headroom(
             ranked,
-            from_bucket_id=blob.bucket_id,
+            from_storage_backend_id=blob.storage_backend_id,
             blob=blob,
             usages=usages,
             headroom_ratio=headroom_ratio,
-            preferred_bucket_id=agreed_preferred_bucket_id(db, blob),
+            preferred_storage_backend_id=agreed_preferred_storage_backend_id(db, blob),
         )
         if destination is None:
             continue
 
         started_at = timer_start()
-        from_bucket_id = blob.bucket_id
-        to_bucket_id = destination.id
+        from_storage_backend_id = blob.storage_backend_id
+        to_storage_backend_id = destination.id
         migration = _migrate_blob_to_bucket_inner(
             uow, blob, destination, headroom_ratio=headroom_ratio
         )
@@ -737,18 +737,18 @@ def promote_recently_accessed_batch(
             skip_action="blob.promotion_skipped",
             migration=migration,
             blob=blob,
-            from_bucket_id=from_bucket_id,
-            to_bucket_id=to_bucket_id,
+            from_storage_backend_id=from_storage_backend_id,
+            to_storage_backend_id=to_storage_backend_id,
             batch_id=effective_batch_id,
             duration_ms=elapsed_ms(started_at, minimum=0),
         )
         if migration.migrated:
             moved += 1
-            usages[from_bucket_id] = _usage_after_delta(
-                usages[from_bucket_id], -blob.size_bytes
+            usages[from_storage_backend_id] = _usage_after_delta(
+                usages[from_storage_backend_id], -blob.size_bytes
             )
-            usages[to_bucket_id] = _usage_after_delta(
-                usages[to_bucket_id], blob.size_bytes
+            usages[to_storage_backend_id] = _usage_after_delta(
+                usages[to_storage_backend_id], blob.size_bytes
             )
         elif migration.status == "failed":
             failed += 1
@@ -786,52 +786,52 @@ def _is_eligible_for_migration(blob: Blob, *, residency_cutoff: dt.datetime) -> 
 
 
 def _next_colder_destination(
-    ranked: list[BucketHotness],
+    ranked: list[StorageBackendHotness],
     *,
-    from_bucket_id: uuid.UUID,
+    from_storage_backend_id: uuid.UUID,
     blob: Blob,
     usages: dict[uuid.UUID, Any],
     headroom_ratio: float,
-) -> Bucket | None:
-    """First bucket ranked colder than ``from_bucket_id`` that has headroom."""
+) -> StorageBackend | None:
+    """First bucket ranked colder than ``from_storage_backend_id`` that has headroom."""
     seen_source = False
     for hotness in ranked:
-        if hotness.bucket.id == from_bucket_id:
+        if hotness.storage_backend.id == from_storage_backend_id:
             seen_source = True
             continue
         if not seen_source:
             continue
-        if _has_headroom(hotness.bucket, usages, blob.size_bytes, headroom_ratio):
-            return hotness.bucket
+        if _has_headroom(hotness.storage_backend, usages, blob.size_bytes, headroom_ratio):
+            return hotness.storage_backend
     return None
 
 
 def _hotter_destination_with_headroom(
-    ranked: list[BucketHotness],
+    ranked: list[StorageBackendHotness],
     *,
-    from_bucket_id: uuid.UUID,
+    from_storage_backend_id: uuid.UUID,
     blob: Blob,
     usages: dict[uuid.UUID, Any],
     headroom_ratio: float,
-    preferred_bucket_id: uuid.UUID | None = None,
-) -> Bucket | None:
-    """Hottest bucket ranked above ``from_bucket_id`` that still has headroom.
+    preferred_storage_backend_id: uuid.UUID | None = None,
+) -> StorageBackend | None:
+    """Hottest bucket ranked above ``from_storage_backend_id`` that still has headroom.
 
-    If ``preferred_bucket_id`` is set and is hotter than the source and has
+    If ``preferred_storage_backend_id`` is set and is hotter than the source and has
     headroom, prefer it over the absolute hottest. (Power-user override stays
     a hint, not a hard constraint.)
     """
-    candidates: list[Bucket] = []
+    candidates: list[StorageBackend] = []
     for hotness in ranked:
-        if hotness.bucket.id == from_bucket_id:
+        if hotness.storage_backend.id == from_storage_backend_id:
             break
-        candidates.append(hotness.bucket)
+        candidates.append(hotness.storage_backend)
     if not candidates:
         return None
 
-    if preferred_bucket_id is not None:
+    if preferred_storage_backend_id is not None:
         for bucket in candidates:
-            if bucket.id == preferred_bucket_id and _has_headroom(
+            if bucket.id == preferred_storage_backend_id and _has_headroom(
                 bucket, usages, blob.size_bytes, headroom_ratio
             ):
                 return bucket
@@ -843,7 +843,7 @@ def _hotter_destination_with_headroom(
 
 
 def _has_headroom(
-    bucket: Bucket,
+    bucket: StorageBackend,
     usages: dict[uuid.UUID, Any],
     size_bytes: int,
     headroom_ratio: float,
@@ -860,9 +860,9 @@ def _has_headroom(
 
 
 def _usage_after_delta(usage: Any, delta_bytes: int) -> Any:
-    from infra.db.stores.placement import BucketUsage
+    from infra.db.stores.placement import StorageBackendUsage
 
-    return BucketUsage(
+    return StorageBackendUsage(
         object_count=max(0, usage.object_count + (1 if delta_bytes > 0 else -1)),
         current_size_bytes=max(0, usage.current_size_bytes + delta_bytes),
     )
@@ -877,14 +877,14 @@ def _record_migration_event(
     skip_action: str,
     migration: BlobMigrationResult,
     blob: Blob,
-    from_bucket_id: uuid.UUID,
-    to_bucket_id: uuid.UUID,
+    from_storage_backend_id: uuid.UUID,
+    to_storage_backend_id: uuid.UUID,
     batch_id: uuid.UUID,
     duration_ms: int,
 ) -> None:
     base_meta = {
-        "from_bucket_id": str(from_bucket_id),
-        "to_bucket_id": str(to_bucket_id),
+        "from_storage_backend_id": str(from_storage_backend_id),
+        "to_storage_backend_id": str(to_storage_backend_id),
         "size_bytes": blob.size_bytes,
         "db_latency_ms": migration.db_latency_ms,
         "remote_latency_ms": migration.remote_latency_ms,
@@ -908,7 +908,7 @@ def _record_migration_event(
         operation=action,
         status=status,
         batch_id=batch_id,
-        bucket_id=to_bucket_id if migration.migrated else from_bucket_id,
+        storage_backend_id=to_storage_backend_id if migration.migrated else from_storage_backend_id,
         blob_id=blob.id,
         duration_ms=duration_ms,
         metadata=base_meta,

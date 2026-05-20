@@ -87,7 +87,7 @@ type AuditEventFiltersDraft = {
   actor_id: string
   request_id: string
   batch_id: string
-  bucket_id: string
+  storage_backend_id: string
   blob_id: string
   created_after: Date | undefined
   created_before: Date | undefined
@@ -106,7 +106,7 @@ export function AuditEventsPage() {
     actor_id: "",
     request_id: "",
     batch_id: "",
-    bucket_id: "",
+    storage_backend_id: "",
     blob_id: "",
     created_after: undefined,
     created_before: undefined,
@@ -127,7 +127,7 @@ export function AuditEventsPage() {
       actor_id: draft.actor_id,
       request_id: draft.request_id,
       batch_id: draft.batch_id,
-      bucket_id: draft.bucket_id,
+      storage_backend_id: draft.storage_backend_id,
       blob_id: draft.blob_id,
       created_after: toStartOfDayIso(draft.created_after),
       created_before: toEndOfDayIso(draft.created_before),
@@ -144,7 +144,7 @@ export function AuditEventsPage() {
       actor_id: "",
       request_id: "",
       batch_id: "",
-      bucket_id: "",
+      storage_backend_id: "",
       blob_id: "",
       created_after: undefined,
       created_before: undefined,
@@ -172,8 +172,8 @@ export function AuditEventsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Audit Log</h1>
           <p className="text-sm text-muted-foreground">
-            Explore durable audit events for identity, access, bucket, folder
-            changes, and storage maintenance.
+            Explore durable audit events for identity, access, storage backend,
+            folder changes, and storage maintenance.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -321,12 +321,12 @@ export function AuditEventsPage() {
               }
             />
             <Input
-              placeholder="Bucket ID"
-              value={draft.bucket_id}
+              placeholder="Storage Backend ID"
+              value={draft.storage_backend_id}
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
-                  bucket_id: event.target.value,
+                  storage_backend_id: event.target.value,
                 }))
               }
             />

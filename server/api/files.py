@@ -32,7 +32,7 @@ from constants import (
 from ports.entities import File
 from application.control_plane.files import get_file as get_file_use_case
 from application.control_plane import browse_filesystem
-from domain.files.search import KvsFilter, SearchQuery
+from domain.files.search import SearchQuery
 from application.control_plane.search_files import compute_facets, search_files
 
 router = APIRouter()
@@ -109,10 +109,9 @@ class FacetValueRead(BaseModel):
 class FacetsRead(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    tags: list[FacetValueRead]
+    meta_keys: list[FacetValueRead]
     mimetypes: list[FacetValueRead]
     extensions: list[FacetValueRead]
-    kvs_keys: list[FacetValueRead]
     total: int
 
 
@@ -216,9 +215,6 @@ async def search_files_route(
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
     q: str | None = None,
-    tag: list[str] = Query(default_factory=list),
-    require_all_tags: bool = False,
-    keyword: list[str] = Query(default_factory=list),
     mimetype: list[str] = Query(default_factory=list),
     extension: list[str] = Query(default_factory=list),
     min_size: int | None = None,
@@ -228,23 +224,20 @@ async def search_files_route(
     recursive: bool = False,
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
-    kv: list[str] = Query(default_factory=list),
+    meta: list[str] = Query(default_factory=list),
     sort: str = "updated_at",
     order: str = "desc",
     limit: int = Query(default=SEARCH_DEFAULT_LIMIT, ge=1, le=SEARCH_MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
 ) -> FileSearchResponse:
-    """Faceted, filterable search over file metadata.
+    """Faceted, filterable search over files and consumer-owned metadata.
 
-    All array params (`tag`, `keyword`, `mimetype`, `extension`, `kv`) accept
-    multiple values via repeated query params. `kv` items use the syntax
-    ``<key>:<op>:<value>`` (e.g. ``row_count:gte:1000``).
+    Array params (`mimetype`, `extension`, `meta`) accept multiple values via
+    repeated query params. Each ``meta`` item uses ``<key>:<op>:<value>`` where
+    ``key`` is a dot path into ``File.meta`` (e.g. ``row_count:gte:1000``).
     """
     query = build_search_query(
         q=q,
-        tags=tag,
-        require_all_tags=require_all_tags,
-        keywords=keyword,
         mimetypes=mimetype,
         extensions=extension,
         min_size=min_size,
@@ -254,7 +247,7 @@ async def search_files_route(
         recursive=recursive,
         created_after=created_after,
         created_before=created_before,
-        kvs=kv,
+        meta=meta,
         sort=sort,
         order=order,
         limit=limit,
@@ -274,9 +267,6 @@ async def file_facets(
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
     q: str | None = None,
-    tag: list[str] = Query(default_factory=list),
-    require_all_tags: bool = False,
-    keyword: list[str] = Query(default_factory=list),
     mimetype: list[str] = Query(default_factory=list),
     extension: list[str] = Query(default_factory=list),
     min_size: int | None = None,
@@ -286,7 +276,7 @@ async def file_facets(
     recursive: bool = False,
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
-    kv: list[str] = Query(default_factory=list),
+    meta: list[str] = Query(default_factory=list),
     top: int = Query(
         default=SEARCH_DEFAULT_FACET_TOP,
         ge=1,
@@ -295,14 +285,11 @@ async def file_facets(
 ) -> FacetsRead:
     """Facet counts over the same query shape as `/search`.
 
-    Each axis (tags, mimetypes, extensions) is computed with its own filter
-    cleared so the panel keeps working as the user toggles values.
+    Each axis is computed with its own filter cleared so the panel keeps working
+    as the user toggles values.
     """
     query = build_search_query(
         q=q,
-        tags=tag,
-        require_all_tags=require_all_tags,
-        keywords=keyword,
         mimetypes=mimetype,
         extensions=extension,
         min_size=min_size,
@@ -312,7 +299,7 @@ async def file_facets(
         recursive=recursive,
         created_after=created_after,
         created_before=created_before,
-        kvs=kv,
+        meta=meta,
         sort="updated_at",
         order="desc",
         limit=SEARCH_DEFAULT_LIMIT,
@@ -320,8 +307,9 @@ async def file_facets(
     )
     facets = compute_facets(uow, user=current_user, query=query, top=top)
     return FacetsRead(
-        tags=[
-            FacetValueRead(value=item.value, count=item.count) for item in facets.tags
+        meta_keys=[
+            FacetValueRead(value=item.value, count=item.count)
+            for item in facets.meta_keys
         ],
         mimetypes=[
             FacetValueRead(value=item.value, count=item.count)
@@ -331,10 +319,6 @@ async def file_facets(
             FacetValueRead(value=item.value, count=item.count)
             for item in facets.extensions
         ],
-        kvs_keys=[
-            FacetValueRead(value=item.value, count=item.count)
-            for item in facets.kvs_keys
-        ],
         total=facets.total,
     )
 
@@ -342,9 +326,6 @@ async def file_facets(
 def build_search_query(
     *,
     q: str | None,
-    tags: list[str],
-    require_all_tags: bool,
-    keywords: list[str],
     mimetypes: list[str],
     extensions: list[str],
     min_size: int | None,
@@ -354,17 +335,16 @@ def build_search_query(
     recursive: bool,
     created_after: dt.datetime | None,
     created_before: dt.datetime | None,
-    kvs: list[str],
+    meta: list[str],
     sort: str,
     order: str,
     limit: int,
     offset: int,
 ) -> SearchQuery:
+    from domain.files.search import MetaFilter
+
     return SearchQuery(
         q=q.strip() if q and q.strip() else None,
-        tags=tuple(_dedupe(tags)),
-        require_all_tags=require_all_tags,
-        keywords=tuple(_dedupe(keywords)),
         mimetypes=tuple(_dedupe(mimetypes)),
         extensions=tuple(_dedupe(extensions)),
         min_size=min_size,
@@ -374,7 +354,7 @@ def build_search_query(
         recursive=recursive,
         created_after=created_after,
         created_before=created_before,
-        kvs=tuple(KvsFilter.parse(item) for item in kvs),
+        meta=tuple(MetaFilter.parse(item) for item in meta),
         sort=sort,
         order=order,
         limit=limit,

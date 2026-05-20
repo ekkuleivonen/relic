@@ -9,8 +9,7 @@ from infra.db.engine import get_database_url
 from infra.db.models import Base
 
 config = context.config
-if not config.get_main_option("sqlalchemy.url"):
-    config.set_main_option("sqlalchemy.url", get_database_url())
+config.set_main_option("sqlalchemy.url", get_database_url())
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -91,9 +90,6 @@ def run_migrations_online() -> None:
             context.run_migrations()
         return
 
-    url = config.get_main_option("sqlalchemy.url")
-    if not url:
-        config.set_main_option("sqlalchemy.url", get_database_url())
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

@@ -1,5 +1,7 @@
 import * as React from "react"
 
+import { useNavigate } from "react-router"
+
 import { toast } from "sonner"
 
 import {
@@ -30,13 +32,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useBuckets } from "@/hooks/use-buckets"
+import { useStorageBackends } from "@/hooks/use-storage-backends"
 import {
   useCreateFolder,
   useDeleteFolder,
   useDuplicateFolder,
   useUpdateFolder,
 } from "@/hooks/use-folders"
+import { isRootFolder } from "@/lib/permissions"
 import type { FolderTreeNode } from "@/types/filesystem"
 
 type WithOpenChange = {
@@ -51,6 +54,7 @@ type CreateProps = WithOpenChange & {
 export function CreateFolderDialog({ open, onOpenChange, parent }: CreateProps) {
   const [name, setName] = React.useState("")
   const create = useCreateFolder()
+  const navigate = useNavigate()
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -59,8 +63,11 @@ export function CreateFolderDialog({ open, onOpenChange, parent }: CreateProps) 
       return
     }
     try {
-      await create.mutateAsync({ parent_id: parent.id, name: trimmed })
+      const folder = await create.mutateAsync({ parent_id: parent.id, name: trimmed })
       onOpenChange(false)
+      if (isRootFolder(parent)) {
+        navigate(`/folder/${encodeURIComponent(folder.id)}`, { replace: true })
+      }
     } catch {
       // toast already handled in the hook
     }
@@ -168,11 +175,11 @@ export function RenameFolderDialog({ open, onOpenChange, folder }: RenameProps) 
   )
 }
 
-type PreferredBucketProps = WithOpenChange & {
+type PreferredStorageBackendProps = WithOpenChange & {
   folder: FolderTreeNode
 }
 
-function PreferredBucketForm({
+function PreferredStorageBackendForm({
   folder,
   onDone,
 }: {
@@ -180,23 +187,24 @@ function PreferredBucketForm({
   onDone: () => void
 }) {
   const update = useUpdateFolder()
-  const bucketsQuery = useBuckets()
-  const buckets = React.useMemo(
-    () => bucketsQuery.data ?? [],
-    [bucketsQuery.data]
+  const storageBackendsQuery = useStorageBackends()
+  const storageBackends = React.useMemo(
+    () => storageBackendsQuery.data ?? [],
+    [storageBackendsQuery.data]
   )
 
   const [choice, setChoice] = React.useState(() =>
-    folder.preferred_bucket_id ?? "inherit"
+    folder.preferred_storage_backend_id ?? "inherit"
   )
 
   const effectivePreferredName = React.useMemo(() => {
-    if (folder.effective_preferred_bucket_id == null) return null
+    if (folder.effective_preferred_storage_backend_id == null) return null
     return (
-      buckets.find((b) => b.id === folder.effective_preferred_bucket_id)?.name ??
-      "an unknown bucket"
+      storageBackends.find(
+        (b) => b.id === folder.effective_preferred_storage_backend_id
+      )?.name ?? "an unknown backend"
     )
-  }, [buckets, folder.effective_preferred_bucket_id])
+  }, [storageBackends, folder.effective_preferred_storage_backend_id])
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -204,9 +212,9 @@ function PreferredBucketForm({
     try {
       await update.mutateAsync({
         id: folder.id,
-        preferred_bucket_id: payload,
+        preferred_storage_backend_id: payload,
       })
-      toast.success("Preferred bucket updated")
+      toast.success("Preferred storage backend updated")
       onDone()
     } catch {
       // hook toasts the error
@@ -216,24 +224,24 @@ function PreferredBucketForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Preferred bucket</DialogTitle>
+        <DialogTitle>Preferred storage backend</DialogTitle>
         <DialogDescription>
           Optional placement hint for <code>{folder.path || "/"}</code>. Without
           a preference Relic places new uploads in the hottest reachable
-          bucket. The preference is honored when the bucket has capacity; the
+          backend. The preference is honored when the backend has capacity; the
           maintenance loop can still demote/promote based on access patterns.
         </DialogDescription>
       </DialogHeader>
       <form className="flex flex-col gap-3" onSubmit={submit}>
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="preferred-bucket">Preferred bucket</Label>
+          <Label htmlFor="preferred-storage-backend">Preferred backend</Label>
           <Select
             value={choice}
             onValueChange={setChoice}
-            disabled={update.isPending || bucketsQuery.isLoading}
+            disabled={update.isPending || storageBackendsQuery.isLoading}
           >
-            <SelectTrigger id="preferred-bucket" className="w-full">
-              <SelectValue placeholder="Select a bucket" />
+            <SelectTrigger id="preferred-storage-backend" className="w-full">
+              <SelectValue placeholder="Select a backend" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="inherit">
@@ -241,9 +249,9 @@ function PreferredBucketForm({
                   ? "No preference (inherit)"
                   : `Inherit (${effectivePreferredName})`}
               </SelectItem>
-              {buckets.map((bucket) => (
-                <SelectItem key={bucket.id} value={bucket.id}>
-                  {bucket.name}
+              {storageBackends.map((storageBackend) => (
+                <SelectItem key={storageBackend.id} value={storageBackend.id}>
+                  {storageBackend.name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -251,7 +259,7 @@ function PreferredBucketForm({
           <p className="text-muted-foreground text-xs">
             "Inherit" walks up to the nearest ancestor with a preference set.
             For a deduplicated blob, the preference is only applied when every
-            referencing folder agrees on the same effective bucket.
+            referencing folder agrees on the same effective backend.
           </p>
         </div>
         <DialogFooter>
@@ -272,17 +280,17 @@ function PreferredBucketForm({
   )
 }
 
-export function PreferredBucketDialog({
+export function PreferredStorageBackendDialog({
   open,
   onOpenChange,
   folder,
-}: PreferredBucketProps) {
+}: PreferredStorageBackendProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         {open ? (
-          <PreferredBucketForm
-            key={`${folder.id}-${folder.preferred_bucket_id ?? "i"}-${folder.effective_preferred_bucket_id ?? ""}`}
+          <PreferredStorageBackendForm
+            key={`${folder.id}-${folder.preferred_storage_backend_id ?? "i"}-${folder.effective_preferred_storage_backend_id ?? ""}`}
             folder={folder}
             onDone={() => onOpenChange(false)}
           />

@@ -27,7 +27,7 @@ class AuditEventRead(BaseModel):
     request_id: str | None
     job: str | None
     batch_id: uuid.UUID | None
-    bucket_id: uuid.UUID | None
+    storage_backend_id: uuid.UUID | None
     blob_id: uuid.UUID | None
     duration_ms: int | None
     metadata: dict
@@ -45,7 +45,7 @@ class AuditEventRead(BaseModel):
             request_id=event.request_id,
             job=event.job,
             batch_id=event.batch_id,
-            bucket_id=event.bucket_id,
+            storage_backend_id=event.storage_backend_id,
             blob_id=event.blob_id,
             duration_ms=event.duration_ms,
             metadata=event.meta,
@@ -72,7 +72,7 @@ async def list_audit_events(
     request_id: str | None = None,
     job: str | None = None,
     batch_id: uuid.UUID | None = None,
-    bucket_id: uuid.UUID | None = None,
+    storage_backend_id: uuid.UUID | None = None,
     blob_id: uuid.UUID | None = None,
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
@@ -91,7 +91,7 @@ async def list_audit_events(
         request_id=request_id,
         job=job,
         batch_id=batch_id,
-        bucket_id=bucket_id,
+        storage_backend_id=storage_backend_id,
         blob_id=blob_id,
         created_after=created_after,
         created_before=created_before,

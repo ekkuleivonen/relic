@@ -4,7 +4,7 @@ from infra.db.repositories.access_keys import build_access_key_store
 from infra.db.repositories.audit import build_audit_port
 from infra.cache.list_objects import build_cache_port
 from infra.db.repositories.blobs import build_blob_store
-from infra.db.repositories.buckets import build_bucket_store
+from infra.db.repositories.storage_backends import build_storage_backend_store
 from infra.db.repositories.files import build_file_store
 from infra.db.repositories.folders import build_folder_store
 from infra.db.repositories.multipart import build_multipart_store
@@ -15,7 +15,7 @@ from ports.audit import AuditPort
 from ports.cache import CachePort
 from ports.repositories.access_keys import AccessKeyStore
 from ports.repositories.blobs import BlobStore
-from ports.repositories.buckets import BucketStore
+from ports.repositories.storage_backends import StorageBackendStore
 from ports.repositories.files import FileStore
 from ports.repositories.folders import FolderStore
 from ports.repositories.multipart import MultipartStore
@@ -31,7 +31,7 @@ class SqlAlchemyUnitOfWork:
         self._session = session
         self._files: FileStore | None = None
         self._folders: FolderStore | None = None
-        self._buckets: BucketStore | None = None
+        self._storage_backends: StorageBackendStore | None = None
         self._blobs: BlobStore | None = None
         self._users: UserStore | None = None
         self._access_keys: AccessKeyStore | None = None
@@ -59,10 +59,10 @@ class SqlAlchemyUnitOfWork:
         return self._folders
 
     @property
-    def buckets(self) -> BucketStore:
-        if self._buckets is None:
-            self._buckets = build_bucket_store(self._session)
-        return self._buckets
+    def storage_backends(self) -> StorageBackendStore:
+        if self._storage_backends is None:
+            self._storage_backends = build_storage_backend_store(self._session)
+        return self._storage_backends
 
     @property
     def blobs(self) -> BlobStore:

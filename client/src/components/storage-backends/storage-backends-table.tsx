@@ -18,22 +18,23 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { storageBackendKindLabel } from "@/lib/storage-backends"
 import { cn } from "@/lib/utils"
-import type { Bucket } from "@/types/buckets"
+import type { StorageBackend } from "@/types/storage-backends"
 
-type BucketsTableProps = {
-  buckets: Bucket[]
+type StorageBackendsTableProps = {
+  storageBackends: StorageBackend[]
   isLoading: boolean
   probingId?: string
   drainingId?: string
-  onEdit: (bucket: Bucket) => void
-  onDelete: (bucket: Bucket) => void
-  onProbe: (bucket: Bucket) => void
-  onDrain: (bucket: Bucket) => void
+  onEdit: (storageBackend: StorageBackend) => void
+  onDelete: (storageBackend: StorageBackend) => void
+  onProbe: (storageBackend: StorageBackend) => void
+  onDrain: (storageBackend: StorageBackend) => void
 }
 
-export function BucketsTable({
-  buckets,
+export function StorageBackendsTable({
+  storageBackends,
   isLoading,
   probingId,
   drainingId,
@@ -41,7 +42,7 @@ export function BucketsTable({
   onDelete,
   onProbe,
   onDrain,
-}: BucketsTableProps) {
+}: StorageBackendsTableProps) {
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -52,25 +53,26 @@ export function BucketsTable({
     )
   }
 
-  if (buckets.length === 0) {
+  if (storageBackends.length === 0) {
     return (
       <div className="border px-4 py-10 text-center text-sm text-muted-foreground">
-        No bucket backends registered yet.
+        No storage backends registered yet.
       </div>
     )
   }
 
-  const sorted = rankByHotness(buckets)
+  const sorted = rankByHotness(storageBackends)
 
   return (
     <Table>
       <TableHeader>
         <TableRow>
           <TableHead>Hotness</TableHead>
+          <TableHead>Kind</TableHead>
           <TableHead>Name</TableHead>
-          <TableHead>Endpoint</TableHead>
+          <TableHead>Endpoint / Base path</TableHead>
           <TableHead>Region</TableHead>
-          <TableHead>Bucket</TableHead>
+          <TableHead>Namespace</TableHead>
           <TableHead>Objects</TableHead>
           <TableHead>Usage</TableHead>
           <TableHead>Avg latency</TableHead>
@@ -79,55 +81,69 @@ export function BucketsTable({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {sorted.map((bucket, index) => (
-          <TableRow key={bucket.id}>
+        {sorted.map((storageBackend, index) => (
+          <TableRow key={storageBackend.id}>
             <TableCell>
-              <HotnessBadge bucket={bucket} rank={index + 1} />
-            </TableCell>
-            <TableCell className="font-medium">{bucket.name}</TableCell>
-            <TableCell className="max-w-64 truncate">{bucket.endpoint}</TableCell>
-            <TableCell>{bucket.region}</TableCell>
-            <TableCell className="font-mono text-xs">{bucket.bucket}</TableCell>
-            <TableCell>{bucket.object_count}</TableCell>
-            <TableCell>
-              <BucketUsage bucket={bucket} />
+              <HotnessBadge storageBackend={storageBackend} rank={index + 1} />
             </TableCell>
             <TableCell>
-              <LatencyTag bucket={bucket} />
+              <Badge variant="outline">
+                {storageBackendKindLabel(storageBackend.kind)}
+              </Badge>
+            </TableCell>
+            <TableCell className="font-medium">{storageBackend.name}</TableCell>
+            <TableCell className="max-w-64 truncate">
+              {storageBackend.endpoint}
             </TableCell>
             <TableCell>
-              <ReachableTag bucket={bucket} />
+              {storageBackend.kind === "filesystem" ? "—" : storageBackend.region}
+            </TableCell>
+            <TableCell className="font-mono text-xs">
+              {storageBackend.namespace}
+            </TableCell>
+            <TableCell>{storageBackend.object_count}</TableCell>
+            <TableCell>
+              <StorageBackendUsage storageBackend={storageBackend} />
+            </TableCell>
+            <TableCell>
+              <LatencyTag storageBackend={storageBackend} />
+            </TableCell>
+            <TableCell>
+              <ReachableTag storageBackend={storageBackend} />
             </TableCell>
             <TableCell>
               <div className="flex justify-end gap-1">
                 <ActionButton
-                  label="Probe bucket"
-                  tooltip="Run sequential PUT, HEAD, GET, and DELETE probes; the result is appended to the bucket's rolling probe history."
-                  disabled={probingId === bucket.id}
-                  onClick={() => onProbe(bucket)}
+                  label="Probe storage backend"
+                  tooltip="Run sequential PUT, HEAD, GET, and DELETE probes; the result is appended to the backend's rolling probe history."
+                  disabled={probingId === storageBackend.id}
+                  onClick={() => onProbe(storageBackend)}
                 >
                   <ActivityIcon />
                 </ActionButton>
                 <ActionButton
-                  label="Drain bucket"
-                  tooltip="Migrate all blobs in this bucket to colder backends with available capacity."
-                  disabled={drainingId === bucket.id || bucket.object_count === 0}
-                  onClick={() => onDrain(bucket)}
+                  label="Drain storage backend"
+                  tooltip="Migrate all blobs in this backend to colder backends with available capacity."
+                  disabled={
+                    drainingId === storageBackend.id ||
+                    storageBackend.object_count === 0
+                  }
+                  onClick={() => onDrain(storageBackend)}
                 >
                   <ArrowDownToLine />
                 </ActionButton>
                 <ActionButton
-                  label="Edit bucket"
-                  tooltip="Edit mutable bucket settings, limit, and credentials."
-                  onClick={() => onEdit(bucket)}
+                  label="Edit storage backend"
+                  tooltip="Edit mutable backend settings, limit, and credentials."
+                  onClick={() => onEdit(storageBackend)}
                 >
                   <PencilIcon />
                 </ActionButton>
                 <ActionButton
-                  label="Delete bucket"
-                  tooltip="Delete this bucket record if no blobs reference it."
+                  label="Delete storage backend"
+                  tooltip="Delete this backend record if no blobs reference it."
                   variant="destructive"
-                  onClick={() => onDelete(bucket)}
+                  onClick={() => onDelete(storageBackend)}
                 >
                   <Trash2Icon />
                 </ActionButton>
@@ -140,8 +156,8 @@ export function BucketsTable({
   )
 }
 
-function rankByHotness(buckets: Bucket[]): Bucket[] {
-  return [...buckets].sort((a, b) => {
+function rankByHotness(storageBackends: StorageBackend[]): StorageBackend[] {
+  return [...storageBackends].sort((a, b) => {
     if (a.reachable !== b.reachable) return a.reachable ? -1 : 1
     if (a.avg_latency_ms === null && b.avg_latency_ms === null) {
       return a.name.localeCompare(b.name)
@@ -155,8 +171,14 @@ function rankByHotness(buckets: Bucket[]): Bucket[] {
   })
 }
 
-function HotnessBadge({ bucket, rank }: { bucket: Bucket; rank: number }) {
-  if (!bucket.reachable) {
+function HotnessBadge({
+  storageBackend,
+  rank,
+}: {
+  storageBackend: StorageBackend
+  rank: number
+}) {
+  if (!storageBackend.reachable) {
     return (
       <Badge
         variant="outline"
@@ -180,27 +202,36 @@ function HotnessBadge({ bucket, rank }: { bucket: Bucket; rank: number }) {
   )
 }
 
-function BucketUsage({ bucket }: { bucket: Bucket }) {
+function StorageBackendUsage({
+  storageBackend,
+}: {
+  storageBackend: StorageBackend
+}) {
   const percentUsed =
-    bucket.max_size_bytes === 0
+    storageBackend.max_size_bytes === 0
       ? 0
-      : Math.min((bucket.current_size_bytes / bucket.max_size_bytes) * 100, 100)
+      : Math.min(
+          (storageBackend.current_size_bytes / storageBackend.max_size_bytes) *
+            100,
+          100
+        )
 
   return (
     <div className="min-w-32 space-y-1.5">
       <Progress value={percentUsed} aria-label={`${percentUsed}% used`} />
       <div className="whitespace-nowrap text-xs text-muted-foreground">
-        {formatBytes(bucket.current_size_bytes)} / {formatBytes(bucket.max_size_bytes)}
+        {formatBytes(storageBackend.current_size_bytes)} /{" "}
+        {formatBytes(storageBackend.max_size_bytes)}
       </div>
     </div>
   )
 }
 
-function LatencyTag({ bucket }: { bucket: Bucket }) {
+function LatencyTag({ storageBackend }: { storageBackend: StorageBackend }) {
   const display =
-    bucket.avg_latency_ms === null
+    storageBackend.avg_latency_ms === null
       ? "--"
-      : `${Math.round(bucket.avg_latency_ms)}ms`
+      : `${Math.round(storageBackend.avg_latency_ms)}ms`
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -209,25 +240,26 @@ function LatencyTag({ bucket }: { bucket: Bucket }) {
         </span>
       </TooltipTrigger>
       <TooltipContent>
-        Rolling average across the last {bucket.probe_sample_count} successful
-        probe{bucket.probe_sample_count === 1 ? "" : "s"}.
+        Rolling average across the last {storageBackend.probe_sample_count}{" "}
+        successful probe
+        {storageBackend.probe_sample_count === 1 ? "" : "s"}.
       </TooltipContent>
     </Tooltip>
   )
 }
 
-function ReachableTag({ bucket }: { bucket: Bucket }) {
+function ReachableTag({ storageBackend }: { storageBackend: StorageBackend }) {
   return (
     <Badge
       variant="outline"
       className={cn(
         "border",
-        bucket.reachable
+        storageBackend.reachable
           ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
           : "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300"
       )}
     >
-      {bucket.reachable ? "Yes" : "No"}
+      {storageBackend.reachable ? "Yes" : "No"}
     </Badge>
   )
 }
@@ -242,9 +274,11 @@ function formatBytes(bytes: number) {
     unitIndex += 1
   }
 
-  return new Intl.NumberFormat(undefined, {
-    maximumFractionDigits: 1,
-  }).format(value) + ` ${units[unitIndex]}`
+  return (
+    new Intl.NumberFormat(undefined, {
+      maximumFractionDigits: 1,
+    }).format(value) + ` ${units[unitIndex]}`
+  )
 }
 
 type ActionButtonProps = {

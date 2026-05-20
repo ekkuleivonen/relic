@@ -14,10 +14,8 @@ from constants import (
 from domain.exceptions import BadRequestError
 from domain.files.search import (
     FacetValue,
-    KvsFilter,
     SearchQuery,
-    count_kvs_keys,
-    count_list_axis,
+    count_meta_keys,
     count_scalar_axis,
     top_facet_values,
 )
@@ -36,10 +34,9 @@ class SearchResults:
 
 @dataclass(frozen=True)
 class Facets:
-    tags: list[FacetValue]
+    meta_keys: list[FacetValue]
     mimetypes: list[FacetValue]
     extensions: list[FacetValue]
-    kvs_keys: list[FacetValue]
     total: int
 
 
@@ -69,22 +66,18 @@ def compute_facets(
         top = SEARCH_MAX_FACET_TOP
 
     full_match = _matched_files(uow, user=user, query=query)
-    tags_axis = _matched_files(
-        uow, user=user, query=replace(query, tags=(), require_all_tags=False)
-    )
+    meta_axis = _matched_files(uow, user=user, query=replace(query, meta=()))
     mimetypes_axis = _matched_files(
         uow, user=user, query=replace(query, mimetypes=())
     )
     extensions_axis = _matched_files(
         uow, user=user, query=replace(query, extensions=())
     )
-    kvs_axis = _matched_files(uow, user=user, query=replace(query, kvs=()))
 
     return Facets(
-        tags=top_facet_values(count_list_axis(tags_axis, "tags"), top),
+        meta_keys=top_facet_values(count_meta_keys(meta_axis), top),
         mimetypes=top_facet_values(count_scalar_axis(mimetypes_axis, "mimetype"), top),
         extensions=top_facet_values(count_scalar_axis(extensions_axis, "extension"), top),
-        kvs_keys=top_facet_values(count_kvs_keys(kvs_axis), top),
         total=len(full_match),
     )
 

@@ -40,7 +40,7 @@ def duplicate_folder(
     cloned_root = Folder(
         parent_id=destination.id,
         name=name,
-        preferred_bucket_id=source.preferred_bucket_id,
+        preferred_storage_backend_id=source.preferred_storage_backend_id,
     )
     uow.folders.add(cloned_root)
 
@@ -71,7 +71,7 @@ def duplicate_folder(
                 clone = Folder(
                     parent_id=target.id,
                     name=child.name,
-                    preferred_bucket_id=child.preferred_bucket_id,
+                    preferred_storage_backend_id=child.preferred_storage_backend_id,
                 )
                 uow.folders.add(clone)
                 cloned_by_source[child.id] = clone

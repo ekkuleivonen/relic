@@ -5,32 +5,34 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable
 
-from constants import SEARCH_SUPPORTED_KVS_OPS
+from constants import SEARCH_SUPPORTED_META_OPS
 from domain.exceptions import BadRequestError
 from infra.db.models import File
 
+_MISSING = object()
+
 
 @dataclass(frozen=True)
-class KvsFilter:
+class MetaFilter:
     key: str
     op: str
     value: str
 
     @classmethod
-    def parse(cls, raw: str) -> "KvsFilter":
+    def parse(cls, raw: str) -> "MetaFilter":
         parts = raw.split(":", 2)
         if len(parts) != 3:
             raise BadRequestError(
-                "kv filter must be '<key>:<op>:<value>' (e.g. row_count:gte:1000)"
+                "meta filter must be '<key>:<op>:<value>' (e.g. row_count:gte:1000)"
             )
         key, op, value = (part.strip() for part in parts)
         if not key:
-            raise BadRequestError("kv filter key cannot be empty")
-        if op not in SEARCH_SUPPORTED_KVS_OPS:
+            raise BadRequestError("meta filter key cannot be empty")
+        if op not in SEARCH_SUPPORTED_META_OPS:
             raise BadRequestError(
-                f"kv filter op must be one of {sorted(SEARCH_SUPPORTED_KVS_OPS)}"
+                f"meta filter op must be one of {sorted(SEARCH_SUPPORTED_META_OPS)}"
             )
         return cls(key=key, op=op, value=value)
 
@@ -38,9 +40,6 @@ class KvsFilter:
 @dataclass(frozen=True)
 class SearchQuery:
     q: str | None = None
-    tags: tuple[str, ...] = ()
-    require_all_tags: bool = False
-    keywords: tuple[str, ...] = ()
     mimetypes: tuple[str, ...] = ()
     extensions: tuple[str, ...] = ()
     min_size: int | None = None
@@ -50,7 +49,7 @@ class SearchQuery:
     recursive: bool = False
     created_after: dt.datetime | None = None
     created_before: dt.datetime | None = None
-    kvs: tuple[KvsFilter, ...] = ()
+    meta: tuple[MetaFilter, ...] = ()
     sort: str = "updated_at"
     order: str = "desc"
     limit: int = 50
@@ -81,44 +80,17 @@ def matches_blob_pre_filters(file: File, query: SearchQuery) -> bool:
 def matches_text_filters(file: File, query: SearchQuery) -> bool:
     meta = file.meta or {}
 
-    file_tags = {_normalize(value) for value in meta.get("tags", []) if _normalize(value)}
-    if query.tags:
-        wanted = {_normalize(tag) for tag in query.tags if _normalize(tag)}
-        if wanted:
-            if query.require_all_tags:
-                if not wanted <= file_tags:
-                    return False
-            elif not (wanted & file_tags):
-                return False
-
-    file_keywords = {
-        _normalize(value) for value in meta.get("keywords", []) if _normalize(value)
-    }
-    if query.keywords:
-        wanted = {_normalize(keyword) for keyword in query.keywords if _normalize(keyword)}
-        if wanted and not (wanted & file_keywords):
-            return False
-
     if query.q:
         haystack = " ".join(
-            value
-            for value in (
-                file.name or "",
-                meta.get("summary") or "",
-                *(str(item) for item in meta.get("keywords", [])),
-                *(str(item) for item in meta.get("tags", [])),
-            )
-            if value
+            [file.name or "", *flatten_meta_strings(meta)]
         ).lower()
         for term in _tokenize(query.q):
             if term not in haystack:
                 return False
 
-    if query.kvs:
-        kvs = meta.get("kvs") or {}
-        for kvs_filter in query.kvs:
-            if not _kvs_filter_matches(kvs, kvs_filter):
-                return False
+    for meta_filter in query.meta:
+        if not _meta_filter_matches(meta, meta_filter):
+            return False
 
     return True
 
@@ -131,18 +103,6 @@ def sort_key(field: str):
     if field == "created_at":
         return lambda file: file.created_at
     return lambda file: file.updated_at
-
-
-def count_list_axis(files: Iterable[File], key: str) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for file in files:
-        meta = file.meta or {}
-        for raw in meta.get(key, []) or ():
-            value = _string_or_none(raw)
-            if value is None:
-                continue
-            counts[value] = counts.get(value, 0) + 1
-    return counts
 
 
 def count_scalar_axis(files: Iterable[File], key: str) -> dict[str, int]:
@@ -162,14 +122,13 @@ def count_scalar_axis(files: Iterable[File], key: str) -> dict[str, int]:
     return counts
 
 
-def count_kvs_keys(files: Iterable[File]) -> dict[str, int]:
+def count_meta_keys(files: Iterable[File]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for file in files:
         meta = file.meta or {}
-        kvs = meta.get("kvs") or {}
-        if not isinstance(kvs, dict):
+        if not isinstance(meta, dict):
             continue
-        for raw_key in kvs.keys():
+        for raw_key in meta.keys():
             key = _string_or_none(raw_key)
             if key is None:
                 continue
@@ -182,30 +141,75 @@ def top_facet_values(counts: dict[str, int], top: int) -> list[FacetValue]:
     return [FacetValue(value=value, count=count) for value, count in items[:top]]
 
 
-def _kvs_filter_matches(kvs: dict, kvs_filter: KvsFilter) -> bool:
-    if kvs_filter.key not in kvs:
-        return False
-    actual = kvs[kvs_filter.key]
+def flatten_meta_strings(meta: dict[str, Any], prefix: str = "") -> list[str]:
+    strings: list[str] = []
+    for raw_key, value in meta.items():
+        key = _string_or_none(raw_key)
+        if key is None:
+            continue
+        path = f"{prefix}.{key}" if prefix else key
+        strings.extend(_flatten_value_strings(value, path))
+    return strings
 
-    if kvs_filter.op in {"gte", "lte", "lt", "gt"}:
+
+def get_meta_value(meta: dict[str, Any], path: str) -> Any:
+    current: Any = meta
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return _MISSING
+        current = current[part]
+    return current
+
+
+def _flatten_value_strings(value: Any, path: str) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        return flatten_meta_strings(value, path)
+    if isinstance(value, list):
+        out: list[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                out.extend(flatten_meta_strings(item, path))
+            elif item is not None:
+                out.append(str(item))
+        return out
+    return [str(value)]
+
+
+def _meta_filter_matches(meta: dict[str, Any], meta_filter: MetaFilter) -> bool:
+    actual = get_meta_value(meta, meta_filter.key)
+    if actual is _MISSING:
+        return False
+
+    if isinstance(actual, list):
+        return any(
+            _scalar_meta_filter_matches(item, meta_filter) for item in actual
+        )
+
+    return _scalar_meta_filter_matches(actual, meta_filter)
+
+
+def _scalar_meta_filter_matches(actual: Any, meta_filter: MetaFilter) -> bool:
+    if meta_filter.op in {"gte", "lte", "lt", "gt"}:
         try:
             actual_num = float(actual)
-            target_num = float(kvs_filter.value)
+            target_num = float(meta_filter.value)
         except (TypeError, ValueError):
             return False
-        if kvs_filter.op == "gte":
+        if meta_filter.op == "gte":
             return actual_num >= target_num
-        if kvs_filter.op == "lte":
+        if meta_filter.op == "lte":
             return actual_num <= target_num
-        if kvs_filter.op == "lt":
+        if meta_filter.op == "lt":
             return actual_num < target_num
-        if kvs_filter.op == "gt":
+        if meta_filter.op == "gt":
             return actual_num > target_num
 
-    if kvs_filter.op == "eq":
-        return _coerce_str(actual) == kvs_filter.value
-    if kvs_filter.op == "neq":
-        return _coerce_str(actual) != kvs_filter.value
+    if meta_filter.op == "eq":
+        return _coerce_str(actual) == meta_filter.value
+    if meta_filter.op == "neq":
+        return _coerce_str(actual) != meta_filter.value
     return False
 
 
@@ -215,12 +219,6 @@ def _coerce_str(value) -> str:
     if value is None:
         return ""
     return str(value)
-
-
-def _normalize(value) -> str:
-    if value is None:
-        return ""
-    return str(value).strip().lower()
 
 
 def _tokenize(q: str) -> list[str]:

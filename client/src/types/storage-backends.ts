@@ -1,14 +1,17 @@
-export type Bucket = {
+export type StorageBackendKind = "s3" | "filesystem" | "azure_blob" | "gcs"
+
+export type StorageBackend = {
   id: string
   name: string
   endpoint: string
   region: string
-  bucket: string
+  namespace: string
   /** Masked on read (last four characters visible). */
   key_id: string
   /** Always masked on read; supply a new value via update to rotate. */
   secret_access_key: string
   max_size_bytes: number
+  kind: StorageBackendKind
   object_count: number
   current_size_bytes: number
   avg_latency_ms: number | null
@@ -16,32 +19,34 @@ export type Bucket = {
   reachable: boolean
 }
 
-export type BucketCreateInput = {
+export type StorageBackendCreateInput = {
   name: string
   endpoint: string
-  region: string
-  bucket: string
-  key_id: string
-  secret_access_key: string
+  region?: string
+  namespace: string
+  key_id?: string
+  secret_access_key?: string
   max_size_bytes: number
+  kind: StorageBackendKind
 }
 
-export type BucketUpdateInput = Partial<
+export type StorageBackendUpdateInput = Partial<
   Pick<
-    BucketCreateInput,
+    StorageBackendCreateInput,
     | "name"
     | "endpoint"
     | "region"
-    | "bucket"
+    | "namespace"
     | "key_id"
     | "secret_access_key"
     | "max_size_bytes"
+    | "kind"
   >
 >
 
-export type BucketProbeResult = Bucket
+export type StorageBackendProbeResult = StorageBackend
 
-export type BucketProbeSample = {
+export type StorageBackendProbeSample = {
   id: string
   observed_at: string
   success: boolean
@@ -51,7 +56,7 @@ export type BucketProbeSample = {
   delete_ms: number | null
 }
 
-export type DrainBucketResponse = {
+export type DrainStorageBackendResponse = {
   moved: number
   skipped: number
   failed: number

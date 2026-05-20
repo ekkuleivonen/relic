@@ -5,14 +5,14 @@ from io import BytesIO
 from typing import Any, BinaryIO
 
 from domain.exceptions import BadRequestError
-from infra.db.models import Bucket
+from infra.db.models import StorageBackend
 from ports.storage_registry import StorageRegistry
 
 _RANGE_RE = re.compile(r"bytes=(\d+)-(\d*)")
 
 
-def _remote_object(bucket: Bucket, bucket_key: str) -> tuple[str, str]:
-    return bucket.bucket, bucket_key
+def _remote_object(bucket: StorageBackend, bucket_key: str) -> tuple[str, str]:
+    return bucket.namespace, bucket_key
 
 
 def _body_size(body: BinaryIO) -> int:
@@ -26,14 +26,14 @@ def _body_size(body: BinaryIO) -> int:
 def upload_blob(
     *,
     storage: StorageRegistry,
-    bucket: Bucket,
+    bucket: StorageBackend,
     bucket_key: str,
     body: BinaryIO,
 ) -> None:
-    adapter = storage.for_bucket(bucket)
+    adapter = storage.for_storage_backend(bucket)
     remote_bucket, key = _remote_object(bucket, bucket_key)
     adapter.put(
-        bucket=remote_bucket,
+        namespace=remote_bucket,
         key=key,
         body=body,
         size=_body_size(body),
@@ -43,12 +43,12 @@ def upload_blob(
 def delete_blob_bytes(
     *,
     storage: StorageRegistry,
-    bucket: Bucket,
+    bucket: StorageBackend,
     bucket_key: str,
 ) -> None:
-    adapter = storage.for_bucket(bucket)
+    adapter = storage.for_storage_backend(bucket)
     remote_bucket, key = _remote_object(bucket, bucket_key)
-    adapter.delete(bucket=remote_bucket, key=key)
+    adapter.delete(namespace=remote_bucket, key=key)
 
 
 def _parse_range_header(range_header: str, total_size: int) -> tuple[int, int, dict[str, str]]:
@@ -71,19 +71,19 @@ def _parse_range_header(range_header: str, total_size: int) -> tuple[int, int, d
 def fetch_blob_bytes(
     *,
     storage: StorageRegistry,
-    bucket: Bucket,
+    bucket: StorageBackend,
     bucket_key: str,
     range_header: str | None = None,
 ) -> dict[str, Any]:
     """Return a boto-shaped response dict with ``Body`` as a readable stream."""
-    adapter = storage.for_bucket(bucket)
+    adapter = storage.for_storage_backend(bucket)
     remote_bucket, key = _remote_object(bucket, bucket_key)
 
     if range_header:
-        total = adapter.head(bucket=remote_bucket, key=key)
+        total = adapter.head(namespace=remote_bucket, key=key)
         start, end, headers = _parse_range_header(range_header, total)
-        data = adapter.get(bucket=remote_bucket, key=key, start=start, end=end)
+        data = adapter.get(namespace=remote_bucket, key=key, start=start, end=end)
         return {**headers, "Body": BytesIO(data)}
 
-    data = adapter.get(bucket=remote_bucket, key=key)
+    data = adapter.get(namespace=remote_bucket, key=key)
     return {"ContentLength": len(data), "Body": BytesIO(data)}

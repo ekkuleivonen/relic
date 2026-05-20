@@ -17,7 +17,7 @@ class BlobStore(Protocol):
     def delete_row(self, blob: Blob) -> None: ...
 
     def list_pressured_candidates(
-        self, *, bucket_ids: set[uuid.UUID], limit: int
+        self, *, storage_backend_ids: set[uuid.UUID], limit: int
     ) -> list[Blob]: ...
 
     def list_recently_accessed_candidates(

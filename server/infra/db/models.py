@@ -20,7 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
-from enums import EventStatus, Permission, StorageKind, UserRole
+from enums import EventStatus, Permission, StorageBackendKind, UserRole
 from utils.crypto import decrypt_string, encrypt_string
 
 JSONType = JSON().with_variant(JSONB, "postgresql")
@@ -88,28 +88,31 @@ class AccessKey(Base, TimestampMixin):
         self._secret_access_key = encrypt_string(value)
 
 
-class Bucket(Base, TimestampMixin):
-    __tablename__ = "buckets"
+class StorageBackend(Base, TimestampMixin):
+    __tablename__ = "storage_backends"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     endpoint: Mapped[str] = mapped_column(Text, nullable=False)
     region: Mapped[str] = mapped_column(String(128), nullable=False)
-    bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    namespace: Mapped[str] = mapped_column(String(255), nullable=False)
     _key_id: Mapped[str] = mapped_column("key_id", Text, nullable=False)
     _secret_access_key: Mapped[str] = mapped_column(
         "secret_access_key", Text, nullable=False
     )
     max_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    storage_kind: Mapped[str] = mapped_column(
-        String(32), nullable=False, default=StorageKind.S3, server_default=StorageKind.S3
+    kind: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=StorageBackendKind.S3,
+        server_default=StorageBackendKind.S3,
     )
 
-    blobs: Mapped[list["Blob"]] = relationship(back_populates="bucket")
-    probes: Mapped[list["BucketProbe"]] = relationship(
-        back_populates="bucket",
+    blobs: Mapped[list["Blob"]] = relationship(back_populates="storage_backend")
+    probes: Mapped[list["StorageBackendProbe"]] = relationship(
+        back_populates="storage_backend",
         cascade="all, delete-orphan",
-        order_by="desc(BucketProbe.observed_at)",
+        order_by="desc(StorageBackendProbe.observed_at)",
     )
 
     @property
@@ -129,27 +132,27 @@ class Bucket(Base, TimestampMixin):
         self._secret_access_key = encrypt_string(value)
 
 
-class BucketProbe(Base):
-    """Per-probe sample of bucket reachability and per-op latency.
+class StorageBackendProbe(Base):
+    """Per-probe sample of storage backend reachability and per-op latency.
 
-    Buckets do not carry a static ``tier`` anymore; placement ranks them by
-    averaging ``put/head/get/delete`` latency across the most recent successful
-    probes (see :func:`infra.db.stores.placement.hotness_ranked_buckets`).
+    Storage backends do not carry a static ``tier`` anymore; placement ranks them
+    by averaging ``put/head/get/delete`` latency across the most recent successful
+    probes (see :func:`infra.db.stores.placement.hotness_ranked_storage_backends`).
     """
 
-    __tablename__ = "bucket_probes"
+    __tablename__ = "storage_backend_probes"
     __table_args__ = (
         Index(
-            "ix_bucket_probes_bucket_id_observed_at",
-            "bucket_id",
+            "ix_storage_backend_probes_storage_backend_id_observed_at",
+            "storage_backend_id",
             "observed_at",
         ),
-        Index("ix_bucket_probes_observed_at", "observed_at"),
+        Index("ix_storage_backend_probes_observed_at", "observed_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    bucket_id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), ForeignKey("buckets.id", ondelete="CASCADE"), nullable=False
+    storage_backend_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("storage_backends.id", ondelete="CASCADE"), nullable=False
     )
     observed_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -160,7 +163,7 @@ class BucketProbe(Base):
     get_ms: Mapped[int | None] = mapped_column(Integer)
     delete_ms: Mapped[int | None] = mapped_column(Integer)
 
-    bucket: Mapped[Bucket] = relationship(back_populates="probes")
+    storage_backend: Mapped[StorageBackend] = relationship(back_populates="probes")
 
 
 class Blob(Base, TimestampMixin):
@@ -176,9 +179,9 @@ class Blob(Base, TimestampMixin):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    bucket_id: Mapped[uuid.UUID] = mapped_column(
+    storage_backend_id: Mapped[uuid.UUID] = mapped_column(
         GUID(),
-        ForeignKey("buckets.id", ondelete="RESTRICT"),
+        ForeignKey("storage_backends.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -193,14 +196,14 @@ class Blob(Base, TimestampMixin):
     accessed_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
-    # Wall-clock of the last successful migration between buckets. The
+    # Wall-clock of the last successful migration between storage_backends. The
     # storage maintenance cron uses this to enforce a minimum residency window
     # before considering a blob for another move (anti-thrash hysteresis).
     migrated_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 
-    bucket: Mapped[Bucket] = relationship(back_populates="blobs")
+    storage_backend: Mapped[StorageBackend] = relationship(back_populates="blobs")
     files: Mapped[list["File"]] = relationship(back_populates="blob")
 
 
@@ -227,9 +230,9 @@ class Folder(Base, TimestampMixin):
     # available bucket". The maintenance cron may still demote files out of the
     # preferred bucket once it fills, but new uploads preferentially go there
     # whenever capacity allows.
-    preferred_bucket_id: Mapped[uuid.UUID | None] = mapped_column(
+    preferred_storage_backend_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(),
-        ForeignKey("buckets.id", ondelete="SET NULL"),
+        ForeignKey("storage_backends.id", ondelete="SET NULL"),
         nullable=True,
     )
 
@@ -238,7 +241,7 @@ class Folder(Base, TimestampMixin):
     )
     children: Mapped[list["Folder"]] = relationship(back_populates="parent")
     files: Mapped[list["File"]] = relationship(back_populates="folder")
-    preferred_bucket: Mapped[Bucket | None] = relationship()
+    preferred_storage_backend: Mapped[StorageBackend | None] = relationship()
 
 
 class FolderAccess(Base, TimestampMixin):
@@ -311,14 +314,14 @@ class MultipartUpload(Base, TimestampMixin):
     actor_id: Mapped[uuid.UUID] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    storage_bucket_id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), ForeignKey("buckets.id", ondelete="RESTRICT"), nullable=False
+    storage_backend_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("storage_backends.id", ondelete="RESTRICT"), nullable=False
     )
     meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
 
     folder: Mapped[Folder] = relationship()
     actor: Mapped[User] = relationship()
-    storage_bucket: Mapped[Bucket] = relationship()
+    storage_backend: Mapped[StorageBackend] = relationship()
     parts: Mapped[list["MultipartUploadPart"]] = relationship(
         back_populates="upload",
         cascade="all, delete-orphan",
@@ -368,7 +371,11 @@ class AuditEvent(Base, TimestampMixin):
         Index("ix_audit_events_created_at_id", "created_at", "id"),
         Index("ix_audit_events_job_created_at", "job", "created_at"),
         Index("ix_audit_events_batch_id_created_at", "batch_id", "created_at"),
-        Index("ix_audit_events_bucket_id_created_at", "bucket_id", "created_at"),
+        Index(
+            "ix_audit_events_storage_backend_id_created_at",
+            "storage_backend_id",
+            "created_at",
+        ),
         Index("ix_audit_events_blob_id_created_at", "blob_id", "created_at"),
     )
 
@@ -381,8 +388,8 @@ class AuditEvent(Base, TimestampMixin):
     request_id: Mapped[str | None] = mapped_column(String(255))
     job: Mapped[str | None] = mapped_column(String(128))
     batch_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
-    bucket_id: Mapped[uuid.UUID | None] = mapped_column(
-        GUID(), ForeignKey("buckets.id", ondelete="SET NULL")
+    storage_backend_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("storage_backends.id", ondelete="SET NULL")
     )
     # Deliberately not a foreign key: maintenance rows may reference purged blobs.
     blob_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
@@ -390,4 +397,4 @@ class AuditEvent(Base, TimestampMixin):
     meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
 
     actor: Mapped[User | None] = relationship()
-    bucket: Mapped[Bucket | None] = relationship()
+    storage_backend: Mapped[StorageBackend | None] = relationship()

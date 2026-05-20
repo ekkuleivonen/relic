@@ -10,7 +10,7 @@ import infra.health as health
 import infra.metrics as metrics
 from .access_keys import router as access_keys_router
 from .auth import router as auth_router
-from .buckets import router as buckets_router
+from .storage_backends import router as storage_backends_router
 from .dependencies import require_admin, require_user
 from .exception_handlers import register_exception_handlers
 from .files import router as files_router
@@ -76,9 +76,9 @@ app.include_router(
     dependencies=[Depends(require_admin)],
 )
 app.include_router(
-    buckets_router,
-    prefix=f"{API_PREFIX}/buckets",
-    tags=["buckets"],
+    storage_backends_router,
+    prefix=f"{API_PREFIX}/storage-backends",
+    tags=["storage-backends"],
     dependencies=[Depends(require_admin)],
 )
 app.include_router(

@@ -16,7 +16,7 @@ from infra.db.stores.auth import create_session_token
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from tests.factories.models import BucketFactory, UserFactory
+from tests.factories.models import StorageBackendFactory, UserFactory
 
 
 
@@ -77,12 +77,12 @@ def archives_folder(db_session, root_folder):
 
 @pytest.fixture()
 def physical_bucket(db_session):
-    from tests.factories.models import BucketProbeFactory
+    from tests.factories.models import StorageBackendProbeFactory
 
-    bucket = BucketFactory.build(name="hot")
+    bucket = StorageBackendFactory.build(name="hot")
     db_session.add(bucket)
     db_session.flush()
-    db_session.add(BucketProbeFactory.build(bucket_id=bucket.id))
+    db_session.add(StorageBackendProbeFactory.build(storage_backend_id=bucket.id))
     db_session.commit()
     return bucket
 
@@ -110,7 +110,7 @@ def make_file(db_session, *, folder, blob, name, user, meta=None):
 
 def make_blob(db_session, *, bucket, content_hash):
     blob = Blob(
-        bucket_id=bucket.id,
+        storage_backend_id=bucket.id,
         bucket_key="2026/05/09/blob",
         content_hash=content_hash,
         size_bytes=9,

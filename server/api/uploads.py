@@ -65,6 +65,7 @@ async def presign_upload(
     folder = presigned_access.require_folder_for_write(
         uow, actor=actor, folder_id=payload.folder_id
     )
+    presigned_access.require_folder_accepts_files(folder)
     bucket, key = presigned_access.bucket_and_key_for_destination(
         uow, folder=folder, filename=payload.filename
     )
@@ -152,6 +153,7 @@ async def presign_copy(
     dest_folder = presigned_access.require_folder_for_write(
         uow, actor=actor, folder_id=payload.destination_folder_id
     )
+    presigned_access.require_folder_accepts_files(dest_folder)
 
     dest_filename = payload.name or source_file.name
     source_bucket, source_key = presigned_access.bucket_and_key_for_file(

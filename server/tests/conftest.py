@@ -4,7 +4,7 @@ import pytest
 from api.app import app
 from infra.cache import folder_access as folder_access_cache
 from infra.cache.tiered import clear_all_tiered_caches
-from infra.db.stores.placement import clear_bucket_usage_cache
+from infra.db.stores.placement import clear_storage_backend_usage_cache
 from fastapi.testclient import TestClient
 from infra.db.engine import get_db
 from sqlalchemy.orm import sessionmaker
@@ -22,7 +22,7 @@ def _clear_folder_access_caches():
 
 @pytest.fixture()
 def db_session():
-    clear_bucket_usage_cache()
+    clear_storage_backend_usage_cache()
     engine = create_test_engine()
     upgrade_test_schema(engine)
     SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -30,7 +30,7 @@ def db_session():
         folder_access_cache.clear_hotpath_cache(session)
         yield session
         folder_access_cache.clear_hotpath_cache(session)
-    clear_bucket_usage_cache()
+    clear_storage_backend_usage_cache()
 
 
 @pytest.fixture()

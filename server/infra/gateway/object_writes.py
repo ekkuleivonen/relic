@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from infra.db.stores import folder_access
-from infra.db.stores.placement import choose_bucket, effective_preferred_bucket_id
+from infra.db.stores.placement import choose_storage_backend, effective_preferred_storage_backend_id
 from infra.gateway.object_blobs import create_blob, prepare_body
 from infra.gateway.object_paths import resolve_object_path
 from infra.gateway.object_types import PutObjectResult
@@ -66,13 +66,13 @@ def put_object(
         if existing_file is None or existing_file.blob_id != blob.id:
             blob.refcount += 1
     else:
-        bucket = choose_bucket(
+        bucket = choose_storage_backend(
             db,
             size_bytes=object_size,
-            preferred_bucket_id=effective_preferred_bucket_id(db, folder),
+            preferred_storage_backend_id=effective_preferred_storage_backend_id(db, folder),
         )
         enforce_single_put_size(
-            caps=storage.for_bucket(bucket).capabilities,
+            caps=storage.for_storage_backend(bucket).capabilities,
             size_bytes=object_size,
         )
         created_blob = create_blob(

@@ -1,5 +1,6 @@
 import * as React from "react"
 
+import { MetaJsonEditor } from "@/components/filesystem/meta-json-editor"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -9,11 +10,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { useBulkMoveFiles, useBulkPatchFileMeta } from "@/hooks/use-files"
 import { useFolderTree } from "@/hooks/use-filesystem"
-import { PERM, can } from "@/lib/permissions"
+import { META_PATCH_HINT, parseMetaPatchJson } from "@/lib/file-meta"
+import { canAcceptFiles } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import type { FolderTreeNode } from "@/types/filesystem"
 
@@ -121,7 +121,7 @@ function collectWritableFolders(
   const out: FolderTreeNode[] = []
 
   function walk(node: FolderTreeNode) {
-    if (node.id !== excludeFolderId && can(node.effective_permissions, PERM.WRITE)) {
+    if (node.id !== excludeFolderId && canAcceptFiles(node)) {
       out.push(node)
     }
     for (const child of node.children) {
@@ -147,31 +147,24 @@ export function BulkPatchMetaDialog({
   onCompleted,
 }: BulkPatchMetaDialogProps) {
   const bulkPatch = useBulkPatchFileMeta()
-  const [metaJson, setMetaJson] = React.useState('{\n  "tags": []\n}')
+  const [metaJson, setMetaJson] = React.useState("{}")
   const [parseError, setParseError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (!open) {
-      setMetaJson('{\n  "tags": []\n}')
+      setMetaJson("{}")
       setParseError(null)
     }
   }, [open])
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    let meta: Record<string, unknown>
-    try {
-      meta = JSON.parse(metaJson) as Record<string, unknown>
-      if (meta === null || Array.isArray(meta) || typeof meta !== "object") {
-        throw new Error("Metadata must be a JSON object")
-      }
-      setParseError(null)
-    } catch (error) {
-      setParseError(
-        error instanceof Error ? error.message : "Invalid JSON metadata"
-      )
+    const { meta, error } = parseMetaPatchJson(metaJson)
+    if (error || !meta) {
+      setParseError(error)
       return
     }
+    setParseError(null)
 
     try {
       await bulkPatch.mutateAsync({ file_ids: fileIds, meta })
@@ -186,30 +179,22 @@ export function BulkPatchMetaDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Edit metadata for {fileIds.length} files</DialogTitle>
+          <DialogTitle>Merge metadata into {fileIds.length} files</DialogTitle>
           <DialogDescription>
-            Provide a JSON object to deep-merge into each selected file&apos;s
-            metadata. Omitted keys are left unchanged.
+            Provide a JSON object to deep-merge into each selected file. Omitted
+            keys are left unchanged.
           </DialogDescription>
         </DialogHeader>
         <form className="flex flex-col gap-3" onSubmit={submit}>
-          <div className="grid gap-2">
-            <Label htmlFor="bulk-meta-json">Metadata patch</Label>
-            <Textarea
-              id="bulk-meta-json"
-              value={metaJson}
-              onChange={(event) => {
-                setMetaJson(event.target.value)
-                setParseError(null)
-              }}
-              rows={10}
-              className="font-mono text-xs"
-              spellCheck={false}
-            />
-            {parseError ? (
-              <p className="text-xs text-destructive">{parseError}</p>
-            ) : null}
-          </div>
+          <MetaJsonEditor
+            id="bulk-meta-json"
+            value={metaJson}
+            onChange={setMetaJson}
+            rows={10}
+            error={parseError}
+            onErrorChange={setParseError}
+          />
+          <p className="text-xs text-muted-foreground">{META_PATCH_HINT}</p>
           <DialogFooter>
             <Button
               type="button"

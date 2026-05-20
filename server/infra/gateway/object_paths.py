@@ -40,7 +40,7 @@ def resolve_object_path(
         select(Folder).where(Folder.parent_id == root.id, Folder.name == bucket_name)
     )
     if not bucket_folder:
-        raise ResourceNotFound("Bucket folder not found")
+        raise ResourceNotFound("StorageBackend folder not found")
 
     parent = bucket_folder
     for folder_name in parts[:-1]:
@@ -158,7 +158,9 @@ def build_bucket_and_key_for_destination(
     folder_path = folder_access.resolve_folder_path(db, folder)
     parts = [part for part in folder_path.split("/") if part]
     if not parts:
-        raise BadRequestError("Cannot place files in the root folder")
+        raise BadRequestError(
+            "Files must be uploaded into a subfolder, not the root folder."
+        )
     bucket = parts[0]
     key_parts = [*parts[1:], filename]
     return bucket, "/".join(key_parts)

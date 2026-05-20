@@ -42,9 +42,9 @@ from ports.entities import User
 router = APIRouter()
 
 """
-Proxies S3 requests to the underlying buckets.
+Proxies S3 requests to the underlying storage_backends.
 
-Path-style routing only (e.g. PUT /{bucket}/{key}). Bucket maps to a top-level
+Path-style routing only (e.g. PUT /{bucket}/{key}). StorageBackend maps to a top-level
 Folder; key maps to nested Folders + final File.name. Authentication is SigV4
 against AccessKey rows.
 """
@@ -76,7 +76,7 @@ async def head_bucket(bucket: str, request: Request, uow: UnitOfWorkDep) -> Resp
     except object_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
     except ResourceNotFound:
-        return s3_error_response("NoSuchBucket", "Bucket not found", status_code=404)
+        return s3_error_response("NoSuchBucket", "Storage backend not found", status_code=404)
     except DomainError as exc:
         return domain_error_response(exc)
 
@@ -98,7 +98,7 @@ async def list_objects_v2(bucket: str, request: Request, uow: UnitOfWorkDep) -> 
         except object_signing.S3SigningError as exc:
             return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
         except ResourceNotFound:
-            return s3_error_response("NoSuchBucket", "Bucket not found", status_code=404)
+            return s3_error_response("NoSuchBucket", "Storage backend not found", status_code=404)
         except DomainError as exc:
             return domain_error_response(exc)
 
@@ -147,7 +147,7 @@ async def list_objects_v2(bucket: str, request: Request, uow: UnitOfWorkDep) -> 
     except object_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
     except ResourceNotFound:
-        return s3_error_response("NoSuchBucket", "Bucket not found", status_code=404)
+        return s3_error_response("NoSuchBucket", "Storage backend not found", status_code=404)
     except DomainError as exc:
         return domain_error_response(exc)
 

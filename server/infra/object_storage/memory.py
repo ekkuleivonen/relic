@@ -21,42 +21,42 @@ class MemoryObjectStorage:
         )
 
     def put(
-        self, *, bucket: str, key: str, body: BinaryIO, size: int
+        self, *, namespace: str, key: str, body: BinaryIO, size: int
     ) -> PutResult:
         data = body.read(size)
-        self._objects[(bucket, key)] = data
+        self._objects[(namespace, key)] = data
         return PutResult(etag=hashlib.sha256(data).hexdigest())
 
     def get(
-        self, *, bucket: str, key: str, start: int | None = None, end: int | None = None
+        self, *, namespace: str, key: str, start: int | None = None, end: int | None = None
     ) -> bytes:
-        data = self._objects.get((bucket, key))
+        data = self._objects.get((namespace, key))
         if data is None:
             raise ResourceNotFound("Object not found")
         if start is None and end is None:
             return data
         return data[start : (end + 1 if end is not None else None)]
 
-    def head(self, *, bucket: str, key: str) -> int:
-        data = self._objects.get((bucket, key))
+    def head(self, *, namespace: str, key: str) -> int:
+        data = self._objects.get((namespace, key))
         if data is None:
             raise ResourceNotFound("Object not found")
         return len(data)
 
-    def delete(self, *, bucket: str, key: str) -> None:
-        self._objects.pop((bucket, key), None)
+    def delete(self, *, namespace: str, key: str) -> None:
+        self._objects.pop((namespace, key), None)
 
     def copy(
         self,
         *,
-        src_bucket: str,
+        src_namespace: str,
         src_key: str,
-        dest_bucket: str,
+        dest_namespace: str,
         dest_key: str,
     ) -> PutResult:
-        data = self.get(bucket=src_bucket, key=src_key)
+        data = self.get(namespace=src_namespace, key=src_key)
         return self.put(
-            bucket=dest_bucket,
+            namespace=dest_namespace,
             key=dest_key,
             body=BytesIO(data),
             size=len(data),
@@ -65,13 +65,15 @@ class MemoryObjectStorage:
     def compose_parts(
         self,
         *,
-        bucket: str,
+        namespace: str,
         dest_key: str,
         source_keys: list[str],
     ) -> PutResult:
-        data = b"".join(self.get(bucket=bucket, key=source_key) for source_key in source_keys)
+        data = b"".join(
+            self.get(namespace=namespace, key=source_key) for source_key in source_keys
+        )
         return self.put(
-            bucket=bucket,
+            namespace=namespace,
             key=dest_key,
             body=BytesIO(data),
             size=len(data),

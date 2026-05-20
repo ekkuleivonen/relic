@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from infra.db.models import BucketProbe
+from infra.db.models import StorageBackendProbe
 from sqlalchemy.orm import Session
 
 

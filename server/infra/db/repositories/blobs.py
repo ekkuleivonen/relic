@@ -56,14 +56,14 @@ class SqlAlchemyBlobStore:
         self._session.delete(blob)
 
     def list_pressured_candidates(
-        self, *, bucket_ids: set[uuid.UUID], limit: int
+        self, *, storage_backend_ids: set[uuid.UUID], limit: int
     ) -> list[Blob]:
-        if not bucket_ids:
+        if not storage_backend_ids:
             return []
         return list(
             self._session.scalars(
                 select(Blob)
-                .where(Blob.bucket_id.in_(bucket_ids), Blob.refcount > 0)
+                .where(Blob.storage_backend_id.in_(storage_backend_ids), Blob.refcount > 0)
                 .options(selectinload(Blob.files).selectinload(File.folder))
                 .order_by(Blob.accessed_at.asc())
                 .limit(limit)

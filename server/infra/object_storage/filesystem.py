@@ -22,13 +22,14 @@ class FilesystemObjectStorage:
             max_single_put_bytes=512 * 1024 * 1024,
         )
 
-    def _path(self, bucket: str, key: str) -> Path:
-        return self._base / bucket / key
+    def _path(self, namespace: str, key: str) -> Path:
+        return self._base / namespace / key
 
     def put(
-        self, *, bucket: str, key: str, body: BinaryIO, size: int
+        self, *, namespace: str, key: str, body: BinaryIO, size: int
     ) -> PutResult:
-        path = self._path(bucket, key)
+        del size
+        path = self._path(namespace, key)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(path.suffix + ".tmp")
         with open(tmp, "wb") as handle:
@@ -40,9 +41,9 @@ class FilesystemObjectStorage:
         return PutResult(etag=digest)
 
     def get(
-        self, *, bucket: str, key: str, start: int | None = None, end: int | None = None
+        self, *, namespace: str, key: str, start: int | None = None, end: int | None = None
     ) -> bytes:
-        path = self._path(bucket, key)
+        path = self._path(namespace, key)
         if not path.is_file():
             raise ResourceNotFound("Object not found")
         data = path.read_bytes()
@@ -50,27 +51,27 @@ class FilesystemObjectStorage:
             return data
         return data[start : (end + 1 if end is not None else None)]
 
-    def head(self, *, bucket: str, key: str) -> int:
-        path = self._path(bucket, key)
+    def head(self, *, namespace: str, key: str) -> int:
+        path = self._path(namespace, key)
         if not path.is_file():
             raise ResourceNotFound("Object not found")
         return path.stat().st_size
 
-    def delete(self, *, bucket: str, key: str) -> None:
-        path = self._path(bucket, key)
+    def delete(self, *, namespace: str, key: str) -> None:
+        path = self._path(namespace, key)
         if path.is_file():
             path.unlink()
 
     def copy(
         self,
         *,
-        src_bucket: str,
+        src_namespace: str,
         src_key: str,
-        dest_bucket: str,
+        dest_namespace: str,
         dest_key: str,
     ) -> PutResult:
-        src = self._path(src_bucket, src_key)
-        dest = self._path(dest_bucket, dest_key)
+        src = self._path(src_namespace, src_key)
+        dest = self._path(dest_namespace, dest_key)
         if not src.is_file():
             raise ResourceNotFound("Object not found")
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -82,16 +83,16 @@ class FilesystemObjectStorage:
     def compose_parts(
         self,
         *,
-        bucket: str,
+        namespace: str,
         dest_key: str,
         source_keys: list[str],
     ) -> PutResult:
-        dest = self._path(bucket, dest_key)
+        dest = self._path(namespace, dest_key)
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(dest.suffix + ".tmp")
         with open(tmp, "wb") as output:
             for source_key in source_keys:
-                src = self._path(bucket, source_key)
+                src = self._path(namespace, source_key)
                 if not src.is_file():
                     raise ResourceNotFound("Object not found")
                 with open(src, "rb") as source:

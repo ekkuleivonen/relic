@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from "react-router"
 import { OffsetPaginationBar } from "@/components/pagination-offset"
 import { FacetSidebar } from "@/components/search/facet-sidebar"
 import { FilterPills } from "@/components/search/filter-pills"
-import { KvsFilterEditor } from "@/components/search/kvs-filter-editor"
+import { MetaFilterEditor } from "@/components/search/meta-filter-editor"
 import { SearchInput } from "@/components/search/search-input"
 import { SearchResultsTable } from "@/components/search/search-results-table"
 import { SidebarFooter } from "@/components/layout/sidebar-footer"
@@ -23,7 +23,7 @@ import {
   serializeSearchQuery,
 } from "@/lib/search-query"
 import { cn } from "@/lib/utils"
-import type { KvsFilter, SearchOrder, SearchQuery, SearchSort } from "@/types/search"
+import type { MetaFilter, SearchOrder, SearchQuery, SearchSort } from "@/types/search"
 import type { FolderTreeNode } from "@/types/filesystem"
 
 const SORT_OPTIONS: { value: SearchSort; label: string }[] = [
@@ -55,7 +55,7 @@ export function SearchPage() {
   }
 
   const search = useFileSearch(query)
-  // Cap matches the backend MAX_FACET_TOP so the kvs editor and the sidebar
+  // Cap matches the backend MAX_FACET_TOP so the meta editor and the sidebar
   // see the full long tail of values in one round trip.
   const facets = useSearchFacets(query, { top: 100 })
 
@@ -77,12 +77,12 @@ export function SearchPage() {
               onChange={applyQuery}
             />
             <div className="mt-6">
-              <KvsFilterEditor
-                availableKeys={facets.data?.kvs_keys ?? []}
+              <MetaFilterEditor
+                availableKeys={facets.data?.meta_keys ?? []}
                 onAdd={(filter) =>
                   applyQuery({
                     ...query,
-                    kvs: dedupeKvs([...query.kvs, filter]),
+                    meta: dedupeMeta([...query.meta, filter]),
                     offset: 0,
                   })
                 }
@@ -112,7 +112,7 @@ export function SearchPage() {
                     applyQuery({ ...query, q: value, offset: 0 })
                   }
                   autoFocus={isEmpty}
-                  placeholder="Search by name, summary, keyword, or tag…"
+                  placeholder="Search name and metadata…"
                   className="min-w-0 flex-1"
                 />
               </div>
@@ -278,7 +278,7 @@ function EmptyState({ query }: { query: SearchQuery }) {
       </div>
       <p className="mt-1 max-w-md text-xs text-muted-foreground">
         {isInitial
-          ? "Type a query, or pick a tag from the sidebar to start exploring."
+          ? "Type a query, or pick a facet from the sidebar to start exploring."
           : "Try removing a filter, or pick a different facet from the sidebar."}
       </p>
     </div>
@@ -308,9 +308,9 @@ function findFolderById(
   return undefined
 }
 
-function dedupeKvs(filters: KvsFilter[]): KvsFilter[] {
+function dedupeMeta(filters: MetaFilter[]): MetaFilter[] {
   const seen = new Set<string>()
-  const out: KvsFilter[] = []
+  const out: MetaFilter[] = []
   for (const filter of filters) {
     const key = `${filter.key}:${filter.op}:${filter.value}`
     if (seen.has(key)) continue

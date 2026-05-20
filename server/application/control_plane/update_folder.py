@@ -18,8 +18,8 @@ def update_folder(
     folder_id: uuid.UUID,
     name: str | None = None,
     parent_id: uuid.UUID | None = None,
-    preferred_bucket_id: uuid.UUID | None = None,
-    set_preferred_bucket_id: bool = False,
+    preferred_storage_backend_id: uuid.UUID | None = None,
+    set_preferred_storage_backend_id: bool = False,
 ) -> FolderResult:
     folder = uow.permissions.require_folder(folder_id)
     if folder.parent_id is None:
@@ -29,7 +29,7 @@ def update_folder(
     uow.permissions.require_folder_permission(actor, folder.id, Permission.WRITE)
 
     user = uow.permissions.get_user(actor)
-    if set_preferred_bucket_id and user.role != UserRole.ADMIN:
+    if set_preferred_storage_backend_id and user.role != UserRole.ADMIN:
         raise PermissionDenied(
             "Only administrators can change folder storage preferences."
         )
@@ -55,13 +55,13 @@ def update_folder(
         folder.parent_id = new_parent.id
         changed = True
 
-    if set_preferred_bucket_id:
-        if preferred_bucket_id is not None:
+    if set_preferred_storage_backend_id:
+        if preferred_storage_backend_id is not None:
             try:
-                uow.buckets.get(preferred_bucket_id)
+                uow.storage_backends.get(preferred_storage_backend_id)
             except ResourceNotFound as exc:
                 raise BadRequestError("Preferred bucket does not exist") from exc
-        folder.preferred_bucket_id = preferred_bucket_id
+        folder.preferred_storage_backend_id = preferred_storage_backend_id
         changed = True
 
     if not changed:
@@ -75,8 +75,8 @@ def update_folder(
         folder_id=str(folder.id),
         name=name if name is not None else None,
         parent_id=str(parent_id) if parent_id is not None else None,
-        preferred_bucket_id=(
-            str(preferred_bucket_id) if set_preferred_bucket_id else None
+        preferred_storage_backend_id=(
+            str(preferred_storage_backend_id) if set_preferred_storage_backend_id else None
         ),
         user_id=str(actor.id),
     )

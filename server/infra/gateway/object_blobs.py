@@ -11,14 +11,14 @@ from domain.blobs.sniff import (
 )
 from domain.exceptions import BadRequestError, ConflictError
 from ports.storage_policy import enforce_max_object_bytes
-from infra.db.models import Blob, Bucket
+from infra.db.models import Blob, StorageBackend
 from ports.storage_registry import StorageRegistry
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from infra.gateway import blob_storage
 from infra.gateway.object_types import CreateBlobResult
-from infra.db.stores.placement import adjust_bucket_usage_cache
+from infra.db.stores.placement import adjust_storage_backend_usage_cache
 from utils.timing import elapsed_ms, timer_start
 
 
@@ -57,7 +57,7 @@ def create_blob(
     db: Session,
     *,
     storage: StorageRegistry,
-    bucket: Bucket,
+    bucket: StorageBackend,
     digest: bytes,
     body: BinaryIO,
     size_bytes: int,
@@ -69,7 +69,7 @@ def create_blob(
         size_bytes=size_bytes,
     )
     blob = Blob(
-        bucket_id=bucket.id,
+        storage_backend_id=bucket.id,
         bucket_key="",
         content_hash=digest,
         size_bytes=size_bytes,
@@ -90,7 +90,7 @@ def create_blob(
     )
     remote_latency_ms = elapsed_ms(remote_started, minimum=0)
 
-    adjust_bucket_usage_cache(
+    adjust_storage_backend_usage_cache(
         bucket.id, object_count_delta=1, size_bytes_delta=size_bytes
     )
     return CreateBlobResult(blob=blob, remote_latency_ms=remote_latency_ms)
@@ -100,7 +100,7 @@ def create_composed_blob(
     db: Session,
     *,
     storage: StorageRegistry,
-    bucket: Bucket,
+    bucket: StorageBackend,
     digest: bytes,
     size_bytes: int,
     filename: str,
@@ -108,7 +108,7 @@ def create_composed_blob(
     prefix: bytes,
 ) -> CreateBlobResult:
     blob = Blob(
-        bucket_id=bucket.id,
+        storage_backend_id=bucket.id,
         bucket_key="",
         content_hash=digest,
         size_bytes=size_bytes,
@@ -124,14 +124,14 @@ def create_composed_blob(
 
     blob.bucket_key = build_blob_bucket_key(blob)
     remote_started = timer_start()
-    storage.for_bucket(bucket).compose_parts(
-        bucket=bucket.bucket,
+    storage.for_storage_backend(bucket).compose_parts(
+        namespace=bucket.namespace,
         dest_key=blob.bucket_key,
         source_keys=source_keys,
     )
     remote_latency_ms = elapsed_ms(remote_started, minimum=0)
 
-    adjust_bucket_usage_cache(
+    adjust_storage_backend_usage_cache(
         bucket.id, object_count_delta=1, size_bytes_delta=size_bytes
     )
     return CreateBlobResult(blob=blob, remote_latency_ms=remote_latency_ms)

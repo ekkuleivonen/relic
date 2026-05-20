@@ -1,47 +1,107 @@
 # Relic Hazard Log
 
-Production-readiness audit across the filesystem, storage, S3 gateway, access
+Production-readiness hazards across the filesystem, storage, S3 gateway, access
 control, search, maintenance, and operational surfaces.
+
+**Last reviewed:** 2026-05-20 (aligned with P0–P2 app hardening in tree).
+
+## Summary
+
+| ID | Hazard | Status |
+| --- | --- | --- |
+| H-001 | Permission / access-key cache lag (multi-instance) | **Mitigated** |
+| H-002 | ListObjects cache not cleared on ACL changes | **Mitigated** |
+| H-003 | No global max upload size | **Mitigated** |
+| H-004 | No quotas / retention / legal hold | **Open** |
+| H-005 | Bucket secrets returned on admin read | **Mitigated** |
+| H-006 | Placement on unprobed buckets | **Mitigated** |
+| H-007 | Multipart local disk assembly | **Partial** |
+| H-008 | Search / facets in-memory | **Partial** |
+| H-009 | Full folder-table walks | **Partial** |
+| H-010 | No Prometheus `/metrics` | **Mitigated** |
+| H-011 | No worker heartbeats | **Mitigated** (maintenance only) |
+| H-012 | Processor DLQ / poison events | **N/A** (processors removed) |
+| H-013 | No import from existing buckets | **Open** |
+| H-014 | No file versioning | **Open** |
+| H-015 | Narrow S3 client compatibility | **Open** |
+| H-016 | Dev config does not fail readiness | **Open** |
+
+### Operational notes (current implementation)
+
+- **Shared caches** use `infra/cache/tiered.py` (process memory + Redis, generation
+  bump on invalidate). Namespaces: `list_objects`, `access_key_active`,
+  `folder_tree`, `folder_paths`, `effective_permissions`.
+- **Redis availability:** if Redis is unavailable, invalidation may not propagate
+  across API pods (local generation bump only). Treat Redis as a hard dependency
+  for multi-replica cache coherence.
+- **Invalidation:** folder grant/revoke, access-key mutations, and file/folder
+  mutations call `uow.cache.invalidate_list_objects()` where listings can change.
+- **Upload cap:** `MAX_OBJECT_BYTES` (default 5 GiB) enforced on PUT spool,
+  blob create, and multipart complete (including streaming hash/assemble paths).
+- **Placement:** `PLACEMENT_REQUIRE_REACHABLE_BUCKET=true` by default skips
+  buckets without a recent successful probe for new writes.
+- **Metrics:** `GET /metrics` (Prometheus); API + gateway + maintenance metrics.
+- **Worker liveness:** maintenance worker writes Redis heartbeats;
+  `/readyz` checks `workers.maintenance` when
+  `MAINTENANCE_HEARTBEAT_REQUIRED=true` (default **false** — enable in prod).
+- **Processors / file_events:** removed (migration 0024). H-012 applies only if
+  durable outbound event consumers are reintroduced.
+
+---
 
 ## Findings
 
 ### H-001: Permission and access-key revocation can lag behind admin changes
 
 - **Area:** Access control, S3 gateway
-- **Impact:** High. A revoked folder grant or access key can remain effective in
-  another API/worker process until its in-memory TTL expires, so users may keep
-  listing or accessing objects briefly after an admin removes access.
-- **Suggested fix or mitigation:** Move hot-path auth/permission caches to Redis
-  with explicit invalidation, or version grants/access keys in the database and
-  include the version in cache keys. Until then, keep TTLs very short and document
-  revocation as eventually consistent.
+- **Status:** **Mitigated.** Hot-path caches use `TieredCache` backed by Redis with
+  generation-based invalidation. Access-key credentials, effective folder
+  permissions, and folder tree/path snapshots are cached in shared namespaces.
+  Grant/revoke and access-key create/revoke/delete invalidate the relevant
+  namespaces (see `application/control_plane/grant_folder_access.py`,
+  `access_key_mutations.py`, `infra/cache/folder_access.py`).
+- **Residual risk:** Low if Redis is healthy. If Redis is down, invalidation may
+  be process-local only until Redis recovers. `mark_access_key_used` debounce
+  remains in-process (last-used timestamps only, not auth).
+- **Impact:** High (was). Revoked grants or keys could remain effective in other
+  pods until TTL expiry.
+- **Suggested fix or mitigation:** Keep Redis highly available in multi-replica
+  deployments. Optional: fail readiness when Redis cache invalidation is
+  unavailable. Document revocation as eventually consistent only under Redis
+  outage.
 
 ### H-002: S3 ListObjects cache is not cleared on permission changes
 
 - **Area:** Access control, S3 gateway listings
-- **Impact:** High. A user whose access was revoked can receive a cached
-  `ListObjectsV2` response for the old permission set until the listing cache
-  expires.
-- **Suggested fix or mitigation:** Clear the S3 list response cache when folder
-  grants are created, updated, or revoked. Include a permission generation value
-  in the cache key for multi-process safety.
+- **Status:** **Mitigated.** `ListObjectsV2` responses are cached in the
+  `list_objects` tiered namespace. `invalidate_list_objects()` bumps the
+  generation on folder ACL grant/revoke, access-key mutations, and metadata
+  mutations that affect listings. Cache keys include deployment scope and
+  permission-relevant inputs (see `api/s3/helpers.py`).
+- **Residual risk:** Same Redis outage caveat as H-001; default TTL
+  `S3_LIST_OBJECTS_CACHE_TTL_SECONDS` (15s) bounds staleness.
+- **Impact:** High (was). Revoked users could receive cached listings.
+- **Suggested fix or mitigation:** None required for pilot if Redis is reliable.
+  Add cross-pod integration tests if regressions are a concern.
 
 ### H-003: Uploads have no hard product limit
 
 - **Area:** Uploads, S3 gateway, storage guardrails
-- **Impact:** High. A user can upload very large objects until backing storage,
-  local spooling disk, or bucket capacity fails, causing noisy errors and
-  possible service degradation.
-- **Suggested fix or mitigation:** Add a configured maximum upload size enforced
-  while streaming request bodies and during multipart completion. Return a clear
-  S3/API error before exhausting local disk or object-store capacity.
+- **Status:** **Mitigated.** `MAX_OBJECT_BYTES` in `settings.py` (default 5 GiB)
+  enforced via `enforce_max_object_bytes()` in `ports/storage_policy.py` on:
+  request body spool (`api/s3/helpers.py`), PUT path, blob create, multipart
+  complete (hash and assemble loops). Per-backend `StorageCapabilities` limits
+  still apply in addition.
+- **Impact:** High (was). Unbounded uploads could exhaust disk or storage.
+- **Suggested fix or mitigation:** Tune `MAX_OBJECT_BYTES` per environment;
+  enforce matching limits at ingress if desired.
 
 ### H-004: Quotas and retention/deletion protection are not implemented
 
 - **Area:** Data safety guardrails
-- **Impact:** High. Users can accidentally or maliciously consume unbounded
-  storage, and admins cannot protect critical folders from deletion or enforce
-  retention/legal-hold rules.
+- **Status:** **Open.**
+- **Impact:** High. Users can consume unbounded storage; no legal hold or
+  deletion protection on folders/files.
 - **Suggested fix or mitigation:** Implement per-user, per-folder, and global
   quotas first, then add retention/deletion-protection checks to file, folder,
   S3 delete, and purge paths.
@@ -49,132 +109,136 @@ control, search, maintenance, and operational surfaces.
 ### H-005: Bucket credentials are returned in admin read responses
 
 - **Area:** Bucket administration
-- **Impact:** High. Any admin API response for bucket reads includes decrypted
-  `key_id` and `secret_access_key`, increasing blast radius from logs, browser
-  inspection, support captures, or compromised admin sessions.
-- **Suggested fix or mitigation:** Treat bucket secrets as write-only. Return
-  masked key identifiers and expose a rotate/update flow instead of returning the
-  decrypted secret.
+- **Status:** **Mitigated.** Admin read/list responses use masked `key_id` and
+  `secret_access_key` via `infra/db/stores/bucket_reads.py` and
+  `utils/secrets.py`. Create/update still accept plaintext secrets; storage
+  remains encrypted at rest. Tests: `test_bucket_read_responses_mask_credentials`.
+- **Impact:** High (was). Decrypted secrets in API responses increased blast
+  radius from logs and compromised admin sessions.
+- **Suggested fix or mitigation:** Add explicit credential rotate endpoint if
+  operators need to replace keys without recreating buckets.
 
 ### H-006: Placement can choose an unprobed or unreachable bucket
 
 - **Area:** Object placement, bucket health
-- **Impact:** Medium. New writes can target a bucket with no successful probe
-  history if it is the only bucket with capacity, producing user-facing upload
-  failures instead of clear operator remediation.
-- **Suggested fix or mitigation:** Require at least one recent successful probe
-  before a bucket is eligible for new writes, with an admin override for initial
-  bootstrap.
+- **Status:** **Mitigated.** `choose_bucket()` excludes buckets with
+  `reachable=False` when `PLACEMENT_REQUIRE_REACHABLE_BUCKET` is true (default).
+  Admin/bootstrap can set the flag false. Tests in `test_s3_put.py`.
+- **Impact:** Medium (was). New writes could target buckets with no successful
+  probe history.
+- **Suggested fix or mitigation:** Ensure maintenance probe cron runs before
+  traffic; document bootstrap override.
 
 ### H-007: Multipart completion assembles the whole object through local disk
 
 - **Area:** Multipart uploads, S3 gateway
-- **Status:** Partially mitigated. Multipart completion now uses storage-level
-  compose when the backend supports server-side copy: S3 uses multipart
-  `UploadPartCopy`, and filesystem storage streams parts into the final object.
-  Relic still reads part bytes once to compute the canonical SHA-256 digest.
-- **Impact:** Medium. Large multipart uploads are downloaded from temporary
-  object parts, reassembled locally, then uploaded again, which can exhaust disk,
-  saturate API workers, and make large client uploads unreliable.
-- **Suggested fix or mitigation:** Complete multipart uploads with object-store
-  multipart copy/compose when available, or stream assembly with strict size and
-  disk limits plus a dedicated worker path.
+- **Status:** **Partially mitigated.** When the storage adapter reports
+  `server_side_copy`, completion uses `create_composed_blob` / storage compose
+  (`UploadPartCopy` on S3, stream-into-final on filesystem) instead of a full
+  local reassembly file. Relic still reads each part once to compute the
+  canonical SHA-256 digest and sniff prefix. Fallback path (no server-side copy)
+  still assembles via `SpooledTemporaryFile` with `MAX_OBJECT_BYTES` enforced
+  per chunk.
+- **Impact:** Medium. Very large multipart uploads on fallback backends can still
+  stress API disk and CPU.
+- **Suggested fix or mitigation:** Prefer S3-capable buckets for large multipart;
+  dedicated assembly worker if filesystem backends must handle huge completes.
 
 ### H-008: Search and facets load all visible candidate files into memory
 
 - **Area:** Search and metadata
-- **Status:** Partially mitigated. Search result pagination and totals now run
-  in SQL for the common path. Facets and KVS-filtered searches can still scan
-  the full visible candidate set in Python.
-- **Impact:** Medium. Large tenants or broad recursive searches can become slow
-  or memory-heavy because filtering, sorting, totals, and facets happen over all
-  visible `File` rows in Python.
-- **Suggested fix or mitigation:** Push filtering, sorting, pagination, and facet
-  aggregation into Postgres JSONB/GIN/expression-index queries, and add query
-  timeouts or result-window limits.
+- **Status:** **Partially mitigated.** `search_files()` uses
+  `SearchStore.search_page()`: SQL `COUNT` + `ORDER BY` + `LIMIT/OFFSET` for
+  the common path. Postgres pushes tags, keywords, and text `q` into JSONB/SQL.
+  Portable/SQLite and queries with **KVS filters** still load candidates then
+  filter in Python. **Facets** (`compute_facets`) still call `match_files` up to
+  five times over the full visible set.
+- **Impact:** Medium. Large libraries or heavy facet use can be slow or
+  memory-heavy.
+- **Suggested fix or mitigation:** SQL facet aggregation; KVS expression indexes;
+  query timeouts; cap recursive search scope.
 
 ### H-009: Recursive folder walks scan the full folder table
 
-- **Area:** Filesystem, permissions, search scopes, processors
-- **Status:** Partially mitigated. Search scopes, recursive listing/stat scopes,
-  and folder mutation descendant checks now reuse cached folder-tree rows.
-  Extremely large trees may still need recursive CTEs, materialized paths, or a
-  closure table for stricter latency bounds.
-- **Impact:** Medium. Large folder trees make recursive listings, stats, search
-  scopes, and processor folder scopes increasingly expensive and latency-prone.
-- **Suggested fix or mitigation:** Use a recursive CTE, closure table, materialized
-  path, or cached tree version keyed by database change generation.
+- **Area:** Filesystem, permissions, search scopes
+- **Status:** **Partially mitigated.** `cached_folder_tree_rows()` loads the
+  folder table once per cache generation into tiered Redis; descendant IDs and
+  paths are derived in memory from that snapshot. Invalidation on folder
+  mutations clears tree/path/permission caches. Still O(all folders) per cache
+  miss, not O(subtree) via closure table or recursive CTE.
+- **Impact:** Medium. Very large folder trees increase cache refresh cost and
+  memory per snapshot.
+- **Suggested fix or mitigation:** Closure table, materialized path, or recursive
+  CTE for descendant queries; optional per-subtree cache keys.
 
 ### H-010: Prometheus metrics endpoint is missing
 
 - **Area:** Observability
-- **Status:** Mitigated. `/metrics` now exposes low-cardinality Prometheus
-  counters, histograms, and gauges for API requests, S3 gateway requests,
-  maintenance jobs, maintenance queue depth, and bucket probe outcomes.
-- **Impact:** Medium. Operators cannot alert on request latency, S3 errors,
-  queue depth, cursor lag, bucket probe health, or maintenance failures with
-  standard scrape-based monitoring.
-- **Suggested fix or mitigation:** Ship `/metrics` with low-cardinality gateway,
-  API, processor, maintenance, queue, and bucket-probe metrics before production
-  rollout.
+- **Status:** **Mitigated.** `GET /metrics` exposes low-cardinality Prometheus
+  metrics: API requests/duration, S3 gateway requests/duration, maintenance jobs,
+  queue depth, bucket probe outcomes (`infra/metrics.py`, middleware in
+  `api/app.py`).
+- **Impact:** Medium (was). No scrape-based alerting.
+- **Suggested fix or mitigation:** Wire dashboards/alerts in infra; optional
+  OpenTelemetry traces later.
 
 ### H-011: Worker heartbeat state is missing
 
-- **Area:** Processing and maintenance operations
-- **Status:** Mitigated for the shipped maintenance worker. The maintenance cron
-  and worker jobs write Redis heartbeats, and `/readyz` reports stale or missing
-  heartbeat state when `MAINTENANCE_HEARTBEAT_REQUIRED=true`.
-- **Impact:** Medium. `/readyz` reports queue depth and processor registry state,
-  but it cannot prove dispatcher, processing worker, or maintenance worker pods
-  are alive and making progress.
-- **Suggested fix or mitigation:** Add Redis or database heartbeats for dispatcher
-  and workers, expose them in readiness/admin UI, and alert when stale.
+- **Area:** Maintenance operations
+- **Status:** **Mitigated** for the shipped maintenance worker. Cron and job
+  handlers call `touch_maintenance_heartbeat()`; `/readyz` includes
+  `checks.workers.maintenance` via `maintenance_heartbeat_status()`. Strict
+  failure when heartbeat is missing/stale requires
+  `MAINTENANCE_HEARTBEAT_REQUIRED=true` (default false for local dev).
+- **Impact:** Medium (was). Readiness could not prove workers were alive.
+- **Suggested fix or mitigation:** Set `MAINTENANCE_HEARTBEAT_REQUIRED=true` in
+  production; alert on stale heartbeat age. Add heartbeats for any future worker
+  types (event dispatch, sniff, import).
 
 ### H-012: Processor failure handling depends on manual skip/rewind only
 
 - **Area:** Event log and processors
-- **Impact:** Medium. A poison event halts a processor cursor until an admin
-  intervenes, delaying metadata extraction or future external sinks for every
-  later matching event.
-- **Suggested fix or mitigation:** Keep manual skip/rewind, but add surfaced
-  failure detail, alerting on cursor age/lag, and eventually a bounded
-  dead-letter/auto-quarantine path for unreliable external sinks.
+- **Status:** **N/A.** The `processors` and `file_events` tables were removed.
+  Unified `audit_events` + maintenance worker remain. Revisit when adding
+  durable outbound file-event consumers (cursors, replay, DLQ).
+- **Impact:** Medium (historical). Poison processor events could stall cursors.
+- **Suggested fix or mitigation:** For new event sinks: outbox table, per-consumer
+  cursor, lag metrics, bounded DLQ / quarantine.
 
 ### H-013: Import/sync from existing buckets is not available
 
 - **Area:** Import and migration
-- **Impact:** Medium. Existing object-store data cannot be brought under Relic
-  control without custom tooling, making production adoption risky for teams with
-  preexisting buckets.
-- **Suggested fix or mitigation:** Add resumable import jobs that preserve object
-  keys as folder paths, detect drift, emit file events, and report progress and
-  failures.
+- **Status:** **Open.**
+- **Impact:** Medium. Preexisting object-store data cannot be adopted without
+  custom tooling.
+- **Suggested fix or mitigation:** Resumable import jobs (preserve keys as paths,
+  progress reporting, audit events).
 
 ### H-014: File versioning is not available
 
 - **Area:** Data safety
-- **Impact:** Medium. Overwrites replace the logical file reference, so users
-  cannot restore previous versions or compare metadata after accidental updates.
-- **Suggested fix or mitigation:** Add version rows for overwrite/upload flows,
-  restore APIs, retention policy for old versions, and search controls for latest
-  versus all versions.
+- **Status:** **Open.**
+- **Impact:** Medium. Overwrites replace the logical file; no restore of prior
+  versions.
+- **Suggested fix or mitigation:** Version rows, restore API, retention for old
+  versions, search filter for latest vs all versions.
 
 ### H-015: Native S3 compatibility coverage is still narrow
 
 - **Area:** S3 gateway compatibility
-- **Impact:** Medium. Core boto3 flows are covered, but broader clients may hit
-  unsupported behaviors such as virtual-hosted style, streaming SigV4 payloads,
-  richer listing edge cases, or client-specific multipart assumptions.
-- **Suggested fix or mitigation:** Expand the compatibility harness to AWS CLI,
-  rclone, and target lakehouse clients; publish explicitly supported operations
-  and fail unsupported ones with stable S3 error codes.
+- **Status:** **Open.** Core flows covered by tests (`test_s3_put`,
+  `test_s3_listing_api`, `test_file_gateway_ops`). No virtual-hosted-style
+  routing; limited compatibility harness vs AWS CLI / rclone / DuckLake workloads.
+- **Impact:** Medium. Broader clients may hit unsupported behavior.
+- **Suggested fix or mitigation:** Expand compatibility tests; publish supported
+  S3 subset and stable error codes for unsupported operations.
 
 ### H-016: Configuration warnings do not fail readiness
 
 - **Area:** Deployment safety
-- **Impact:** Low. `/readyz` reports development defaults for secrets as warnings
-  but still returns overall OK, so a misconfigured deployment can pass readiness.
-- **Suggested fix or mitigation:** Add a production mode that fails readiness on
-  default `ENCRYPTION_SECRET`, `SESSION_SECRET`, `REDIS_PASSWORD`, admin password,
-  or signing-key settings.
-
+- **Status:** **Open.** `/readyz` reports dev defaults for secrets as
+  `configuration.warnings` but overall status stays OK.
+- **Impact:** Low. Misconfigured deployments can pass readiness.
+- **Suggested fix or mitigation:** `PRODUCTION=true` (or similar) fails readiness
+  on default `ENCRYPTION_SECRET`, `SESSION_SECRET`, `REDIS_PASSWORD`, admin
+  password, or signing keys.

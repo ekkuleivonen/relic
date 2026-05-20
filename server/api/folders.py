@@ -3,10 +3,10 @@ import uuid
 from api.dependencies import AdminUser, CurrentUser, UnitOfWorkDep
 from application.uow import UnitOfWork
 from application.context import Actor
-from application.control_plane.bucket_mutations import (
-    create_bucket as create_bucket_use_case,
-    delete_bucket as delete_bucket_use_case,
-    update_bucket as update_bucket_use_case,
+from application.control_plane.storage_backend_mutations import (
+    create_storage_backend as create_storage_backend_use_case,
+    delete_storage_backend as delete_storage_backend_use_case,
+    update_storage_backend as update_storage_backend_use_case,
 )
 from application.control_plane.create_folder import create_folder as create_folder_use_case
 from application.control_plane.delete_folder import delete_folder as delete_folder_use_case
@@ -24,14 +24,14 @@ from fastapi import APIRouter, Request, Response, status
 from ports.entities import Folder, User
 from pydantic import BaseModel, ConfigDict, Field
 from application.control_plane import browse_filesystem
-from application.control_plane.folder_placement import effective_preferred_bucket_id
+from application.control_plane.folder_placement import effective_preferred_storage_backend_id
 
 router = APIRouter()
 
 """
 Folder CRUD - the virtual filesystem.
 
-Folders carry an optional ``preferred_bucket_id`` (admin-only). New uploads
+Folders carry an optional ``preferred_storage_backend_id`` (admin-only). New uploads
 under a folder land in the preferred bucket if it has capacity, else in the
 hottest bucket per the latency-driven ranking. Inheritance walks ancestors
 when the field is NULL.
@@ -46,8 +46,8 @@ class FolderRead(BaseModel):
     name: str
     path: str
     effective_permissions: int
-    preferred_bucket_id: uuid.UUID | None = None
-    effective_preferred_bucket_id: uuid.UUID | None = None
+    preferred_storage_backend_id: uuid.UUID | None = None
+    effective_preferred_storage_backend_id: uuid.UUID | None = None
 
     @classmethod
     def from_result(
@@ -72,8 +72,8 @@ class FolderRead(BaseModel):
             name=result.folder.name,
             path=result.path,
             effective_permissions=result.effective_permissions,
-            preferred_bucket_id=result.folder.preferred_bucket_id,
-            effective_preferred_bucket_id=effective_preferred_bucket_id(
+            preferred_storage_backend_id=result.folder.preferred_storage_backend_id,
+            effective_preferred_storage_backend_id=effective_preferred_storage_backend_id(
                 uow, result.folder
             ),
         )
@@ -91,7 +91,7 @@ class FolderUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
     parent_id: uuid.UUID | None = None
-    preferred_bucket_id: uuid.UUID | None = None
+    preferred_storage_backend_id: uuid.UUID | None = None
 
 
 class FolderDuplicate(BaseModel):
@@ -110,8 +110,8 @@ class FolderTreeRead(BaseModel):
     parent_id: uuid.UUID | None
     path: str
     effective_permissions: int
-    preferred_bucket_id: uuid.UUID | None = None
-    effective_preferred_bucket_id: uuid.UUID | None = None
+    preferred_storage_backend_id: uuid.UUID | None = None
+    effective_preferred_storage_backend_id: uuid.UUID | None = None
     children: list["FolderTreeRead"]
 
 
@@ -145,11 +145,11 @@ def _folder_to_tree_read(
             )
             for child in folder.children
         ],
-        preferred_bucket_id=(
-            folder.preferred_bucket_id if include_storage_policy else None
+        preferred_storage_backend_id=(
+            folder.preferred_storage_backend_id if include_storage_policy else None
         ),
-        effective_preferred_bucket_id=(
-            effective_preferred_bucket_id(uow, folder)
+        effective_preferred_storage_backend_id=(
+            effective_preferred_storage_backend_id(uow, folder)
             if include_storage_policy
             else None
         ),
@@ -207,7 +207,7 @@ async def create_folder(
     """
     POST /folders -> create a new folder under `parent_id`.
     Body: { parent_id, name }
-    New folders inherit the ancestor preferred_bucket_id.
+    New folders inherit the ancestor preferred_storage_backend_id.
     Caller needs WRITE on the parent.
     """
     result = create_folder_use_case(
@@ -229,8 +229,8 @@ async def update_folder(
 ) -> FolderRead:
     """
     PATCH /folders/{id} -> rename, move, and/or (admins) preferred bucket.
-    Body: { name?, parent_id?, preferred_bucket_id? }
-    Set preferred_bucket_id to null to inherit from a parent.
+    Body: { name?, parent_id?, preferred_storage_backend_id? }
+    Set preferred_storage_backend_id to null to inherit from a parent.
     """
     result = update_folder_use_case(
         uow,
@@ -238,8 +238,8 @@ async def update_folder(
         folder_id=folder_id,
         name=payload.name,
         parent_id=payload.parent_id,
-        preferred_bucket_id=payload.preferred_bucket_id,
-        set_preferred_bucket_id="preferred_bucket_id" in payload.model_fields_set,
+        preferred_storage_backend_id=payload.preferred_storage_backend_id,
+        set_preferred_storage_backend_id="preferred_storage_backend_id" in payload.model_fields_set,
     )
     return FolderRead.from_result(uow, result, user=current_user)
 

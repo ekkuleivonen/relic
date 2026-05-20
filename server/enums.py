@@ -29,6 +29,8 @@ class HealthStatus(enum.StrEnum):
     FAILED = "failed"
 
 
-class StorageKind(enum.StrEnum):
+class StorageBackendKind(enum.StrEnum):
     S3 = "s3"
     FILESYSTEM = "filesystem"
+    AZURE_BLOB = "azure_blob"
+    GCS = "gcs"

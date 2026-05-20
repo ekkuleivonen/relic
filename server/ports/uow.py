@@ -6,7 +6,7 @@ from ports.audit import AuditPort
 from ports.cache import CachePort
 from ports.repositories.access_keys import AccessKeyStore
 from ports.repositories.blobs import BlobStore
-from ports.repositories.buckets import BucketStore
+from ports.repositories.storage_backends import StorageBackendStore
 from ports.repositories.files import FileStore
 from ports.repositories.folders import FolderStore
 from ports.repositories.multipart import MultipartStore
@@ -21,7 +21,7 @@ class UnitOfWork(Protocol):
     session: Session
     files: FileStore
     folders: FolderStore
-    buckets: BucketStore
+    storage_backends: StorageBackendStore
     blobs: BlobStore
     users: UserStore
     access_keys: AccessKeyStore

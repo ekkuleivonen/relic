@@ -1,9 +1,10 @@
 import { X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { formatMetaFilter } from "@/lib/file-meta"
 import { formatBytes } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import type { KvsFilter, SearchQuery } from "@/types/search"
+import type { SearchQuery } from "@/types/search"
 
 type FilterPillsProps = {
   query: SearchQuery
@@ -13,9 +14,6 @@ type FilterPillsProps = {
   className?: string
 }
 
-/** Inline removable chips for every active filter on a SearchQuery. The
- * "Clear all" affordance only appears when something is active. Pure UI:
- * mutation goes back through `onChange`, never directly. */
 export function FilterPills({
   query,
   scopeLabel,
@@ -54,7 +52,7 @@ export function FilterPills({
   )
 }
 
-type PillTone = "tag" | "keyword" | "type" | "scope" | "size" | "kvs" | "q" | "date" | "user"
+type PillTone = "meta" | "type" | "scope" | "size" | "q" | "date" | "user"
 
 type PillSpec = {
   key: string
@@ -95,16 +93,12 @@ function Pill({
 
 function toneClasses(tone: PillTone) {
   switch (tone) {
-    case "tag":
-      return "border-primary/20 bg-primary/10 text-primary"
-    case "keyword":
-      return "border-muted-foreground/20 bg-muted text-foreground"
     case "type":
       return "border-blue-500/20 bg-blue-500/10 text-blue-600 dark:text-blue-300"
     case "scope":
       return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
     case "size":
-    case "kvs":
+    case "meta":
       return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
     case "date":
       return "border-violet-500/20 bg-violet-500/10 text-violet-700 dark:text-violet-300"
@@ -139,48 +133,6 @@ function collectPills(
         ? `In ${scopeLabel}${query.recursive ? " (recursive)" : ""}`
         : `Scoped to folder${query.recursive ? " (recursive)" : ""}`,
       remove: (q) => ({ ...q, folder_id: null, recursive: false, offset: 0 }),
-    })
-  }
-
-  if (query.tags.length > 0) {
-    if (query.require_all_tags) {
-      pills.push({
-        key: "tags-all",
-        tone: "tag",
-        label: `Tags: all of ${query.tags.join(", ")}`,
-        remove: (q) => ({
-          ...q,
-          tags: [],
-          require_all_tags: false,
-          offset: 0,
-        }),
-      })
-    } else {
-      for (const tag of query.tags) {
-        pills.push({
-          key: `tag:${tag}`,
-          tone: "tag",
-          label: `Tag: ${tag}`,
-          remove: (q) => ({
-            ...q,
-            tags: q.tags.filter((value) => value !== tag),
-            offset: 0,
-          }),
-        })
-      }
-    }
-  }
-
-  for (const keyword of query.keywords) {
-    pills.push({
-      key: `keyword:${keyword}`,
-      tone: "keyword",
-      label: `Keyword: ${keyword}`,
-      remove: (q) => ({
-        ...q,
-        keywords: q.keywords.filter((value) => value !== keyword),
-        offset: 0,
-      }),
     })
   }
 
@@ -246,18 +198,18 @@ function collectPills(
     })
   }
 
-  for (const kvs of query.kvs) {
+  for (const metaFilter of query.meta) {
     pills.push({
-      key: `kvs:${kvs.key}:${kvs.op}:${kvs.value}`,
-      tone: "kvs",
-      label: formatKvsFilter(kvs),
+      key: `meta:${metaFilter.key}:${metaFilter.op}:${metaFilter.value}`,
+      tone: "meta",
+      label: formatMetaFilter(metaFilter),
       remove: (q) => ({
         ...q,
-        kvs: q.kvs.filter(
+        meta: q.meta.filter(
           (other) =>
-            other.key !== kvs.key ||
-            other.op !== kvs.op ||
-            other.value !== kvs.value
+            other.key !== metaFilter.key ||
+            other.op !== metaFilter.op ||
+            other.value !== metaFilter.value
         ),
         offset: 0,
       }),
@@ -265,18 +217,4 @@ function collectPills(
   }
 
   return pills
-}
-
-function formatKvsFilter(kvs: KvsFilter) {
-  const opLabel = (
-    {
-      eq: "=",
-      neq: "≠",
-      gt: ">",
-      gte: "≥",
-      lt: "<",
-      lte: "≤",
-    } as const
-  )[kvs.op]
-  return `${kvs.key} ${opLabel} ${kvs.value}`
 }

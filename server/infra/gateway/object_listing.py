@@ -64,7 +64,7 @@ def require_visible_bucket(db: Session, user: User, bucket_name: str) -> Folder:
         ),
     )
     if bucket is None:
-        raise ResourceNotFound("Bucket not found")
+        raise ResourceNotFound("Storage backend not found")
 
     folder_access.require_folder_permission(
         db, user, bucket.id, Permission.READ

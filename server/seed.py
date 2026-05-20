@@ -33,7 +33,24 @@ def upsert_root_folder(db) -> Folder:
         parent_id=None,
     )
     db.add(root)
+    db.flush()
     return root
+
+
+def upsert_seed_folder(db, root: Folder) -> Folder | None:
+    name = S.RELIC_SEED_FOLDER_NAME.strip()
+    if not name:
+        return None
+
+    existing = db.scalar(
+        select(Folder).where(Folder.parent_id == root.id, Folder.name == name)
+    )
+    if existing:
+        return existing
+
+    folder = Folder(name=name, parent_id=root.id)
+    db.add(folder)
+    return folder
 
 
 def upsert_admin_user(db) -> User:
@@ -55,7 +72,8 @@ def upsert_admin_user(db) -> User:
 def seed() -> None:
     SessionLocal = get_sessionmaker()
     with SessionLocal() as db:
-        upsert_root_folder(db)
+        root = upsert_root_folder(db)
+        upsert_seed_folder(db, root)
         upsert_admin_user(db)
         db.commit()
 

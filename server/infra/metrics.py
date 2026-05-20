@@ -43,8 +43,8 @@ MAINTENANCE_QUEUE_DEPTH = Gauge(
     ("queue",),
 )
 BUCKET_PROBES = Counter(
-    "relic_bucket_probe_total",
-    "Bucket probe outcomes.",
+    "relic_storage_backend_probe_total",
+    "StorageBackend probe outcomes.",
     ("status",),
 )
 
@@ -90,7 +90,7 @@ def set_maintenance_queue_depth(*, queue: str, depth: int) -> None:
     MAINTENANCE_QUEUE_DEPTH.labels(queue=queue).set(depth)
 
 
-def observe_bucket_probe(*, status: str) -> None:
+def observe_storage_backend_probe(*, status: str) -> None:
     BUCKET_PROBES.labels(status=status).inc()
 
 

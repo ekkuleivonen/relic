@@ -26,7 +26,7 @@ class SqlAlchemyMultipartStore:
         if with_parts:
             stmt = stmt.options(
                 selectinload(MultipartUpload.parts),
-                selectinload(MultipartUpload.storage_bucket),
+                selectinload(MultipartUpload.storage_backend),
             )
         return self._session.scalar(stmt)
 
@@ -48,7 +48,7 @@ class SqlAlchemyMultipartStore:
     def delete(self, upload: MultipartUpload) -> None:
         self._session.delete(upload)
 
-    def list_for_bucket(self, bucket_name: str) -> list[MultipartUpload]:
+    def list_for_storage_backend(self, bucket_name: str) -> list[MultipartUpload]:
         return list(
             self._session.scalars(
                 select(MultipartUpload)
@@ -64,7 +64,7 @@ class SqlAlchemyMultipartStore:
                 .where(MultipartUpload.created_at < cutoff)
                 .options(
                     selectinload(MultipartUpload.parts),
-                    selectinload(MultipartUpload.storage_bucket),
+                    selectinload(MultipartUpload.storage_backend),
                 )
             )
         )

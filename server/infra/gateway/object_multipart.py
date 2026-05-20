@@ -23,7 +23,7 @@ from infra.gateway import blob_storage
 from infra.gateway import object_blobs
 from infra.gateway import object_paths
 from infra.gateway import object_writes
-from infra.db.stores.placement import choose_bucket, effective_preferred_bucket_id
+from infra.db.stores.placement import choose_storage_backend, effective_preferred_storage_backend_id
 
 log = get_logger(__name__)
 
@@ -80,18 +80,18 @@ def create_multipart_upload(
         folder.id,
         Permission.WRITE,
     )
-    storage_bucket = choose_bucket(
+    storage_bucket = choose_storage_backend(
         db,
         size_bytes=0,
-        preferred_bucket_id=effective_preferred_bucket_id(db, folder),
+        preferred_storage_backend_id=effective_preferred_storage_backend_id(db, folder),
     )
-    enforce_multipart(caps=storage.for_bucket(storage_bucket).capabilities)
+    enforce_multipart(caps=storage.for_storage_backend(storage_bucket).capabilities)
     upload = MultipartUpload(
         bucket_name=bucket_name,
         object_key=object_paths.normalize_key(key),
         folder_id=folder.id,
         actor_id=current_user.id,
-        storage_bucket_id=storage_bucket.id,
+        storage_backend_id=storage_bucket.id,
         meta=ingest_meta,
     )
     return multipart_store.create(upload)
@@ -126,7 +126,7 @@ def upload_part(
         if part.part_number != part_number
     )
     enforce_max_object_bytes(size_bytes=projected_total)
-    storage_bucket = upload.storage_bucket
+    storage_bucket = upload.storage_backend
     bucket_key = build_part_bucket_key(upload.id, part_number)
     etag = content_md5.hex()
 
@@ -185,7 +185,7 @@ def complete_multipart_upload(
 
     ordered_parts = _validate_complete_parts(upload, requested_parts)
     completed_etag = build_complete_multipart_etag(ordered_parts)
-    adapter = storage.for_bucket(upload.storage_bucket)
+    adapter = storage.for_storage_backend(upload.storage_backend)
 
     if adapter.capabilities.server_side_copy:
         digest, total_size, prefix = _hash_parts(
@@ -270,7 +270,7 @@ def _hash_parts(
     for part in ordered_parts:
         boto_response = blob_storage.fetch_blob_bytes(
             storage=storage,
-            bucket=upload.storage_bucket,
+            bucket=upload.storage_backend,
             bucket_key=part.bucket_key,
         )
         stream = boto_response["Body"]
@@ -299,7 +299,7 @@ def _assemble_parts(
     for part in ordered_parts:
         boto_response = blob_storage.fetch_blob_bytes(
             storage=storage,
-            bucket=upload.storage_bucket,
+            bucket=upload.storage_backend,
             bucket_key=part.bucket_key,
         )
         stream = boto_response["Body"]
@@ -345,7 +345,7 @@ def _put_composed_object(
         created_blob = object_blobs.create_composed_blob(
             db,
             storage=storage,
-            bucket=upload.storage_bucket,
+            bucket=upload.storage_backend,
             digest=digest,
             size_bytes=size_bytes,
             filename=file_name,
@@ -459,7 +459,7 @@ def abort_incomplete_uploads_older_than(
             .where(MultipartUpload.created_at < cutoff)
             .options(
                 selectinload(MultipartUpload.parts),
-                selectinload(MultipartUpload.storage_bucket),
+                selectinload(MultipartUpload.storage_backend),
             )
         )
     )
@@ -491,7 +491,7 @@ def require_upload(
     if with_parts:
         stmt = stmt.options(
             selectinload(MultipartUpload.parts),
-            selectinload(MultipartUpload.storage_bucket),
+            selectinload(MultipartUpload.storage_backend),
         )
     upload = db.scalar(stmt)
     if upload is None:
@@ -539,7 +539,7 @@ def delete_part_bytes(
 ) -> None:
     blob_storage.delete_blob_bytes(
         storage=storage,
-        bucket=upload.storage_bucket,
+        bucket=upload.storage_backend,
         bucket_key=part.bucket_key,
     )
 

@@ -9,7 +9,7 @@ from enums import HealthStatus
 from infra.db.engine import get_db
 from infra.db.models import Base
 import infra.health as health
-from tests.factories.models import BucketFactory, BucketProbeFactory
+from tests.factories.models import StorageBackendFactory, StorageBackendProbeFactory
 
 
 
@@ -61,10 +61,10 @@ def test_healthz_reports_api_ok(client):
 
 
 def test_readyz_reports_dependency_status(client, db_session):
-    bucket = BucketFactory.build()
+    bucket = StorageBackendFactory.build()
     db_session.add(bucket)
     db_session.flush()
-    db_session.add(BucketProbeFactory.build(bucket_id=bucket.id))
+    db_session.add(StorageBackendProbeFactory.build(storage_backend_id=bucket.id))
     db_session.commit()
 
     response = client.get("/readyz")
@@ -85,7 +85,7 @@ def test_readyz_reports_dependency_status(client, db_session):
 
 
 def test_readyz_returns_unavailable_for_unhealthy_object_store(client, db_session):
-    bucket = BucketFactory.build(name="unprobed")
+    bucket = StorageBackendFactory.build(name="unprobed")
     db_session.add(bucket)
     db_session.commit()
 

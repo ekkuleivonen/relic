@@ -21,7 +21,7 @@ S3_MULTIPART_MAX_PART_NUMBER = 10_000
 S3_LISTING_DEFAULT_MAX_KEYS = 1000
 S3_LISTING_MAX_KEYS_LIMIT = 1000
 
-SEARCH_SUPPORTED_KVS_OPS = frozenset({"eq", "neq", "gte", "lte", "gt", "lt"})
+SEARCH_SUPPORTED_META_OPS = frozenset({"eq", "neq", "gte", "lte", "gt", "lt"})
 SEARCH_SUPPORTED_SORT_FIELDS = frozenset({"name", "size", "created_at", "updated_at"})
 SEARCH_SUPPORTED_ORDERS = frozenset({"asc", "desc"})
 SEARCH_DEFAULT_LIMIT = 50

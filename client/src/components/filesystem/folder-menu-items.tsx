@@ -26,7 +26,7 @@ export function FolderMenuItems({
   const isRoot = folder.parent_id === null
   const canWrite = can(folder.effective_permissions, PERM.WRITE)
   const canDelete = can(folder.effective_permissions, PERM.DELETE)
-  const canEditPreferredBucket = isAdmin
+  const canEditPreferredStorageBackend = isAdmin
 
   const Item = variant === "context" ? ContextMenuItem : DropdownMenuItem
   const Separator =
@@ -34,16 +34,16 @@ export function FolderMenuItems({
 
   return (
     <>
-      {canEditPreferredBucket ? (
+      {canEditPreferredStorageBackend ? (
         <>
           <Item
             onSelect={(event) => {
               event.preventDefault()
-              actions.openPreferredBucket(folder)
+              actions.openPreferredStorageBackend(folder)
             }}
           >
             <HardDrive />
-            <span>Set preferred bucket…</span>
+            <span>Set preferred backend…</span>
           </Item>
           <Separator />
         </>
