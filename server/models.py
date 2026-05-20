@@ -7,7 +7,6 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
-    Identity,
     Index,
     Integer,
     LargeBinary,
@@ -21,12 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
-from enums import (
-    EventStatus,
-    Permission,
-    ProcessorSource,
-    UserRole,
-)
+from enums import EventStatus, Permission, UserRole
 from utils.crypto import decrypt_string, encrypt_string
 
 JSONType = JSON().with_variant(JSONB, "postgresql")
@@ -188,6 +182,10 @@ class Blob(Base, TimestampMixin):
     bucket_key: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[bytes] = mapped_column(LargeBinary(32), nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    mimetype: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="application/octet-stream"
+    )
+    extension: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     refcount: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     accessed_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
@@ -282,9 +280,7 @@ class File(Base, TimestampMixin):
         GUID(), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # Sectioned per-processor metadata; see ``domain.files.meta``. Each
-    # processor kind owns ``meta.sections.<kind>`` and refreshes the merged
-    # top-level view (tags/keywords/summary/kvs) atomically.
+    # Opaque consumer-owned metadata; see ``domain.files.meta``.
     meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
 
     folder: Mapped[Folder] = relationship(back_populates="files")
@@ -354,15 +350,23 @@ class MultipartUploadPart(Base, TimestampMixin):
 
 
 class AuditEvent(Base, TimestampMixin):
+    """Unified audit log for actor-driven admin actions and storage maintenance."""
+
     __tablename__ = "audit_events"
     __table_args__ = (
         CheckConstraint(
-            f"status IN ({','.join(repr(status.value) for status in (EventStatus.SUCCEEDED, EventStatus.FAILED))})",
+            f"status IN ({','.join(repr(status.value) for status in (EventStatus.SUCCEEDED, EventStatus.FAILED, EventStatus.SKIPPED))})",
             name="ck_audit_events_status",
         ),
-        Index("ix_audit_events_created_at_id", "created_at", "id"),
         Index("ix_audit_events_operation_created_at", "operation", "created_at"),
         Index("ix_audit_events_status_created_at", "status", "created_at"),
+        Index("ix_audit_events_actor_id_created_at", "actor_id", "created_at"),
+        Index("ix_audit_events_request_id", "request_id"),
+        Index("ix_audit_events_created_at_id", "created_at", "id"),
+        Index("ix_audit_events_job_created_at", "job", "created_at"),
+        Index("ix_audit_events_batch_id_created_at", "batch_id", "created_at"),
+        Index("ix_audit_events_bucket_id_created_at", "bucket_id", "created_at"),
+        Index("ix_audit_events_blob_id_created_at", "blob_id", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
@@ -371,213 +375,16 @@ class AuditEvent(Base, TimestampMixin):
     actor_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
-    request_id: Mapped[str | None] = mapped_column(String(255), index=True)
-    meta: Mapped[dict] = mapped_column(
-        "metadata", JSONType, nullable=False, default=dict
-    )
-
-    actor: Mapped[User | None] = relationship()
-
-
-class FileEvent(Base):
-    __tablename__ = "file_events"
-    __table_args__ = (
-        CheckConstraint(
-            f"status IN ({','.join(repr(status.value) for status in (EventStatus.SUCCEEDED, EventStatus.FAILED))})",
-            name="ck_file_events_status",
-        ),
-        Index("ix_file_events_offset", "offset", unique=True),
-        Index("ix_file_events_event_type_created_at", "event_type", "created_at"),
-        Index("ix_file_events_status_created_at", "status", "created_at"),
-        Index("ix_file_events_actor_id_created_at", "actor_id", "created_at"),
-        Index("ix_file_events_request_id", "request_id"),
-        Index("ix_file_events_file_id_created_at", "file_id", "created_at"),
-        Index("ix_file_events_folder_id_created_at", "folder_id", "created_at"),
-        Index(
-            "uq_file_events_idempotency_key",
-            "idempotency_key",
-            unique=True,
-            postgresql_where=text("idempotency_key IS NOT NULL"),
-            sqlite_where=text("idempotency_key IS NOT NULL"),
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    offset: Mapped[int] = mapped_column(
-        BigInteger().with_variant(Integer, "sqlite"),
-        Identity(),
-        nullable=False,
-    )
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    schema_version: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=1, server_default=text("1")
-    )
-    event_type: Mapped[str] = mapped_column(String(128), nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="succeeded", server_default="succeeded"
-    )
-    actor_id: Mapped[uuid.UUID | None] = mapped_column(
-        GUID(), ForeignKey("users.id", ondelete="SET NULL")
-    )
     request_id: Mapped[str | None] = mapped_column(String(255))
-    idempotency_key: Mapped[str | None] = mapped_column(String(255))
-    file_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
-    folder_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
-    payload: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
-
-    actor: Mapped[User | None] = relationship()
-
-
-class MaintenanceEvent(Base):
-    __tablename__ = "maintenance_events"
-    __table_args__ = (
-        CheckConstraint(
-            f"status IN ({','.join(repr(status.value) for status in (EventStatus.SUCCEEDED, EventStatus.FAILED, EventStatus.SKIPPED))})",
-            name="ck_maintenance_events_status",
-        ),
-        Index("ix_maintenance_events_job_created_at", "job", "created_at"),
-        Index("ix_maintenance_events_action_created_at", "action", "created_at"),
-        Index("ix_maintenance_events_status_created_at", "status", "created_at"),
-        Index("ix_maintenance_events_batch_id_created_at", "batch_id", "created_at"),
-        Index("ix_maintenance_events_bucket_id_created_at", "bucket_id", "created_at"),
-        Index("ix_maintenance_events_blob_id_created_at", "blob_id", "created_at"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    created_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    job: Mapped[str] = mapped_column(String(128), nullable=False)
-    action: Mapped[str] = mapped_column(String(128), nullable=False)
-    status: Mapped[str] = mapped_column(String(64), nullable=False)
-    batch_id: Mapped[uuid.UUID] = mapped_column(GUID(), nullable=False)
+    job: Mapped[str | None] = mapped_column(String(128))
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
     bucket_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("buckets.id", ondelete="SET NULL")
     )
-    # Deliberately not a foreign key: cold-path rows may describe a blob that
-    # has already been purged by the time an operator inspects the event.
+    # Deliberately not a foreign key: maintenance rows may reference purged blobs.
     blob_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     meta: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
 
+    actor: Mapped[User | None] = relationship()
     bucket: Mapped[Bucket | None] = relationship()
-
-
-class Processor(Base, TimestampMixin):
-    """Configuration + cursor for a warm-path event consumer.
-
-    Each row is one logical consumer of `file_events`. The dispatcher reads
-    `last_committed_offset` to find new events to enqueue; the worker advances
-    it after the processor run succeeds. See ROADMAP `Async Processors`
-    for the full invariants.
-    """
-
-    __tablename__ = "processors"
-    __table_args__ = (
-        CheckConstraint(
-            f"source IN ({','.join(repr(source.value) for source in ProcessorSource)})",
-            name="ck_processors_source",
-        ),
-        Index("ix_processors_kind", "kind"),
-        Index("ix_processors_enabled", "enabled"),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
-    kind: Mapped[str] = mapped_column(String(64), nullable=False)
-    enabled: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True, server_default=text("true")
-    )
-    source: Mapped[str] = mapped_column(
-        String(16), nullable=False, default=ProcessorSource.ADMIN.value
-    )
-    subscribed_event_types: Mapped[list[str]] = mapped_column(
-        JSONType, nullable=False, default=list
-    )
-    folder_scopes: Mapped[list[dict]] = mapped_column(
-        JSONType, nullable=False, default=list, server_default=text("'[]'")
-    )
-    # Optional per-instance filters: events are skipped when the file's
-    # ``meta.sections.file_info`` mimetype/extension don't match. An empty
-    # list means "no filter" — every event subscribed via event_types runs.
-    mimetype_prefixes: Mapped[list[str]] = mapped_column(
-        JSONType, nullable=False, default=list, server_default=text("'[]'")
-    )
-    extensions: Mapped[list[str]] = mapped_column(
-        JSONType, nullable=False, default=list, server_default=text("'[]'")
-    )
-    config: Mapped[dict] = mapped_column(JSONType, nullable=False, default=dict)
-    dispatch_generation: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default=text("0")
-    )
-    last_committed_offset: Mapped[int] = mapped_column(
-        BigInteger().with_variant(Integer, "sqlite"),
-        nullable=False,
-        default=0,
-        server_default=text("0"),
-    )
-    last_committed_at: Mapped[dt.datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-    last_failed_event_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
-    last_failed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
-    last_error_class: Mapped[str | None] = mapped_column(String(255))
-    last_error_message: Mapped[str | None] = mapped_column(Text)
-
-
-class ProcessorEventRun(Base, TimestampMixin):
-    """Per-processor event execution state.
-
-    Processor rows hold configuration and a contiguous watermark. This table is
-    the idempotency/claim surface that lets processors run many events in
-    parallel while still deduping each `(processor, generation, event)` tuple.
-    """
-
-    __tablename__ = "processor_event_runs"
-    __table_args__ = (
-        CheckConstraint(
-            "status IN ('queued','succeeded','failed')",
-            name="ck_processor_event_runs_status",
-        ),
-        UniqueConstraint(
-            "processor_id",
-            "dispatch_generation",
-            "event_id",
-            name="uq_processor_event_runs_processor_generation_event",
-        ),
-        Index("ix_processor_event_runs_processor_status", "processor_id", "status"),
-        Index(
-            "ix_processor_event_runs_processor_generation_status",
-            "processor_id",
-            "dispatch_generation",
-            "status",
-        ),
-        Index(
-            "ix_processor_event_runs_processor_generation_subject",
-            "processor_id",
-            "dispatch_generation",
-            "ordering_key",
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    processor_id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), ForeignKey("processors.id", ondelete="CASCADE"), nullable=False
-    )
-    event_id: Mapped[uuid.UUID] = mapped_column(
-        GUID(), ForeignKey("file_events.id", ondelete="CASCADE"), nullable=False
-    )
-    dispatch_generation: Mapped[int] = mapped_column(Integer, nullable=False)
-    event_offset: Mapped[int] = mapped_column(
-        BigInteger().with_variant(Integer, "sqlite"), nullable=False
-    )
-    event_type: Mapped[str] = mapped_column(String(128), nullable=False)
-    ordering_key: Mapped[str | None] = mapped_column(String(255))
-    status: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="queued", server_default="queued"
-    )
-
-    processor: Mapped[Processor] = relationship()
-    event: Mapped[FileEvent] = relationship()

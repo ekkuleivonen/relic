@@ -7,19 +7,16 @@ from api.app import app
 from database import get_db
 from enums import Permission, UserRole
 from fastapi.testclient import TestClient
-from domain.files.meta import init_file_meta
 from domain.exceptions import ConflictError, ResourceNotFound
 from models import (
     Base,
     Blob,
     Bucket,
     File,
-    FileEvent,
     Folder,
     FolderAccess,
 )
 from services import objects as object_service
-from services.event_context import EventContext
 from services.placement import choose_bucket, clear_bucket_usage_cache, get_bucket_usage
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -242,9 +239,9 @@ def test_put_object_uploads_new_blob_and_creates_file(
     assert file.name == "cat.jpg"
     assert file.blob_id == blob.id
     assert file.actor_id == user.id
-    assert file.meta["sections"] == {}
-    assert file.meta["user_kvs"]["album"] == "spring"
-    assert file.meta["original_filename"] == "cat.jpg"
+    assert file.meta == {"album": "spring"}
+    assert blob.mimetype == "image/jpeg"
+    assert blob.extension == "jpg"
 
 
 def test_put_object_passes_inherited_preferred_bucket_to_choose_bucket(
@@ -348,9 +345,7 @@ def test_put_object_overwrites_existing_file_name(
         blob_id=old_blob.id,
         actor_id=owner.id,
         name="cat.jpg",
-        meta=init_file_meta(
-            file_name="cat.jpg", size=old_blob.size_bytes, user_meta={}
-        ),
+        meta={},
     )
     db_session.add(existing_file)
     db_session.commit()
@@ -372,21 +367,16 @@ def test_put_object_overwrites_existing_file_name(
         body=body,
         ingest_meta={"album": "summer"},
         current_user=owner,
-        event_context=EventContext(actor_id=owner.id, request_id="req-update"),
     )
 
     assert len(uploaded) == 1
     assert result.file.id == existing_file.id
     assert result.file.blob_id != old_blob.id
-    assert result.file.meta["kvs"]["album"] == "summer"
+    assert result.file.meta["album"] == "summer"
     db_session.refresh(old_blob)
     assert old_blob.refcount == 0
-    updated_event = db_session.scalars(
-        select(FileEvent).where(FileEvent.event_type == "file.updated")
-    ).one()
-    assert updated_event.file_id == existing_file.id
-    assert updated_event.payload["previous_blob_id"] == str(old_blob.id)
-    assert updated_event.payload["blob_id"] == str(result.blob.id)
+    assert result.blob.mimetype == "image/jpeg"
+    assert result.blob.extension == "jpg"
 
 
 def test_put_object_with_user_requires_write_permission(db_session, bucket_folder):

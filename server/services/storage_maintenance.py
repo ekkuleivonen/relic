@@ -1,6 +1,6 @@
 """Background blob lifecycle.
 
-The cron has four independent jobs (see ``processors/worker_maintenance.py``):
+The cron has four independent jobs (see ``workers/maintenance.py``):
 
 * ``purge_dereferenced_blobs_batch`` — drop refcount=0 blob rows + remote bytes
 * ``probe_all_buckets`` — write a fresh ``BucketProbe`` row for every bucket
@@ -37,11 +37,8 @@ from sqlalchemy.orm import Session, selectinload
 from utils.logging import get_logger
 
 from services import buckets as bucket_service
-from services.audit_events import (
-    elapsed_ms,
-    timer_start,
-)
-from services.maintenance_events import create_maintenance_event
+from utils.timing import elapsed_ms, timer_start
+from services.audit_events import create_audit_event
 from services.objects import delete_blob_bytes, fetch_blob_bytes, upload_blob
 from services.placement import (
     BucketHotness,
@@ -130,10 +127,10 @@ def purge_dereferenced_blobs_batch(
                 deleted_rows += 1
                 db.delete(blob)
                 db_latency_ms += elapsed_ms(db_started, minimum=0)
-            create_maintenance_event(
+            create_audit_event(
                 db,
                 job="purge_dereferenced_blobs",
-                action="blob.purged",
+                operation="blob.purged",
                 status="succeeded",
                 batch_id=effective_batch_id,
                 bucket_id=bucket_id,
@@ -146,10 +143,10 @@ def purge_dereferenced_blobs_batch(
             )
         except Exception as exc:
             errors += 1
-            create_maintenance_event(
+            create_audit_event(
                 db,
                 job="purge_dereferenced_blobs",
-                action="blob.purge_failed",
+                operation="blob.purge_failed",
                 status="failed",
                 batch_id=effective_batch_id,
                 bucket_id=bucket_id,
@@ -209,10 +206,10 @@ def probe_all_buckets(
                 ok += 1
             else:
                 failed += 1
-                create_maintenance_event(
+                create_audit_event(
                     db,
                     job="bucket_probe",
-                    action="bucket.probe_failed",
+                    operation="bucket.probe_failed",
                     status="failed",
                     batch_id=effective_batch_id,
                     bucket_id=result.bucket.id,
@@ -221,10 +218,10 @@ def probe_all_buckets(
                 )
         except Exception as exc:
             failed += 1
-            create_maintenance_event(
+            create_audit_event(
                 db,
                 job="bucket_probe",
-                action="bucket.probe_failed",
+                operation="bucket.probe_failed",
                 status="failed",
                 batch_id=effective_batch_id,
                 bucket_id=b.id,
@@ -260,10 +257,10 @@ def trim_old_bucket_probes_batch(
     )
     deleted_rows = result.rowcount or 0
     if deleted_rows > 0:
-        create_maintenance_event(
+        create_audit_event(
             db,
             job="trim_bucket_probes",
-            action="bucket_probe.trimmed",
+            operation="bucket_probe.trimmed",
             status="succeeded",
             batch_id=effective_batch_id,
             duration_ms=elapsed_ms(started_at, minimum=0),
@@ -494,10 +491,10 @@ def demote_pressured_buckets_batch(
         )
         if destination is None:
             skipped += 1
-            create_maintenance_event(
+            create_audit_event(
                 db,
                 job="demote_pressured_buckets",
-                action="blob.demotion_skipped",
+                operation="blob.demotion_skipped",
                 status="skipped",
                 batch_id=effective_batch_id,
                 bucket_id=blob.bucket_id,
@@ -795,10 +792,10 @@ def _record_migration_event(
         action = skip_action
         status = "skipped"
 
-    create_maintenance_event(
+    create_audit_event(
         db,
         job=job,
-        action=action,
+        operation=action,
         status=status,
         batch_id=batch_id,
         bucket_id=to_bucket_id if migration.migrated else from_bucket_id,

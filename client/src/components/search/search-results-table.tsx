@@ -13,7 +13,7 @@ import {
 import { buildSingleFilterHref, toggleStringFilter } from "@/lib/search-query"
 import { formatBytes, formatRelativeTime } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import type { FileSystemFile } from "@/types/filesystem"
+import { metaString, metaStringList, type FileSystemFile } from "@/types/filesystem"
 import type { SearchQuery } from "@/types/search"
 
 type SearchResultsTableProps = {
@@ -68,9 +68,10 @@ const VISIBLE_TAGS = 6
 
 function ResultRow({ file, query, onChange }: ResultRowProps) {
   const detailHref = `/file/${encodeURIComponent(file.id)}`
-  const tags = file.meta.tags.slice(0, VISIBLE_TAGS)
-  const overflow = file.meta.tags.length - tags.length
-  const summary = file.meta.summary?.trim() || null
+  const allTags = metaStringList(file.meta, "tags")
+  const tags = allTags.slice(0, VISIBLE_TAGS)
+  const overflow = allTags.length - tags.length
+  const summary = metaString(file.meta, "summary")
 
   return (
     <TableRow>
@@ -132,33 +133,33 @@ function ResultRow({ file, query, onChange }: ResultRowProps) {
         </div>
       </TableCell>
       <TableCell className="align-top text-xs text-muted-foreground">
-        {file.meta.mimetype ? (
+        {file.mimetype ? (
           <Link
             to={buildSingleFilterHref({
-              mimetypes: [file.meta.mimetype],
+              mimetypes: [file.mimetype],
             })}
             className="hover:underline"
           >
-            {file.meta.mimetype}
+            {file.mimetype}
           </Link>
         ) : (
           "—"
         )}
-        {file.meta.extension && (
+        {file.extension && (
           <div>
             <Link
               to={buildSingleFilterHref({
-                extensions: [file.meta.extension],
+                extensions: [file.extension],
               })}
               className="text-[0.625rem] uppercase hover:underline"
             >
-              .{file.meta.extension}
+              .{file.extension}
             </Link>
           </div>
         )}
       </TableCell>
       <TableCell className="align-top text-right text-xs text-muted-foreground">
-        {formatBytes(file.meta.size)}
+        {formatBytes(file.size_bytes)}
       </TableCell>
       <TableCell className="align-top pr-3 text-right text-xs text-muted-foreground">
         {formatRelativeTime(file.updated_at)}

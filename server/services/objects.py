@@ -14,17 +14,16 @@ from constants import (
     S3_METADATA_DIRECTIVE_REPLACE,
 )
 from enums import Permission
-from domain.files.meta import init_file_meta, validate_file_meta_dict
+from domain.blobs.sniff import sniff_blob_attributes
 from domain.exceptions import BadRequestError, ConflictError, ResourceNotFound
+from domain.files.meta import normalize_ingest_meta
 from models import Blob, Bucket, File, Folder, User
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from utils.logging import get_logger
 
 from services import folder_access as folder_access_service
-from services.audit_events import elapsed_ms, timer_start
-from services.event_context import EventContext
-from services.file_events import create_file_event
+from utils.timing import elapsed_ms, timer_start
 from services.placement import (
     adjust_bucket_usage_cache,
     choose_bucket,
@@ -86,14 +85,12 @@ def put_object(
     content_hash: bytes | None = None,
     size_bytes: int | None = None,
     allow_overwrite: bool = True,
-    event_context: EventContext | None = None,
 ) -> PutObjectResult:
     folder, file_name = resolve_object_path(
         db,
         bucket_name=bucket_name,
         key=key,
         current_user=current_user,
-        event_context=event_context,
     )
     folder_access_service.require_folder_permission_strict(
         db,
@@ -131,6 +128,7 @@ def put_object(
             digest=digest,
             body=body_file,
             size_bytes=object_size,
+            filename=file_name,
         )
         blob = created_blob.blob
 
@@ -140,51 +138,20 @@ def put_object(
             blob_id=blob.id,
             actor_id=current_user.id,
             name=file_name,
-            meta=init_file_meta(
-                file_name=file_name,
-                size=object_size,
-                user_meta=ingest_meta,
-            ),
+            meta=normalize_ingest_meta(ingest_meta),
         )
         db.add(file)
-        event_type = "file.created"
     else:
         file = existing_file
         old_blob = db.get(Blob, previous_blob_id)
         file.blob_id = blob.id
         file.actor_id = current_user.id
-        file.meta = init_file_meta(
-            file_name=file_name,
-            size=object_size,
-            user_meta=ingest_meta,
-        )
+        file.meta = normalize_ingest_meta(ingest_meta)
         if old_blob is not None and old_blob.id != blob.id:
             old_blob.refcount -= 1
             if old_blob.refcount < 0:
                 old_blob.refcount = 0
-        event_type = "file.updated"
     db.flush()
-    if event_context is not None:
-        payload = {
-            "file_id": str(file.id),
-            "folder_id": str(file.folder_id),
-            "name": file.name,
-            "blob_id": str(blob.id),
-            "size_bytes": blob.size_bytes,
-            "mimetype": file.meta.get("mimetype"),
-            "content_hash": digest_hex,
-        }
-        if previous_blob_id is not None:
-            payload["previous_blob_id"] = str(previous_blob_id)
-        create_file_event(
-            db,
-            event_type=event_type,
-            actor_id=event_context.actor_id,
-            request_id=event_context.request_id,
-            file_id=file.id,
-            folder_id=file.folder_id,
-            payload=payload,
-        )
     db.commit()
     db.refresh(file)
     db.refresh(blob)
@@ -198,7 +165,6 @@ def resolve_object_path(
     bucket_name: str,
     key: str,
     current_user: User,
-    event_context: EventContext | None = None,
 ) -> tuple[Folder, str]:
     normalized_key = normalize_key(key)
     parts = [
@@ -224,7 +190,6 @@ def resolve_object_path(
             parent=parent,
             name=folder_name,
             current_user=current_user,
-            event_context=event_context,
         )
     return parent, parts[-1]
 
@@ -242,7 +207,6 @@ def get_or_create_child_folder(
     parent: Folder,
     name: str,
     current_user: User,
-    event_context: EventContext | None = None,
 ) -> Folder:
     child = db.scalar(
         select(Folder).where(Folder.parent_id == parent.id, Folder.name == name)
@@ -264,19 +228,6 @@ def get_or_create_child_folder(
     db.add(child)
     db.flush()
     folder_access_service.clear_hotpath_cache(db)
-    if event_context is not None:
-        create_file_event(
-            db,
-            event_type="folder.created",
-            actor_id=event_context.actor_id,
-            request_id=event_context.request_id,
-            folder_id=child.id,
-            payload={
-                "folder_id": str(child.id),
-                "parent_id": str(parent.id),
-                "name": child.name,
-            },
-        )
     return child
 
 
@@ -313,12 +264,20 @@ def create_blob(
     digest: bytes,
     body: BinaryIO,
     size_bytes: int,
+    filename: str,
 ) -> CreateBlobResult:
+    mimetype, extension, size_bytes = sniff_blob_attributes(
+        body=body,
+        filename=filename,
+        size_bytes=size_bytes,
+    )
     blob = Blob(
         bucket_id=bucket.id,
         bucket_key="",
         content_hash=digest,
         size_bytes=size_bytes,
+        mimetype=mimetype,
+        extension=extension,
         refcount=1,
     )
     db.add(blob)
@@ -374,7 +333,6 @@ def delete_object(
     bucket_name: str,
     key: str,
     current_user: User | None = None,
-    event_context: EventContext | None = None,
 ) -> DeleteObjectResult:
     """
     Delete a File by bucket+key and decrement the Blob refcount.
@@ -407,10 +365,6 @@ def delete_object(
         return DeleteObjectResult(existed=False)
 
     blob = db.get(Blob, file.blob_id)
-    deleted_file_id = file.id
-    deleted_folder_id = file.folder_id
-    deleted_blob_id = file.blob_id
-    deleted_name = file.name
     db.delete(file)
     db.flush()
 
@@ -419,21 +373,6 @@ def delete_object(
         if blob.refcount < 0:
             blob.refcount = 0
 
-    if event_context is not None:
-        create_file_event(
-            db,
-            event_type="file.deleted",
-            actor_id=event_context.actor_id,
-            request_id=event_context.request_id,
-            file_id=deleted_file_id,
-            folder_id=deleted_folder_id,
-            payload={
-                "file_id": str(deleted_file_id),
-                "folder_id": str(deleted_folder_id),
-                "name": deleted_name,
-                "blob_id": str(deleted_blob_id),
-            },
-        )
     db.commit()
     clear_list_objects_response_cache()
     return DeleteObjectResult(existed=True)
@@ -468,7 +407,6 @@ def copy_object(
     ingest_meta: dict,
     metadata_directive: str = S3_METADATA_DIRECTIVE_COPY,
     current_user: User,
-    event_context: EventContext | None = None,
 ) -> CopyObjectResult:
     """
     S3 CopyObject - metadata-only copy. The new File points at the same Blob;
@@ -500,7 +438,6 @@ def copy_object(
         bucket_name=dest_bucket,
         key=dest_key,
         current_user=current_user,
-        event_context=event_context,
     )
 
     if (
@@ -523,13 +460,9 @@ def copy_object(
         raise ResourceNotFound("Source blob not found")
 
     copied_meta = (
-        validate_file_meta_dict(dict(source_file.meta)).model_dump(mode="json")
+        dict(source_file.meta or {})
         if metadata_directive == S3_METADATA_DIRECTIVE_COPY
-        else init_file_meta(
-            file_name=dest_file_name,
-            size=blob.size_bytes,
-            user_meta=ingest_meta,
-        )
+        else normalize_ingest_meta(ingest_meta)
     )
 
     new_file = File(
@@ -542,23 +475,6 @@ def copy_object(
     db.add(new_file)
     blob.refcount += 1
     db.flush()
-    if event_context is not None:
-        create_file_event(
-            db,
-            event_type="file.copied",
-            actor_id=event_context.actor_id,
-            request_id=event_context.request_id,
-            file_id=new_file.id,
-            folder_id=new_file.folder_id,
-            payload={
-                "source_file_id": str(source_file.id),
-                "new_file_id": str(new_file.id),
-                "to_folder_id": str(new_file.folder_id),
-                "name": new_file.name,
-                "blob_id": str(blob.id),
-                "metadata_directive": metadata_directive,
-            },
-        )
     db.commit()
     db.refresh(new_file)
     db.refresh(blob)

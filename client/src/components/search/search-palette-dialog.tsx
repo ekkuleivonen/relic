@@ -175,8 +175,10 @@ export function SearchPaletteDialog({
                       {file.name}
                     </span>
                     <span className="truncate text-[0.6875rem] text-muted-foreground">
-                      {file.meta.summary?.trim() ||
-                        [file.meta.mimetype, formatBytes(file.meta.size)]
+                      {(typeof file.meta.summary === "string"
+                        ? file.meta.summary.trim()
+                        : "") ||
+                        [file.mimetype, formatBytes(file.size_bytes)]
                           .filter(Boolean)
                           .join(" · ") ||
                         "No metadata yet"}

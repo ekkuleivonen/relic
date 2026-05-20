@@ -1,15 +1,4 @@
-"""Shared request-scoped context for event emission.
-
-Both ``audit_events`` and ``file_events`` carry the same two correlation
-fields on every write — the acting user (if any) and the originating
-request id. We carry them through service calls as a single dataclass so
-the API layer never has to pick between "audit" and "file" context types,
-and so service functions can write either kind of event from one input.
-
-System-emitted writes (workers, dispatcher, cron) pass ``None`` for both
-fields; ``actor_id`` is the canonical "this was a user-triggered mutation"
-signal.
-"""
+"""Request-scoped context for audit event emission."""
 
 import uuid
 from dataclasses import dataclass

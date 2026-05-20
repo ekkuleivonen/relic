@@ -41,24 +41,40 @@ import type { AuditEventsQuery, AuditEventStatus } from "@/types/audit-events"
 
 const STATUS_ALL = "all"
 const OPERATION_ALL = "all"
+const JOB_ALL = "all"
+
+const JOB_OPTIONS = [
+  "purge_dereferenced_blobs",
+  "demote_pressured_buckets",
+  "promote_recently_accessed",
+  "bucket_probe",
+  "trim_bucket_probes",
+  "trim_audit_events",
+  "abort_incomplete_multipart_uploads",
+] as const
 
 const OPERATION_OPTIONS = [
   "access_key.created",
   "access_key.deleted",
   "access_key.revoked",
+  "audit_event.trimmed",
   "auth.login.failed",
   "auth.login.succeeded",
   "auth.logout",
+  "blob.demoted",
+  "blob.demotion_skipped",
+  "blob.promoted",
+  "blob.purged",
+  "blob.purge_failed",
   "bucket.created",
   "bucket.deleted",
+  "bucket.probe_failed",
   "bucket.updated",
+  "bucket_probe.trimmed",
   "folder.access.granted",
   "folder.access.revoked",
   "folder.access.updated",
-  "folder.copied",
-  "folder.created",
-  "folder.deleted",
-  "folder.updated",
+  "multipart_upload.aborted",
   "user.created",
   "user.deleted",
   "user.updated",
@@ -66,9 +82,13 @@ const OPERATION_OPTIONS = [
 
 type AuditEventFiltersDraft = {
   operation: string
+  job: string
   status: string
   actor_id: string
   request_id: string
+  batch_id: string
+  bucket_id: string
+  blob_id: string
   created_after: Date | undefined
   created_before: Date | undefined
 }
@@ -81,9 +101,13 @@ export function AuditEventsPage() {
   const [clearDialogOpen, setClearDialogOpen] = React.useState(false)
   const [draft, setDraft] = React.useState<AuditEventFiltersDraft>({
     operation: OPERATION_ALL,
+    job: JOB_ALL,
     status: STATUS_ALL,
     actor_id: "",
     request_id: "",
+    batch_id: "",
+    bucket_id: "",
+    blob_id: "",
     created_after: undefined,
     created_before: undefined,
   })
@@ -95,12 +119,16 @@ export function AuditEventsPage() {
     setFilters({
       operation:
         draft.operation === OPERATION_ALL ? undefined : draft.operation,
+      job: draft.job === JOB_ALL ? undefined : draft.job,
       status:
         draft.status === STATUS_ALL
           ? undefined
           : (draft.status as AuditEventStatus),
       actor_id: draft.actor_id,
       request_id: draft.request_id,
+      batch_id: draft.batch_id,
+      bucket_id: draft.bucket_id,
+      blob_id: draft.blob_id,
       created_after: toStartOfDayIso(draft.created_after),
       created_before: toEndOfDayIso(draft.created_before),
       limit: AUDIT_EVENTS_PAGE_SIZE,
@@ -111,9 +139,13 @@ export function AuditEventsPage() {
   function clearFilters() {
     setDraft({
       operation: OPERATION_ALL,
+      job: JOB_ALL,
       status: STATUS_ALL,
       actor_id: "",
       request_id: "",
+      batch_id: "",
+      bucket_id: "",
+      blob_id: "",
       created_after: undefined,
       created_before: undefined,
     })
@@ -140,8 +172,8 @@ export function AuditEventsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Audit Log</h1>
           <p className="text-sm text-muted-foreground">
-            Explore durable audit events for identity, access, bucket, and
-            folder changes.
+            Explore durable audit events for identity, access, bucket, folder
+            changes, and storage maintenance.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -237,6 +269,25 @@ export function AuditEventsPage() {
                 <SelectItem value={STATUS_ALL}>Any status</SelectItem>
                 <SelectItem value="succeeded">Succeeded</SelectItem>
                 <SelectItem value="failed">Failed</SelectItem>
+                <SelectItem value="skipped">Skipped</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select
+              value={draft.job}
+              onValueChange={(job) =>
+                setDraft((current) => ({ ...current, job }))
+              }
+            >
+              <SelectTrigger className="h-9 w-full">
+                <SelectValue placeholder="Job" />
+              </SelectTrigger>
+              <SelectContent className="max-h-80">
+                <SelectItem value={JOB_ALL}>Any job</SelectItem>
+                {JOB_OPTIONS.map((job) => (
+                  <SelectItem key={job} value={job}>
+                    {job}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Input
@@ -256,6 +307,36 @@ export function AuditEventsPage() {
                 setDraft((current) => ({
                   ...current,
                   actor_id: event.target.value,
+                }))
+              }
+            />
+            <Input
+              placeholder="Batch ID"
+              value={draft.batch_id}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  batch_id: event.target.value,
+                }))
+              }
+            />
+            <Input
+              placeholder="Bucket ID"
+              value={draft.bucket_id}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  bucket_id: event.target.value,
+                }))
+              }
+            />
+            <Input
+              placeholder="Blob ID"
+              value={draft.blob_id}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  blob_id: event.target.value,
                 }))
               }
             />

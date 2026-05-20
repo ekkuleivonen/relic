@@ -2,18 +2,15 @@ import datetime as dt
 import uuid
 
 import factory
-from enums import EventStatus, Permission, ProcessorSource, UserRole
+from enums import EventStatus, Permission, UserRole
 from models import (
     AccessKey,
-    AuditEvent,
     Blob,
     Bucket,
     BucketProbe,
-    FileEvent,
     Folder,
     FolderAccess,
-    MaintenanceEvent,
-    Processor,
+    AuditEvent,
     User,
 )
 from utils.passwords import hash_password
@@ -53,6 +50,8 @@ class BlobFactory(factory.Factory):
     bucket_key = factory.Sequence(lambda n: f"objects/{n}")
     content_hash = factory.Sequence(lambda n: n.to_bytes(32, "big"))
     size_bytes = 1
+    mimetype = "application/octet-stream"
+    extension = ""
     refcount = 1
 
 
@@ -100,64 +99,15 @@ class AuditEventFactory(factory.Factory):
     class Meta:
         model = AuditEvent
 
-    operation = factory.Sequence(lambda n: f"operation-{n}")
+    operation = factory.Sequence(lambda n: f"audit.operation.{n}")
     status = EventStatus.SUCCEEDED
     actor_id = None
-    request_id = factory.Sequence(lambda n: f"req-{n}")
-    meta = factory.LazyFunction(dict)
-
-
-class FileEventFactory(factory.Factory):
-    class Meta:
-        model = FileEvent
-
-    offset = factory.Sequence(lambda n: n + 1)
-    schema_version = 1
-    event_type = factory.Sequence(lambda n: f"file.event.{n}")
-    status = EventStatus.SUCCEEDED
-    actor_id = None
-    request_id = factory.Sequence(lambda n: f"req-{n}")
-    idempotency_key = None
-    file_id = None
-    folder_id = None
-    payload = factory.LazyFunction(dict)
-
-
-class MaintenanceEventFactory(factory.Factory):
-    class Meta:
-        model = MaintenanceEvent
-
-    job = factory.Sequence(lambda n: f"maintenance-job-{n}")
-    action = factory.Sequence(lambda n: f"maintenance.action.{n}")
-    status = EventStatus.SUCCEEDED
-    batch_id = factory.Sequence(
-        lambda n: uuid.UUID(f"00000000-0000-0000-0000-{n + 1:012d}")
-    )
+    request_id = None
+    job = None
+    batch_id = None
     bucket_id = None
     blob_id = None
-    duration_ms = 1
+    duration_ms = None
     meta = factory.LazyFunction(dict)
-
-
-class ProcessorFactory(factory.Factory):
-    class Meta:
-        model = Processor
-
-    name = factory.Sequence(lambda n: f"processor-{n}")
-    kind = "file_info"
-    enabled = True
-    source = ProcessorSource.SEED
-    subscribed_event_types = factory.LazyFunction(
-        lambda: ["file.created", "file.updated"]
-    )
-    folder_scopes = factory.LazyFunction(list)
-    mimetype_prefixes = factory.LazyFunction(list)
-    extensions = factory.LazyFunction(list)
-    config = factory.LazyFunction(dict)
-    dispatch_generation = 0
-    last_committed_offset = 0
-    last_committed_at = None
-    last_failed_event_id = None
-    last_failed_at = None
-    last_error_class = None
-    last_error_message = None
+    created_at = factory.LazyFunction(lambda: dt.datetime.now(dt.UTC))
+    updated_at = factory.LazyFunction(lambda: dt.datetime.now(dt.UTC))

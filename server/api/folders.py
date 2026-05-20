@@ -7,7 +7,6 @@ from models import Folder, User
 from pydantic import BaseModel, ConfigDict, Field
 from services import filesystem as filesystem_service
 from services import folders as folders_service
-from services.event_context import context_from_headers
 from services.folders import FolderResult
 from services.placement import effective_preferred_bucket_id
 
@@ -202,10 +201,6 @@ async def create_folder(
         current_user,
         parent_id=payload.parent_id,
         name=payload.name,
-        event_context=context_from_headers(
-            request.headers,
-            actor_id=current_user.id,
-        ),
     )
     return FolderRead.from_result(db, result, user=current_user)
 
@@ -231,10 +226,6 @@ async def update_folder(
         parent_id=payload.parent_id,
         preferred_bucket_id=payload.preferred_bucket_id,
         set_preferred_bucket_id="preferred_bucket_id" in payload.model_fields_set,
-        event_context=context_from_headers(
-            request.headers,
-            actor_id=current_user.id,
-        ),
     )
     return FolderRead.from_result(db, result, user=current_user)
 
@@ -259,10 +250,6 @@ async def delete_folder(
         current_user,
         folder_id=folder_id,
         recursive=recursive,
-        event_context=context_from_headers(
-            request.headers,
-            actor_id=current_user.id,
-        ),
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -289,9 +276,5 @@ async def copy_folder(
         destination_parent_id=payload.destination_parent_id,
         name=payload.name,
         recursive=payload.recursive,
-        event_context=context_from_headers(
-            request.headers,
-            actor_id=current_user.id,
-        ),
     )
     return FolderRead.from_result(db, result, user=current_user)

@@ -22,6 +22,11 @@ class AuditEventRead(BaseModel):
     actor_id: uuid.UUID | None
     actor: UserRead | None
     request_id: str | None
+    job: str | None
+    batch_id: uuid.UUID | None
+    bucket_id: uuid.UUID | None
+    blob_id: uuid.UUID | None
+    duration_ms: int | None
     metadata: dict
     created_at: dt.datetime
     updated_at: dt.datetime
@@ -35,6 +40,11 @@ class AuditEventRead(BaseModel):
             actor_id=event.actor_id,
             actor=UserRead.model_validate(event.actor) if event.actor else None,
             request_id=event.request_id,
+            job=event.job,
+            batch_id=event.batch_id,
+            bucket_id=event.bucket_id,
+            blob_id=event.blob_id,
+            duration_ms=event.duration_ms,
             metadata=event.meta,
             created_at=event.created_at,
             updated_at=event.updated_at,
@@ -57,6 +67,10 @@ async def list_audit_events(
     status: str | None = None,
     actor_id: uuid.UUID | None = None,
     request_id: str | None = None,
+    job: str | None = None,
+    batch_id: uuid.UUID | None = None,
+    bucket_id: uuid.UUID | None = None,
+    blob_id: uuid.UUID | None = None,
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
     limit: int = Query(
@@ -72,6 +86,10 @@ async def list_audit_events(
         status=status,
         actor_id=actor_id,
         request_id=request_id,
+        job=job,
+        batch_id=batch_id,
+        bucket_id=bucket_id,
+        blob_id=blob_id,
         created_after=created_after,
         created_before=created_before,
         limit=limit,

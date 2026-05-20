@@ -7,9 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.dependencies import AdminUser
 from api.users import UserRead
 from database import DbSession
-from services.event_context import context_from_headers
 from services import access_keys as access_key_service
 from services.access_keys import AccessKeyRow, CreatedAccessKey
+from services.event_context import context_from_headers
 
 router = APIRouter()
 

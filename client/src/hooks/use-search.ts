@@ -6,8 +6,17 @@ import type { Facets, FileSearchResponse, SearchQuery } from "@/types/search"
 
 export const searchQueryKey = ["search"] as const
 
+function toApiSearchParams(query: SearchQuery): URLSearchParams {
+  const params = serializeSearchQuery(query)
+  if (query.uploaded_by) {
+    params.delete("uploaded_by")
+    params.set("actor_id", query.uploaded_by)
+  }
+  return params
+}
+
 export function useFileSearch(query: SearchQuery, options?: { enabled?: boolean }) {
-  const params = serializeSearchQuery(query).toString()
+  const params = toApiSearchParams(query).toString()
   return useQuery({
     queryKey: [...searchQueryKey, "files", params],
     queryFn: () =>
@@ -23,7 +32,7 @@ export function useSearchFacets(
   query: SearchQuery,
   options?: { enabled?: boolean; top?: number }
 ) {
-  const params = serializeSearchQuery(query)
+  const params = toApiSearchParams(query)
   // Pagination params do not affect facets; strip them so the cache reuses
   // results across pagination changes.
   params.delete("limit")

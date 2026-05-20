@@ -7,8 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.dependencies import AdminUser
 from api.users import UserRead
 from database import DbSession
-from services.event_context import context_from_headers
 from services import folder_access as folder_access_service
+from services.event_context import context_from_headers
 from services.folder_access import FolderAccessRow
 
 router = APIRouter()

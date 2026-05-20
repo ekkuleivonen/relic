@@ -9,10 +9,7 @@ const adminNavItems = [
   { to: "/admin/users", label: "Users" },
   { to: "/admin/access-keys", label: "Access Keys" },
   { to: "/admin/folders", label: "Folder Access" },
-  { to: "/admin/audit-events", label: "Audit Log" },
-  { to: "/admin/file-events", label: "File Events" },
-  { to: "/admin/maintenance-events", label: "Maintenance Events" },
-  { to: "/admin/processors", label: "Processors" },
+  { to: "/admin/audit-events", label: "Audit Events" },
 ] as const
 
 export function AdminLayout() {

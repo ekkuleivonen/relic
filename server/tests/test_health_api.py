@@ -9,7 +9,7 @@ from enums import HealthStatus
 from database import get_db
 from models import Base
 from services import health as health_service
-from tests.factories.models import BucketFactory, BucketProbeFactory, ProcessorFactory
+from tests.factories.models import BucketFactory, BucketProbeFactory
 
 
 @pytest.fixture()
@@ -44,7 +44,6 @@ def stub_redis(monkeypatch):
         return {
             "status": HealthStatus.OK,
             "queues": {
-                "relic:processing": {"depth": 0, "oldest_pending_age_seconds": None},
                 "relic:maintenance": {"depth": 0, "oldest_pending_age_seconds": None},
             },
         }
@@ -64,8 +63,7 @@ def test_healthz_reports_api_ok(client):
 
 def test_readyz_reports_dependency_status(client, db_session):
     bucket = BucketFactory.build()
-    processor = ProcessorFactory.build(name="file_info")
-    db_session.add_all([bucket, processor])
+    db_session.add(bucket)
     db_session.flush()
     db_session.add(BucketProbeFactory.build(bucket_id=bucket.id))
     db_session.commit()
@@ -77,11 +75,6 @@ def test_readyz_reports_dependency_status(client, db_session):
     assert body["status"] == "ok"
     assert body["checks"]["database"]["status"] == "ok"
     assert body["checks"]["redis"]["status"] == "ok"
-    assert body["checks"]["processors"] == {
-        "status": "ok",
-        "enabled": 1,
-        "total": 1,
-    }
     assert body["checks"]["object_stores"] == {
         "status": "ok",
         "configured": 1,

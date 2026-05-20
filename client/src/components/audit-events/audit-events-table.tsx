@@ -24,9 +24,9 @@ export function AuditEventsTable({
   auditEvents,
   isLoading,
 }: AuditEventsTableProps) {
-  const [expandedAuditEventIds, setExpandedAuditEventIds] = React.useState<
-    Set<string>
-  >(() => new Set())
+  const [expandedIds, setExpandedIds] = React.useState<Set<string>>(
+    () => new Set()
+  )
 
   if (isLoading) {
     return (
@@ -47,14 +47,14 @@ export function AuditEventsTable({
     )
   }
 
-  function toggleExpanded(auditEventId: string) {
-    setExpandedAuditEventIds((current) => {
+  function toggleExpanded(eventId: string) {
+    setExpandedIds((current) => {
       const next = new Set(current)
 
-      if (next.has(auditEventId)) {
-        next.delete(auditEventId)
+      if (next.has(eventId)) {
+        next.delete(eventId)
       } else {
-        next.add(auditEventId)
+        next.add(eventId)
       }
 
       return next
@@ -66,17 +66,25 @@ export function AuditEventsTable({
       <TableHeader>
         <TableRow>
           <TableHead>Time</TableHead>
-          <TableHead>Audit Event</TableHead>
+          <TableHead>Operation</TableHead>
+          <TableHead>Job</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Actor</TableHead>
-          <TableHead>Request</TableHead>
+          <TableHead>Duration</TableHead>
+          <TableHead>Batch</TableHead>
+          <TableHead>Resource</TableHead>
           <TableHead className="text-right">Details</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {auditEvents.map((auditEvent) => {
-          const isExpanded = expandedAuditEventIds.has(auditEvent.id)
+          const isExpanded = expandedIds.has(auditEvent.id)
           const hasMetadata = Object.keys(auditEvent.metadata).length > 0
+          const hasResourceIds = Boolean(
+            auditEvent.bucket_id || auditEvent.blob_id
+          )
+          const hasDetails =
+            hasMetadata || hasResourceIds || Boolean(auditEvent.request_id)
 
           return (
             <React.Fragment key={auditEvent.id}>
@@ -87,28 +95,34 @@ export function AuditEventsTable({
                 <TableCell>
                   <div className="font-medium">{auditEvent.operation}</div>
                 </TableCell>
+                <TableCell className="font-mono text-xs">
+                  {auditEvent.job ?? "—"}
+                </TableCell>
                 <TableCell>
                   <StatusBadge status={auditEvent.status} />
                 </TableCell>
                 <TableCell>
                   {auditEvent.actor ? (
-                    <div className="space-y-1">
-                      <div className="text-sm">{auditEvent.actor.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {auditEvent.actor.email}
-                      </div>
-                    </div>
+                    <ActorCell auditEvent={auditEvent} />
                   ) : (
                     <span className="text-xs text-muted-foreground">
                       System
                     </span>
                   )}
                 </TableCell>
-                <TableCell className="max-w-48 truncate font-mono text-xs">
-                  {auditEvent.request_id ?? "—"}
+                <TableCell className="whitespace-nowrap text-xs">
+                  {auditEvent.duration_ms === null
+                    ? "—"
+                    : `${auditEvent.duration_ms} ms`}
+                </TableCell>
+                <TableCell className="max-w-40 truncate font-mono text-xs">
+                  {auditEvent.batch_id ?? "—"}
+                </TableCell>
+                <TableCell>
+                  <ResourceBadges auditEvent={auditEvent} />
                 </TableCell>
                 <TableCell className="text-right">
-                  {hasMetadata ? (
+                  {hasDetails ? (
                     <Button
                       type="button"
                       variant="ghost"
@@ -131,16 +145,33 @@ export function AuditEventsTable({
                   )}
                 </TableCell>
               </TableRow>
-              {isExpanded && hasMetadata && (
+              {isExpanded && (
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableCell colSpan={6} className="whitespace-normal p-3">
+                  <TableCell colSpan={9} className="whitespace-normal p-3">
                     <div className="space-y-2">
-                      <div className="text-xs font-medium text-muted-foreground">
-                        Metadata
-                      </div>
-                      <pre className="max-h-64 overflow-auto rounded-md bg-background px-3 py-2 font-mono text-xs">
-                        {formatMetadata(auditEvent.metadata)}
-                      </pre>
+                      {auditEvent.request_id && (
+                        <div className="space-y-1 text-xs">
+                          <div className="font-medium text-muted-foreground">
+                            Request
+                          </div>
+                          <div className="break-all rounded bg-background px-2 py-1 font-mono">
+                            {auditEvent.request_id}
+                          </div>
+                        </div>
+                      )}
+                      {hasResourceIds && (
+                        <ResourceIds auditEvent={auditEvent} />
+                      )}
+                      {hasMetadata && (
+                        <div className="space-y-2">
+                          <div className="text-xs font-medium text-muted-foreground">
+                            Metadata
+                          </div>
+                          <pre className="max-h-64 overflow-auto rounded-md bg-background px-3 py-2 font-mono text-xs">
+                            {formatMetadata(auditEvent.metadata)}
+                          </pre>
+                        </div>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -153,12 +184,84 @@ export function AuditEventsTable({
   )
 }
 
-function StatusBadge({ status }: { status: AuditEventRecord["status"] }) {
+function ActorCell({ auditEvent }: { auditEvent: AuditEventRecord }) {
   return (
-    <Badge variant={status === "succeeded" ? "secondary" : "destructive"}>
-      {status}
-    </Badge>
+    <div className="space-y-1">
+      <div className="text-sm">{auditEvent.actor?.name}</div>
+      <div className="text-xs text-muted-foreground">{auditEvent.actor?.email}</div>
+    </div>
   )
+}
+
+function ResourceBadges({
+  auditEvent,
+}: {
+  auditEvent: AuditEventRecord
+}) {
+  const parts = [
+    auditEvent.bucket_id ? "bucket" : null,
+    auditEvent.blob_id ? "blob" : null,
+  ].filter(isString)
+
+  if (parts.length === 0) {
+    return <span className="text-xs text-muted-foreground">None</span>
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {parts.map((part) => (
+        <Badge key={part} variant="outline">
+          {part}
+        </Badge>
+      ))}
+    </div>
+  )
+}
+
+function ResourceIds({
+  auditEvent,
+}: {
+  auditEvent: AuditEventRecord
+}) {
+  return (
+    <div className="grid gap-2 text-xs md:grid-cols-2">
+      <IdBlock label="Bucket" id={auditEvent.bucket_id} />
+      <IdBlock label="Blob" id={auditEvent.blob_id} />
+    </div>
+  )
+}
+
+function IdBlock({ label, id }: { label: string; id: string | null }) {
+  if (!id) return null
+
+  return (
+    <div className="space-y-1">
+      <div className="font-medium text-muted-foreground">{label}</div>
+      <div className="break-all rounded bg-background px-2 py-1 font-mono">
+        {id}
+      </div>
+    </div>
+  )
+}
+
+function StatusBadge({
+  status,
+}: {
+  status: AuditEventRecord["status"]
+}) {
+  if (status === "failed") {
+    return <Badge variant="destructive">{status}</Badge>
+  }
+
+  if (status === "skipped") {
+    return <Badge variant="outline">{status}</Badge>
+  }
+
+  return <Badge variant="secondary">{status}</Badge>
+}
+
+function isString(value: string | null): value is string {
+  return value !== null
 }
 
 function formatMetadata(metadata: Record<string, unknown>) {

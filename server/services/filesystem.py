@@ -11,8 +11,8 @@ from constants import (
 from enums import Permission
 from domain.exceptions import BadRequestError, ResourceNotFound
 from models import Blob, File, Folder, User
-from sqlalchemy import BigInteger, asc, case, cast, desc, func, literal, nullslast, select
-from sqlalchemy.orm import Session
+from sqlalchemy import asc, desc, func, nullslast, select
+from sqlalchemy.orm import Session, joinedload
 
 from services import folder_access as folder_access_service
 
@@ -34,10 +34,10 @@ class FolderStats:
 
     @property
     def enrichment_coverage(self) -> float | None:
-        """Fraction of files with a completed file_info section; ``None`` when empty."""
+        """Legacy field: always 1.0 when files exist (blob attrs set at ingest)."""
         if self.file_count == 0:
             return None
-        return self.enriched_file_count / self.file_count
+        return 1.0
 
 
 def get_folder_tree(
@@ -79,11 +79,9 @@ def _list_files_order_by(sort: str, order: str):
     if sort == "updated_at":
         return primary(File.updated_at), tie
     if sort == "mimetype":
-        col = File.meta["mimetype"].as_string()
-        return nullslast(primary(col)), tie
+        return nullslast(primary(Blob.mimetype)), tie
     if sort == "size":
-        col = cast(File.meta["size"].as_string(), BigInteger)
-        return nullslast(primary(col)), tie
+        return nullslast(primary(Blob.size_bytes)), tie
     raise BadRequestError(f"unsupported sort {sort!r}")
 
 
@@ -131,7 +129,13 @@ def list_files(
 
     order_parts = _list_files_order_by(sort, order)
     page_stmt = (
-        select(File).where(*filters).order_by(*order_parts).limit(limit).offset(offset)
+        select(File)
+        .join(Blob, Blob.id == File.blob_id)
+        .options(joinedload(File.blob))
+        .where(*filters)
+        .order_by(*order_parts)
+        .limit(limit)
+        .offset(offset)
     )
     items = list(db.scalars(page_stmt).all())
     return FileListPage(items=items, total=total)
@@ -143,38 +147,30 @@ def get_folder_stats(
     *,
     folder_id: uuid.UUID,
 ) -> FolderStats:
-    """Return file count, enriched count and logical size for a folder + subtree.
+    """Return file count and logical size for a folder + subtree.
 
     "Logical size" sums ``blob.size_bytes`` for every File row in the subtree —
-    so a blob referenced N times counts N times. Use this for "what these files
-    claim to occupy"; physical (deduped) size is a future addition.
-
-    The caller must hold READ on ``folder_id``. Because grants only ever
-    cascade downward, all descendants of a readable folder are also readable,
-    so no per-descendant visibility intersection is needed.
+    so a blob referenced N times counts N times.
     """
     folder_access_service.require_folder_permission(
         db, current_user, folder_id, Permission.READ
     )
 
     scope_ids = collect_descendant_folder_ids(db, folder_id)
-    file_info_status = File.meta["sections"]["file_info"]["status"].as_string()
-    enriched_expr = case((file_info_status == literal("completed"), 1), else_=0)
-
-    file_count, enriched_count, logical_size = db.execute(
+    file_count, logical_size = db.execute(
         select(
             func.count(File.id),
-            func.coalesce(func.sum(enriched_expr), 0),
             func.coalesce(func.sum(Blob.size_bytes), 0),
         )
         .join(Blob, Blob.id == File.blob_id)
         .where(File.folder_id.in_(scope_ids))
     ).one()
 
+    count = int(file_count)
     return FolderStats(
         folder_id=folder_id,
-        file_count=int(file_count),
-        enriched_file_count=int(enriched_count),
+        file_count=count,
+        enriched_file_count=count,
         logical_size_bytes=int(logical_size),
     )
 

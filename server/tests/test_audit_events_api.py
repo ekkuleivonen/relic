@@ -1,4 +1,5 @@
 import datetime as dt
+import uuid
 
 import pytest
 from api.app import app
@@ -6,7 +7,7 @@ from database import get_db
 from enums import UserRole
 from fastapi.testclient import TestClient
 from models import AuditEvent, Base
-from services.audit_events import trim_audit_events_older_than
+from services.audit_events import create_audit_event, trim_audit_events_older_than
 from services.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -51,23 +52,24 @@ def client(db_session, admin):
         app.dependency_overrides.clear()
 
 
-def test_list_audit_events_returns_recent_audit_events_first(client, db_session, admin):
-    now = dt.datetime.now(dt.UTC)
+def test_list_audit_events_returns_recent_events_first(client, db_session):
+    batch_id = uuid.uuid4()
     older = AuditEventFactory.build(
-        operation="GET",
-        actor_id=admin.id,
-        request_id="req-old",
-        meta={"bucket": "photos", "key": "old.jpg", "file_id": "file-1"},
-        created_at=now - dt.timedelta(minutes=1),
-        updated_at=now - dt.timedelta(minutes=1),
+        job="bucket_probe",
+        operation="bucket.probe_ok",
+        batch_id=batch_id,
+        meta={"put_ms": 1},
+        created_at=dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1),
+        updated_at=dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1),
     )
     newer = AuditEventFactory.build(
-        operation="folder.move",
-        actor_id=admin.id,
-        request_id="req-new",
-        meta={"destination_folder_id": "folder-2", "folder_id": "folder-1"},
-        created_at=now,
-        updated_at=now,
+        job="purge_dereferenced_blobs",
+        operation="blob.purged",
+        batch_id=batch_id,
+        blob_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+        meta={"freed_bytes": 100},
+        created_at=dt.datetime.now(dt.UTC),
+        updated_at=dt.datetime.now(dt.UTC),
     )
     db_session.add_all([older, newer])
     db_session.commit()
@@ -79,32 +81,30 @@ def test_list_audit_events_returns_recent_audit_events_first(client, db_session,
     assert body["total"] == 2
     assert body["limit"] == 50
     assert body["offset"] == 0
-    assert [item["request_id"] for item in body["items"]] == ["req-new", "req-old"]
-    assert body["items"][0]["actor"]["email"] == "admin@relic.local"
-    assert body["items"][0]["metadata"] == {
-        "destination_folder_id": "folder-2",
-        "folder_id": "folder-1",
-    }
-    assert "source" not in body["items"][0]
+    assert [item["operation"] for item in body["items"]] == [
+        "blob.purged",
+        "bucket.probe_ok",
+    ]
+    assert body["items"][0]["metadata"] == {"freed_bytes": 100}
 
 
-def test_list_audit_events_filters_and_paginates(client, db_session, admin):
+def test_list_audit_events_filters_and_paginates(client, db_session):
     db_session.add_all(
         [
             AuditEventFactory.build(
-                operation="GET",
-                actor_id=admin.id,
-                request_id="req-get-1",
+                job="bucket_probe",
+                operation="bucket.probe_ok",
+                status="succeeded",
             ),
             AuditEventFactory.build(
-                operation="PUT",
-                actor_id=admin.id,
-                request_id="req-put-1",
+                job="bucket_probe",
+                operation="bucket.probe_failed",
+                status="failed",
             ),
             AuditEventFactory.build(
-                operation="GET",
-                actor_id=admin.id,
-                request_id="req-api-1",
+                job="purge_dereferenced_blobs",
+                operation="blob.purged",
+                status="succeeded",
             ),
         ]
     )
@@ -112,42 +112,30 @@ def test_list_audit_events_filters_and_paginates(client, db_session, admin):
 
     response = client.get(
         "/api/audit-events/",
-        params={"operation": "GET", "limit": 1},
+        params={"job": "bucket_probe", "status": "failed", "limit": 1},
     )
 
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 2
+    assert body["total"] == 1
     assert len(body["items"]) == 1
-    assert body["items"][0]["operation"] == "GET"
+    assert body["items"][0]["operation"] == "bucket.probe_failed"
 
 
 def test_list_audit_events_rejects_invalid_status(client):
     response = client.get("/api/audit-events/", params={"status": "maybe"})
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "status must be one of ['failed', 'succeeded']"
-
-
-def test_clear_audit_events_removes_all_audit_events(client, db_session, admin):
-    db_session.add_all(
-        [
-            AuditEventFactory.build(actor_id=admin.id, request_id="req-1"),
-            AuditEventFactory.build(actor_id=admin.id, request_id="req-2"),
-        ]
+    assert (
+        response.json()["detail"]
+        == "status must be one of ['failed', 'skipped', 'succeeded']"
     )
-    db_session.commit()
-
-    response = client.delete("/api/audit-events/")
-
-    assert response.status_code == 204
-    assert db_session.scalars(select(AuditEvent)).all() == []
 
 
 def test_clear_audit_events_requires_admin(db_session):
     user = UserFactory.build(role=UserRole.USER)
     db_session.add(user)
-    db_session.add(AuditEventFactory.build(request_id="req-1"))
+    db_session.add(AuditEventFactory.build())
     db_session.commit()
 
     def override_get_db():
@@ -165,32 +153,52 @@ def test_clear_audit_events_requires_admin(db_session):
     assert len(db_session.scalars(select(AuditEvent)).all()) == 1
 
 
-def test_trim_audit_events_older_than_deletes_only_audit_events_before_cutoff(
-    db_session,
-):
+def test_create_audit_event_writes_event(db_session):
+    batch_id = uuid.uuid4()
+    blob_id = uuid.uuid4()
+
+    event = create_audit_event(
+        db_session,
+        job="purge_dereferenced_blobs",
+        operation="blob.purged",
+        status="succeeded",
+        batch_id=batch_id,
+        blob_id=blob_id,
+        duration_ms=12,
+        metadata={"freed_bytes": 100},
+    )
+    db_session.commit()
+
+    assert event.id is not None
+    assert event.batch_id == batch_id
+    assert event.blob_id == blob_id
+    assert event.meta == {"freed_bytes": 100}
+
+
+def test_trim_audit_events_older_than_deletes_only_events_before_cutoff(db_session):
     now = dt.datetime.now(dt.UTC)
     old_event = AuditEventFactory.build(
-        request_id="req-old",
         created_at=now - dt.timedelta(days=31),
         updated_at=now - dt.timedelta(days=31),
+        meta={"name": "old"},
     )
     cutoff_event = AuditEventFactory.build(
-        request_id="req-cutoff",
         created_at=now - dt.timedelta(days=30),
         updated_at=now - dt.timedelta(days=30),
+        meta={"name": "cutoff"},
     )
     recent_event = AuditEventFactory.build(
-        request_id="req-recent",
         created_at=now - dt.timedelta(days=1),
         updated_at=now - dt.timedelta(days=1),
+        meta={"name": "recent"},
     )
     db_session.add_all([old_event, cutoff_event, recent_event])
     db_session.commit()
 
     deleted = trim_audit_events_older_than(db_session, retention_days=30, now=now)
 
-    remaining_request_ids = {
-        event.request_id for event in db_session.scalars(select(AuditEvent)).all()
+    remaining_names = {
+        event.meta["name"] for event in db_session.scalars(select(AuditEvent)).all()
     }
     assert deleted == 1
-    assert remaining_request_ids == {"req-cutoff", "req-recent"}
+    assert remaining_names == {"cutoff", "recent"}

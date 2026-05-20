@@ -7,9 +7,8 @@ The search engine is shaped around the four query primitives of `FileMeta`:
 - ``summary``: short description, also feeds the omnisearch term match
 - ``kvs``: scalar facts, used for range/equality predicates
 
-Plus the surrounding structured fields (``mimetype``, ``extension``, ``size``,
-``original_filename``) and the columns on ``File`` itself (``folder_id``,
-``actor_id``, ``created_at``).
+Blob fields (``mimetype``, ``extension``, ``size_bytes``) are set at ingest.
+``File.meta`` is opaque consumer-owned JSON (tags, keywords, summary, kvs, …).
 
 The implementation does a SQL-side pre-filter on what is portable across SQLite
 (tests) and Postgres (prod), then applies the JSON-shaped filters in Python.
@@ -28,7 +27,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from constants import (
     SEARCH_DEFAULT_FACET_TOP,
@@ -219,7 +218,11 @@ def _candidates(db: Session, *, user: User, query: SearchQuery) -> list[File]:
     if not scope_ids:
         return []
 
-    stmt = select(File).where(File.folder_id.in_(scope_ids))
+    stmt = (
+        select(File)
+        .where(File.folder_id.in_(scope_ids))
+        .options(selectinload(File.blob))
+    )
     if query.actor_id is not None:
         stmt = stmt.where(File.actor_id == query.actor_id)
     if query.created_after is not None:
@@ -252,28 +255,21 @@ def _scope_folder_ids(
 
 
 def _matches_meta_pre_filters(file: File, query: SearchQuery) -> bool:
-    """Predicates that are technically expressible in SQL but kept in Python
-    so the search engine works identically on SQLite (tests) and Postgres
-    (prod). The Postgres-side btree indexes on ``meta->>'mimetype'`` and
-    ``meta->>'extension'`` keep these cheap once the candidate set is loaded."""
-    meta = file.meta or {}
+    """Blob structural filters kept in Python for SQLite/Postgres parity."""
+    blob = file.blob
+    if blob is None:
+        return False
 
-    if query.mimetypes:
-        if (meta.get("mimetype") or "") not in query.mimetypes:
-            return False
+    if query.mimetypes and blob.mimetype not in query.mimetypes:
+        return False
 
-    if query.extensions:
-        if (meta.get("extension") or "") not in query.extensions:
-            return False
+    if query.extensions and blob.extension not in query.extensions:
+        return False
 
-    if query.min_size is not None or query.max_size is not None:
-        size = meta.get("size")
-        if not isinstance(size, (int, float)):
-            return False
-        if query.min_size is not None and size < query.min_size:
-            return False
-        if query.max_size is not None and size > query.max_size:
-            return False
+    if query.min_size is not None and blob.size_bytes < query.min_size:
+        return False
+    if query.max_size is not None and blob.size_bytes > query.max_size:
+        return False
 
     return True
 
@@ -305,7 +301,6 @@ def _matches_text_filters(file: File, query: SearchQuery) -> bool:
             value
             for value in (
                 file.name or "",
-                meta.get("original_filename") or "",
                 meta.get("summary") or "",
                 *(str(item) for item in meta.get("keywords", [])),
                 *(str(item) for item in meta.get("tags", [])),
@@ -381,9 +376,9 @@ def _sort_key(field: str):
 
 
 def _safe_size(file: File) -> float:
-    meta = file.meta or {}
-    size = meta.get("size")
-    return size if isinstance(size, (int, float)) else 0
+    if file.blob is None:
+        return 0
+    return float(file.blob.size_bytes)
 
 
 # ---------------------------------------------------------------------------
@@ -406,8 +401,14 @@ def _count_list(files: Iterable[File], key: str) -> dict[str, int]:
 def _count_scalar(files: Iterable[File], key: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for file in files:
-        meta = file.meta or {}
-        value = _string_or_none(meta.get(key))
+        if file.blob is None:
+            continue
+        if key == "mimetype":
+            value = _string_or_none(file.blob.mimetype)
+        elif key == "extension":
+            value = _string_or_none(file.blob.extension)
+        else:
+            value = _string_or_none((file.meta or {}).get(key))
         if value is None:
             continue
         counts[value] = counts.get(value, 0) + 1

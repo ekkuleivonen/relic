@@ -115,91 +115,18 @@ S3_ACCESS_KEY_LAST_USED_DEBOUNCE_SECONDS: int = env.int(
 )
 
 # =============================================================================
-# Per-kind metadata byte caps
+# Redis / background workers
 # =============================================================================
-# Each type-specific metadata processor reads up to its cap via a single
-# S3 Range GET; files larger than the cap are parsed from the truncated
-# prefix (and the processor logs ``<kind>_meta_truncated``).
-
-IMAGE_META_MAX_BYTES: int = env.int(
-    "IMAGE_META_MAX_BYTES",
-    default=128 * 1024 * 1024,
-)
-
-CSV_META_MAX_BYTES: int = env.int(
-    "CSV_META_MAX_BYTES",
-    default=128 * 1024 * 1024,
-)
-
-PARQUET_META_MAX_BYTES: int = env.int(
-    "PARQUET_META_MAX_BYTES",
-    default=128 * 1024 * 1024,
-)
-
-JSON_META_MAX_BYTES: int = env.int(
-    "JSON_META_MAX_BYTES",
-    default=128 * 1024 * 1024,
-)
-
-PDF_META_MAX_BYTES: int = env.int(
-    "PDF_META_MAX_BYTES",
-    default=128 * 1024 * 1024,
-)
-
-TEXT_META_MAX_BYTES: int = env.int(
-    "TEXT_META_MAX_BYTES",
-    default=16 * 1024 * 1024,
-)
-
-AUDIO_META_MAX_BYTES: int = env.int(
-    "AUDIO_META_MAX_BYTES",
-    default=128 * 1024 * 1024,
-)
-
-VIDEO_META_MAX_BYTES: int = env.int(
-    "VIDEO_META_MAX_BYTES",
-    default=128 * 1024 * 1024,
-)
-
-ARCHIVE_META_MAX_BYTES: int = env.int(
-    "ARCHIVE_META_MAX_BYTES",
-    default=128 * 1024 * 1024,
-)
-
-OFFICE_DOC_META_MAX_BYTES: int = env.int(
-    "OFFICE_DOC_META_MAX_BYTES",
-    default=128 * 1024 * 1024,
-)
-
-HTML_META_MAX_BYTES: int = env.int(
-    "HTML_META_MAX_BYTES",
-    default=16 * 1024 * 1024,
-)
 
 REDIS_HOST: str = env.str("REDIS_HOST", default="localhost")
 REDIS_PORT: int = env.int("REDIS_PORT", default=6379)
 REDIS_PASSWORD: str = env.str("REDIS_PASSWORD", default="replace_me")
-PROCESSING_QUEUE_NAME: str = env.str(
-    "PROCESSING_QUEUE_NAME",
-    default="relic:processing",
-)
 MAINTENANCE_QUEUE_NAME: str = env.str(
     "MAINTENANCE_QUEUE_NAME",
     default="relic:maintenance",
 )
 
-# Dispatcher (warm-path pull loop; see processors/dispatcher.py)
-DISPATCHER_BATCH_SIZE: int = env.int("DISPATCHER_BATCH_SIZE", default=100)
-DISPATCHER_SAFETY_INTERVAL_SECONDS: int = env.int(
-    "DISPATCHER_SAFETY_INTERVAL_SECONDS",
-    default=15,
-)
-DISPATCHER_LISTEN_BACKOFF_SECONDS: int = env.int(
-    "DISPATCHER_LISTEN_BACKOFF_SECONDS",
-    default=2,
-)
-
-# Storage maintenance (arq cron + jobs; see processors/worker_maintenance.py)
+# Storage maintenance (arq cron + jobs; see workers/maintenance.py)
 EVENT_RETENTION_DAYS: int = env.int("EVENT_RETENTION_DAYS", default=90)
 STORAGE_MAINTENANCE_PURGE_BATCH: int = env.int(
     "STORAGE_MAINTENANCE_PURGE_BATCH",

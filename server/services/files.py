@@ -1,4 +1,4 @@
-"""Control-plane file operations: move and rename.
+"""Control-plane file operations: move, rename, and meta patch.
 
 Move and rename are pure metadata operations on the File row. They live in
 the control plane (not the gateway) because they're atomic database
@@ -10,14 +10,13 @@ import uuid
 
 from enums import Permission
 from domain.exceptions import BadRequestError
+from domain.files.meta import patch_meta
 from models import File, User
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from services import folder_access as folder_access_service
 from services import objects as object_service
-from services.event_context import EventContext
-from services.file_events import create_file_event
 from services.s3_hotpath_cache import clear_list_objects_response_cache
 
 
@@ -45,7 +44,6 @@ def move_file(
     destination_folder_id: uuid.UUID,
     name: str | None,
     current_user: User,
-    event_context: EventContext | None = None,
 ) -> File:
     file = object_service.get_file_for_user(
         db, file_id, current_user, Permission.DELETE
@@ -73,24 +71,6 @@ def move_file(
 
     file.folder_id = destination.id
     file.name = new_name
-    db.flush()
-    if event_context is not None:
-        event_type = "file.renamed" if old_name != new_name else "file.moved"
-        create_file_event(
-            db,
-            event_type=event_type,
-            actor_id=event_context.actor_id,
-            request_id=event_context.request_id,
-            file_id=file.id,
-            folder_id=file.folder_id,
-            payload={
-                "file_id": str(file.id),
-                "from_folder_id": str(old_folder_id),
-                "to_folder_id": str(file.folder_id),
-                "from_name": old_name,
-                "to_name": file.name,
-            },
-        )
     db.commit()
     db.refresh(file)
     clear_list_objects_response_cache()
@@ -103,7 +83,6 @@ def rename_file(
     file_id: uuid.UUID,
     name: str,
     current_user: User,
-    event_context: EventContext | None = None,
 ) -> File:
     file = object_service.get_file_for_user(db, file_id, current_user, Permission.WRITE)
     name = _normalize_requested_file_name(current_name=file.name, requested_name=name)
@@ -116,23 +95,28 @@ def rename_file(
     object_service.ensure_file_name_available(db, file.folder_id, name)
 
     file.name = name
-    db.flush()
-    if event_context is not None:
-        create_file_event(
-            db,
-            event_type="file.renamed",
-            actor_id=event_context.actor_id,
-            request_id=event_context.request_id,
-            file_id=file.id,
-            folder_id=file.folder_id,
-            payload={
-                "file_id": str(file.id),
-                "from_folder_id": str(file.folder_id),
-                "to_folder_id": str(file.folder_id),
-                "from_name": old_name,
-                "to_name": file.name,
-            },
-        )
+    db.commit()
+    db.refresh(file)
+    clear_list_objects_response_cache()
+    return file
+
+
+def patch_file_meta(
+    db: Session,
+    *,
+    file_id: uuid.UUID,
+    patch: dict,
+    current_user: User,
+) -> File:
+    file = object_service.get_file_for_user(
+        db, file_id, current_user, Permission.ENRICH
+    )
+    if not isinstance(patch, dict):
+        raise BadRequestError("meta patch must be an object")
+    try:
+        file.meta = patch_meta(file.meta, patch)
+    except TypeError as exc:
+        raise BadRequestError(str(exc)) from exc
     db.commit()
     db.refresh(file)
     clear_list_objects_response_cache()
@@ -140,7 +124,10 @@ def rename_file(
 
 
 def get_file(db: Session, file_id: uuid.UUID, current_user: User) -> File:
-    return object_service.get_file_for_user(db, file_id, current_user, Permission.READ)
+    file = object_service.get_file_for_user(db, file_id, current_user, Permission.READ)
+    if file.blob is None:
+        db.refresh(file, attribute_names=["blob"])
+    return file
 
 
 def list_files_in_folder(db: Session, folder_id: uuid.UUID) -> list[File]:

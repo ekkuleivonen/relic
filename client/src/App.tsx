@@ -3,12 +3,9 @@ import { Navigate, Route, Routes } from "react-router"
 import { AdminLayout } from "@/components/layout/admin-layout"
 import { RequireSession } from "@/components/layout/route-guards"
 import { AccessKeysPage } from "@/pages/admin/access-keys-page"
-import { AuditEventsPage } from "@/pages/admin/audit-events-page"
 import { BucketsPage } from "@/pages/admin/buckets-page"
-import { FileEventsPage } from "@/pages/admin/file-events-page"
 import { FolderAccessPage } from "@/pages/admin/folder-access-page"
-import { MaintenanceEventsPage } from "@/pages/admin/maintenance-events-page"
-import { ProcessorsPage } from "@/pages/admin/processors-page"
+import { AuditEventsPage } from "@/pages/admin/audit-events-page"
 import { UsersPage } from "@/pages/admin/users-page"
 import { FileDetailPage } from "@/pages/file-detail-page"
 import { FilesystemPage } from "@/pages/filesystem-page"
@@ -27,9 +24,6 @@ export function App() {
           <Route path="access-keys" element={<AccessKeysPage />} />
           <Route path="folders" element={<FolderAccessPage />} />
           <Route path="audit-events" element={<AuditEventsPage />} />
-          <Route path="file-events" element={<FileEventsPage />} />
-          <Route path="maintenance-events" element={<MaintenanceEventsPage />} />
-          <Route path="processors" element={<ProcessorsPage />} />
         </Route>
       </Route>
       <Route element={<RequireSession />}>

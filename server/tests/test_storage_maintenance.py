@@ -2,7 +2,7 @@ import datetime as dt
 import io
 
 import pytest
-from models import AuditEvent, Base, Blob, BucketProbe, MaintenanceEvent
+from models import AuditEvent, Base, Blob, BucketProbe
 from services.placement import clear_bucket_usage_cache, get_bucket_usage
 from services.storage_maintenance import (
     demote_pressured_buckets_batch,
@@ -127,11 +127,10 @@ def test_purge_deletes_dereferenced_blob_and_adjusts_counters(
     assert usage.object_count == 0
     assert usage.current_size_bytes == 0
     assert fake_storage.objects == {}
-    assert db_session.scalars(select(AuditEvent)).all() == []
-    events = db_session.scalars(select(MaintenanceEvent)).all()
+    events = db_session.scalars(select(AuditEvent)).all()
     assert len(events) == 1
     assert events[0].job == "purge_dereferenced_blobs"
-    assert events[0].action == "blob.purged"
+    assert events[0].operation == "blob.purged"
     assert events[0].status == "succeeded"
     assert events[0].blob_id == blob_row.id
     assert events[0].meta["freed_bytes"] == 100
@@ -162,7 +161,6 @@ def test_purge_skips_positive_refcount(db_session, fake_storage):
     assert usage.object_count == 1
     assert usage.current_size_bytes == 10
     assert db_session.scalars(select(AuditEvent)).all() == []
-    assert db_session.scalars(select(MaintenanceEvent)).all() == []
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +200,6 @@ def test_successful_scheduled_probe_records_probe_without_maintenance_event(
 
     assert result == {"bucket_count": 1, "ok": 1, "failed": 0}
     assert db_session.scalars(select(AuditEvent)).all() == []
-    assert db_session.scalars(select(MaintenanceEvent)).all() == []
     sample = db_session.scalar(
         select(BucketProbe).where(BucketProbe.bucket_id == bucket_row.id)
     )
@@ -230,10 +227,10 @@ def test_trim_old_bucket_probes_drops_only_records_past_retention(db_session):
         select(BucketProbe).where(BucketProbe.bucket_id == bucket.id)
     ).all()
     assert [r.id for r in remaining] == [fresh.id]
-    events = db_session.scalars(select(MaintenanceEvent)).all()
+    events = db_session.scalars(select(AuditEvent)).all()
     assert len(events) == 1
     assert events[0].job == "trim_bucket_probes"
-    assert events[0].action == "bucket_probe.trimmed"
+    assert events[0].operation == "bucket_probe.trimmed"
     assert events[0].meta == {"retention_days": 7, "deleted_rows": 1}
 
 
@@ -250,7 +247,7 @@ def test_trim_old_bucket_probes_skips_event_when_nothing_deleted(db_session):
 
     assert out["deleted_rows"] == 0
     assert db_session.scalars(select(BucketProbe)).all() == [fresh]
-    assert db_session.scalars(select(MaintenanceEvent)).all() == []
+    assert db_session.scalars(select(AuditEvent)).all() == []
 
 
 # ---------------------------------------------------------------------------
@@ -293,9 +290,9 @@ def test_demote_moves_oldest_blob_when_bucket_is_pressured(db_session, fake_stor
     assert cold_blob.bucket_id == cold.id
     assert cold_blob.migrated_at is not None
     events = db_session.scalars(
-        select(MaintenanceEvent).where(MaintenanceEvent.job == "demote_pressured_buckets")
+        select(AuditEvent).where(AuditEvent.job == "demote_pressured_buckets")
     ).all()
-    assert any(e.action == "blob.demoted" for e in events)
+    assert any(e.operation == "blob.demoted" for e in events)
     assert (cold.bucket, cold_blob.bucket_key) in fake_storage.objects
     assert (hot.bucket, cold_blob.bucket_key) not in fake_storage.objects
 
@@ -401,11 +398,11 @@ def test_promote_moves_recent_blob_to_hotter_bucket(db_session, fake_storage):
     assert (hot.bucket, blob.bucket_key) in fake_storage.objects
     assert (cold.bucket, blob.bucket_key) not in fake_storage.objects
     events = db_session.scalars(
-        select(MaintenanceEvent).where(
-            MaintenanceEvent.job == "promote_recently_accessed"
+        select(AuditEvent).where(
+            AuditEvent.job == "promote_recently_accessed"
         )
     ).all()
-    assert any(e.action == "blob.promoted" for e in events)
+    assert any(e.operation == "blob.promoted" for e in events)
 
 
 def test_promote_skips_blob_outside_recency_window(db_session, fake_storage):

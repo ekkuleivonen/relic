@@ -163,6 +163,35 @@ export function useMoveFile() {
   })
 }
 
+export function usePatchFileMeta() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      file_id,
+      meta,
+    }: {
+      file_id: string
+      meta: Record<string, unknown>
+    }) =>
+      apiRequest<FileSystemFile>(`/files/${file_id}/meta`, {
+        method: "PATCH",
+        body: { meta },
+      }),
+    onSuccess: (file) => {
+      invalidateAll(queryClient)
+      void queryClient.setQueryData(
+        [...filesystemQueryKey, "file", file.id],
+        file
+      )
+      toast.success("Metadata updated")
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+}
+
 export function useRenameFile() {
   const queryClient = useQueryClient()
 

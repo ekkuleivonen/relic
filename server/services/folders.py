@@ -11,8 +11,6 @@ from sqlalchemy.orm import Session
 from utils.logging import get_logger
 
 from services import folder_access as folder_access_service
-from services.event_context import EventContext
-from services.file_events import create_file_event
 from services.s3_hotpath_cache import clear_list_objects_response_cache
 
 log = get_logger(__name__)
@@ -33,7 +31,6 @@ def create_folder(
     *,
     parent_id: uuid.UUID,
     name: str,
-    event_context: EventContext | None = None,
 ) -> FolderResult:
     name = _validate_name(name)
     parent = folder_access_service.require_folder(db, parent_id)
@@ -48,21 +45,6 @@ def create_folder(
     db.add(folder)
     try:
         db.flush()
-        path = f"{folder_access_service.resolve_folder_path(db, parent).rstrip('/')}/{folder.name}"
-        if event_context is not None:
-            create_file_event(
-                db,
-                event_type="folder.created",
-                actor_id=event_context.actor_id,
-                request_id=event_context.request_id,
-                folder_id=folder.id,
-                payload={
-                    "folder_id": str(folder.id),
-                    "parent_id": str(parent.id),
-                    "name": folder.name,
-                    "path": path,
-                },
-            )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -90,7 +72,6 @@ def update_folder(
     parent_id: uuid.UUID | None = None,
     preferred_bucket_id: uuid.UUID | None = None,
     set_preferred_bucket_id: bool = False,
-    event_context: EventContext | None = None,
 ) -> FolderResult:
     """Rename, move, and/or change storage preference (preference is admin-only)."""
     folder = folder_access_service.require_folder(db, folder_id)
@@ -146,33 +127,6 @@ def update_folder(
 
     try:
         db.flush()
-        if event_context is not None:
-            event_type = "folder.moved" if parent_id is not None else "folder.updated"
-            create_file_event(
-                db,
-                event_type=event_type,
-                actor_id=event_context.actor_id,
-                request_id=event_context.request_id,
-                folder_id=folder.id,
-                payload={
-                    "folder_id": str(folder.id),
-                    "from_parent_id": str(old_parent_id) if old_parent_id else None,
-                    "to_parent_id": str(folder.parent_id) if folder.parent_id else None,
-                    "from_name": old_name,
-                    "to_name": folder.name,
-                    "old_preferred_bucket_id": (
-                        str(old_preferred_bucket_id)
-                        if old_preferred_bucket_id
-                        else None
-                    ),
-                    "new_preferred_bucket_id": (
-                        str(folder.preferred_bucket_id)
-                        if folder.preferred_bucket_id
-                        else None
-                    ),
-                    "path": folder_access_service.resolve_folder_path(db, folder),
-                },
-            )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -200,7 +154,6 @@ def delete_folder(
     *,
     folder_id: uuid.UUID,
     recursive: bool = False,
-    event_context: EventContext | None = None,
 ) -> None:
     """
     Delete a folder subtree. Removes File rows and decrements Blob refcounts.
@@ -245,35 +198,6 @@ def delete_folder(
         if blob.refcount < 0:
             blob.refcount = 0
 
-    if event_context is not None:
-        for file in file_rows:
-            create_file_event(
-                db,
-                event_type="file.deleted",
-                actor_id=event_context.actor_id,
-                request_id=event_context.request_id,
-                file_id=file.id,
-                folder_id=file.folder_id,
-                payload={
-                    "file_id": str(file.id),
-                    "folder_id": str(file.folder_id),
-                    "name": file.name,
-                    "blob_id": str(file.blob_id),
-                },
-            )
-        create_file_event(
-            db,
-            event_type="folder.deleted",
-            actor_id=event_context.actor_id,
-            request_id=event_context.request_id,
-            folder_id=folder_id,
-            payload={
-                "folder_id": str(folder_id),
-                "recursive": recursive,
-                "descendant_count": len(descendant_ids),
-                "file_count": len(file_rows),
-            },
-        )
     db.commit()
     folder_access_service.clear_hotpath_cache(db)
     clear_list_objects_response_cache()
@@ -295,7 +219,6 @@ def duplicate_folder(
     destination_parent_id: uuid.UUID,
     name: str,
     recursive: bool = True,
-    event_context: EventContext | None = None,
 ) -> FolderResult:
     name = _validate_name(name)
     source = folder_access_service.require_folder(db, folder_id)
@@ -378,41 +301,6 @@ def duplicate_folder(
             blob.refcount += inc
 
     try:
-        if event_context is not None:
-            for cloned_folder in cloned_folders:
-                create_file_event(
-                    db,
-                    event_type="folder.created",
-                    actor_id=event_context.actor_id,
-                    request_id=event_context.request_id,
-                    folder_id=cloned_folder.id,
-                    payload={
-                        "folder_id": str(cloned_folder.id),
-                        "parent_id": str(cloned_folder.parent_id)
-                        if cloned_folder.parent_id
-                        else None,
-                        "name": cloned_folder.name,
-                        "source_folder_id": str(source.id),
-                        "copy": True,
-                    },
-                )
-            for source_folder_id, source_file, new_file in copied_files:
-                create_file_event(
-                    db,
-                    event_type="file.copied",
-                    actor_id=event_context.actor_id,
-                    request_id=event_context.request_id,
-                    file_id=new_file.id,
-                    folder_id=new_file.folder_id,
-                    payload={
-                        "source_file_id": str(source_file.id),
-                        "source_folder_id": str(source_folder_id),
-                        "new_file_id": str(new_file.id),
-                        "to_folder_id": str(new_file.folder_id),
-                        "name": new_file.name,
-                        "blob_id": str(new_file.blob_id),
-                    },
-                )
         db.commit()
     except IntegrityError as exc:
         db.rollback()

@@ -1,22 +1,17 @@
 import datetime as dt
-import time
 import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import Select, delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from constants import (
-    AUDIT_EVENT_DEFAULT_LIMIT,
-    AUDIT_EVENT_MAX_LIMIT,
-)
+from constants import AUDIT_EVENT_DEFAULT_LIMIT, AUDIT_EVENT_MAX_LIMIT
 from domain.exceptions import BadRequestError
 from enums import EventStatus
 from models import AuditEvent
 
-AUDIT_EVENT_SUPPORTED_STATUSES = frozenset(
-    {EventStatus.SUCCEEDED.value, EventStatus.FAILED.value}
-)
+AUDIT_EVENT_SUPPORTED_STATUSES = frozenset(status.value for status in EventStatus)
+
 
 @dataclass(frozen=True)
 class AuditEventPage:
@@ -26,28 +21,6 @@ class AuditEventPage:
     offset: int
 
 
-def timer_start() -> float:
-    return time.perf_counter()
-
-
-def elapsed_ms(started_at: float, *, minimum: int = 1) -> int:
-    return max(minimum, round((time.perf_counter() - started_at) * 1000))
-
-
-def latency_metadata(
-    started_at: float,
-    *,
-    db_latency_ms: int | None = None,
-    remote_latency_ms: int | None = None,
-) -> dict[str, int]:
-    metadata = {"duration_ms": elapsed_ms(started_at)}
-    if db_latency_ms is not None:
-        metadata["db_latency_ms"] = db_latency_ms
-    if remote_latency_ms is not None:
-        metadata["remote_latency_ms"] = remote_latency_ms
-    return metadata
-
-
 def create_audit_event(
     db: Session,
     *,
@@ -55,20 +28,23 @@ def create_audit_event(
     status: str = EventStatus.SUCCEEDED.value,
     actor_id: uuid.UUID | None = None,
     request_id: str | None = None,
+    job: str | None = None,
+    batch_id: uuid.UUID | None = None,
+    bucket_id: uuid.UUID | None = None,
+    blob_id: uuid.UUID | None = None,
+    duration_ms: int | None = None,
     metadata: dict | None = None,
 ) -> AuditEvent:
-    """Write an audit row inside the caller's transaction.
-
-    Audit rows are actor + identity + admin records. Resource-side IDs live
-    in ``metadata`` so the table envelope stays narrow — file/folder/blob
-    surfacing on event rows is the job of ``file_events`` and
-    ``maintenance_events``.
-    """
     event = AuditEvent(
         operation=_clean_required(operation, "operation"),
         status=_clean_status(status),
         actor_id=actor_id,
         request_id=_clean_optional(request_id),
+        job=_clean_optional(job),
+        batch_id=batch_id,
+        bucket_id=bucket_id,
+        blob_id=blob_id,
+        duration_ms=duration_ms,
         meta=dict(metadata or {}),
     )
     db.add(event)
@@ -83,6 +59,11 @@ def record_audit_event(
     status: str = EventStatus.SUCCEEDED.value,
     actor_id: uuid.UUID | None = None,
     request_id: str | None = None,
+    job: str | None = None,
+    batch_id: uuid.UUID | None = None,
+    bucket_id: uuid.UUID | None = None,
+    blob_id: uuid.UUID | None = None,
+    duration_ms: int | None = None,
     metadata: dict | None = None,
 ) -> AuditEvent:
     event = create_audit_event(
@@ -91,6 +72,11 @@ def record_audit_event(
         status=status,
         actor_id=actor_id,
         request_id=request_id,
+        job=job,
+        batch_id=batch_id,
+        bucket_id=bucket_id,
+        blob_id=blob_id,
+        duration_ms=duration_ms,
         metadata=metadata,
     )
     db.commit()
@@ -124,6 +110,10 @@ def list_audit_events(
     status: str | None = None,
     actor_id: uuid.UUID | None = None,
     request_id: str | None = None,
+    job: str | None = None,
+    batch_id: uuid.UUID | None = None,
+    bucket_id: uuid.UUID | None = None,
+    blob_id: uuid.UUID | None = None,
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
     limit: int = AUDIT_EVENT_DEFAULT_LIMIT,
@@ -141,13 +131,20 @@ def list_audit_events(
         status=status,
         actor_id=actor_id,
         request_id=request_id,
+        job=job,
+        batch_id=batch_id,
+        bucket_id=bucket_id,
+        blob_id=blob_id,
         created_after=created_after,
         created_before=created_before,
     )
     total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     items = list(
         db.scalars(
-            stmt.options(selectinload(AuditEvent.actor))
+            stmt.options(
+                selectinload(AuditEvent.actor),
+                selectinload(AuditEvent.bucket),
+            )
             .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc())
             .limit(limit)
             .offset(offset)
@@ -162,6 +159,10 @@ def _filtered_stmt(
     status: str | None,
     actor_id: uuid.UUID | None,
     request_id: str | None,
+    job: str | None,
+    batch_id: uuid.UUID | None,
+    bucket_id: uuid.UUID | None,
+    blob_id: uuid.UUID | None,
     created_after: dt.datetime | None,
     created_before: dt.datetime | None,
 ) -> Select[tuple[AuditEvent]]:
@@ -174,6 +175,14 @@ def _filtered_stmt(
         stmt = stmt.where(AuditEvent.actor_id == actor_id)
     if request_id := _clean_optional(request_id):
         stmt = stmt.where(AuditEvent.request_id == request_id)
+    if job := _clean_optional(job):
+        stmt = stmt.where(AuditEvent.job == job)
+    if batch_id is not None:
+        stmt = stmt.where(AuditEvent.batch_id == batch_id)
+    if bucket_id is not None:
+        stmt = stmt.where(AuditEvent.bucket_id == bucket_id)
+    if blob_id is not None:
+        stmt = stmt.where(AuditEvent.blob_id == blob_id)
     if created_after is not None:
         stmt = stmt.where(AuditEvent.created_at >= created_after)
     if created_before is not None:

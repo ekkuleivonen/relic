@@ -5,7 +5,7 @@ from api.app import app
 from database import get_db
 from enums import UserRole
 from fastapi.testclient import TestClient
-from models import AuditEvent, Base, Bucket, User
+from models import Base, Bucket, User
 from services.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -205,9 +205,3 @@ def test_probe_bucket_records_probe_sample(client, db_session, monkeypatch):
     for key in ("put_ms", "head_ms", "get_ms", "delete_ms"):
         assert sample[key] is not None and sample[key] >= 0
 
-    assert (
-        db_session.scalar(
-            select(AuditEvent).where(AuditEvent.operation == "bucket.probed")
-        )
-        is None
-    )

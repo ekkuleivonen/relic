@@ -155,9 +155,9 @@ def test_presigned_put_creates_file_and_blob(
     assert file.folder_id == photos_folder.id
     assert file.blob_id == blob.id
     assert file.actor_id == user.id
-    assert file.meta["sections"] == {}
-    assert file.meta["user_kvs"]["album"] == "spring"
-    assert file.meta["original_filename"] == "cat.jpg"
+    assert file.meta == {"album": "spring"}
+    assert file.name == "cat.jpg"
+    assert blob.mimetype == "image/jpeg"
     assert blob.size_bytes == len(b"cat photo")
     assert uploaded[0]["Bucket"] == "blobs"
 

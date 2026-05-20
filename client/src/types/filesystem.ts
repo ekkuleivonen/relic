@@ -11,9 +11,7 @@ export type FolderTreeNode = {
   parent_id: string | null
   path: string
   effective_permissions: number
-  /** Local override; null means inherit from ancestor (admin API). */
   preferred_bucket_id?: string | null
-  /** Resolved from this folder or ancestors (admin API). */
   effective_preferred_bucket_id?: string | null
   children: FolderTreeNode[]
 }
@@ -28,49 +26,20 @@ export type Folder = {
   effective_preferred_bucket_id?: string | null
 }
 
-export type FileMetaSectionStatus =
-  | "pending"
-  | "in_progress"
-  | "completed"
-  | "failed"
-  | "skipped"
-
-export type FileMetaSection = {
-  status: FileMetaSectionStatus
-  extracted_at: string | null
-  tags: string[]
-  keywords: string[]
-  summary: string | null
-  kvs: Record<string, string | number | boolean | null>
-  error_class: string | null
-  error_message: string | null
-}
-
-export type FileMeta = {
-  schema_version: string
-  size: number
-  extension: string
-  mimetype: string
-  original_filename: string
-  tags: string[]
-  keywords: string[]
-  summary: string | null
-  kvs: Record<string, string | number | boolean | null>
-  user_tags: string[]
-  user_keywords: string[]
-  user_summary: string | null
-  user_kvs: Record<string, string | number | boolean | null>
-  sections: Record<string, FileMetaSection>
-}
+/** Opaque consumer-owned metadata; shape is not enforced by Relic. */
+export type FileMeta = Record<string, unknown>
 
 export type FileSystemFile = {
   id: string
   folder_id: string
   blob_id: string
-  uploaded_by: string
-  uploaded_by_name: string | null
+  actor_id: string
+  actor_name: string | null
   name: string
   meta: FileMeta
+  size_bytes: number
+  mimetype: string
+  extension: string
   created_at: string
   updated_at: string
 }
@@ -80,21 +49,6 @@ export type PaginatedFilesResponse = {
   total: number
   limit: number
   offset: number
-}
-
-/**
- * Recursive rollup over a folder + descendants.
- *
- * `enrichment_coverage` is `null` when the subtree has no files (avoid 0/0).
- * `logical_size_bytes` sums each File row's blob size — duplicates count
- * once per reference, not once per blob.
- */
-export type FolderStats = {
-  folder_id: string
-  file_count: number
-  enriched_file_count: number
-  logical_size_bytes: number
-  enrichment_coverage: number | null
 }
 
 export type FileSystemEntry =
@@ -127,5 +81,44 @@ export type PresignUploadRequest = {
 export type PresignUploadResponse = {
   url: string
   headers: Record<string, string>
-  expires_at: string
+  expires_at?: string
+}
+
+export type FolderStats = {
+  folder_id: string
+  file_count: number
+  enriched_file_count: number
+  logical_size_bytes: number
+  enrichment_coverage: number | null
+}
+
+export type FolderContentsRow =
+  | {
+      kind: "folder"
+      folder: Folder
+    }
+  | {
+      kind: "file"
+      file: FileSystemFile
+    }
+
+export function metaStringList(meta: FileMeta, key: string): string[] {
+  const value = meta[key]
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.filter((item): item is string => typeof item === "string")
+}
+
+export function metaString(meta: FileMeta, key: string): string | null {
+  const value = meta[key]
+  return typeof value === "string" && value.trim() ? value : null
+}
+
+export function metaKvs(meta: FileMeta): Record<string, string | number | boolean | null> {
+  const value = meta.kvs
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {}
+  }
+  return value as Record<string, string | number | boolean | null>
 }

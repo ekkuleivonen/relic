@@ -5,7 +5,6 @@ from api.app import app
 from database import get_db
 from enums import Permission, UserRole
 from fastapi.testclient import TestClient
-from domain.files.meta import init_file_meta
 from models import (
     Base,
     Blob,
@@ -134,12 +133,22 @@ def grant(db_session, user, folder, permissions: int) -> None:
     db_session.commit()
 
 
-def make_blob(db_session, *, bucket, content_hash: int, size_bytes: int = 9) -> Blob:
+def make_blob(
+    db_session,
+    *,
+    bucket,
+    content_hash: int,
+    size_bytes: int = 9,
+    mimetype: str = "application/octet-stream",
+    extension: str = "",
+) -> Blob:
     blob = Blob(
         bucket_id=bucket.id,
         bucket_key=f"objects/{content_hash}",
         content_hash=content_hash.to_bytes(32, "big"),
         size_bytes=size_bytes,
+        mimetype=mimetype,
+        extension=extension,
         refcount=1,
     )
     db_session.add(blob)
@@ -170,18 +179,17 @@ def make_file(
         user_meta["summary"] = summary
     if kvs is not None:
         user_meta["kvs"] = kvs
-    meta = init_file_meta(
-        file_name=name,
-        size=size if size is not None else blob.size_bytes,
-        user_meta=user_meta,
-        mimetype=mimetype,
-    )
+    if size is not None:
+        blob.size_bytes = size
+    blob.mimetype = mimetype
+    extension = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    blob.extension = extension
     file = File(
         folder_id=folder.id,
         blob_id=blob.id,
         actor_id=user.id,
         name=name,
-        meta=meta,
+        meta=user_meta,
     )
     db_session.add(file)
     db_session.commit()

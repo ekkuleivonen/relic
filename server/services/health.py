@@ -4,14 +4,15 @@ from typing import Any
 
 from arq import create_pool
 from arq.connections import ArqRedis
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 import settings as S
 from enums import HealthStatus
-from models import Bucket, Processor
+from models import Bucket
 from services.placement import bucket_is_reachable
 from infra.arq import arq_redis_settings
+
 
 def health_response() -> dict[str, Any]:
     return {
@@ -26,7 +27,6 @@ async def readiness_response(db: Session) -> dict[str, Any]:
     checks = {
         "database": check_database(db),
         "redis": await check_redis_queues(),
-        "processors": check_processors(db),
         "object_stores": check_object_stores(db),
         "configuration": check_configuration(),
     }
@@ -50,7 +50,7 @@ async def check_redis_queues() -> dict[str, Any]:
     try:
         redis = await create_pool(
             arq_redis_settings(),
-            default_queue_name=S.PROCESSING_QUEUE_NAME,
+            default_queue_name=S.MAINTENANCE_QUEUE_NAME,
         )
     except Exception as exc:
         return failed_check(exc)
@@ -58,7 +58,6 @@ async def check_redis_queues() -> dict[str, Any]:
     try:
         await redis.ping()
         queues = {
-            S.PROCESSING_QUEUE_NAME: await queue_snapshot(redis, S.PROCESSING_QUEUE_NAME),
             S.MAINTENANCE_QUEUE_NAME: await queue_snapshot(
                 redis, S.MAINTENANCE_QUEUE_NAME
             ),
@@ -91,21 +90,6 @@ async def close_redis(redis: ArqRedis) -> None:
     result = close()
     if inspect.isawaitable(result):
         await result
-
-
-def check_processors(db: Session) -> dict[str, Any]:
-    try:
-        enabled = db.scalar(
-            select(func.count()).select_from(Processor).where(Processor.enabled.is_(True))
-        )
-        total = db.scalar(select(func.count()).select_from(Processor))
-    except Exception as exc:
-        return failed_check(exc)
-    return {
-        "status": HealthStatus.OK.value,
-        "enabled": int(enabled or 0),
-        "total": int(total or 0),
-    }
 
 
 def check_object_stores(db: Session) -> dict[str, Any]:

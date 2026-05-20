@@ -3,7 +3,6 @@ from api.app import app
 from database import get_db
 from enums import Permission
 from fastapi.testclient import TestClient
-from domain.files.meta import init_file_meta
 from models import (
     Base,
     Blob,
@@ -106,12 +105,7 @@ def grant(db_session, user, folder, permissions: int) -> FolderAccess:
 
 
 def make_file(db_session, *, folder, blob, name, user, meta=None):
-    meta = meta or init_file_meta(
-        file_name=name,
-        size=9,
-        user_meta={},
-        mimetype="image/jpeg",
-    )
+    meta = meta or {}
     file = File(
         folder_id=folder.id,
         blob_id=blob.id,
@@ -291,7 +285,6 @@ def test_rename_file_in_place(client, db_session, user, photos_folder, physical_
     assert response.status_code == 200, response.text
     db_session.refresh(file)
     assert file.name == "feline.jpg"
-    assert file.meta["original_filename"] == "cat.jpg"
 
 
 def test_rename_restores_extension_when_omitted(

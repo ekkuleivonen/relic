@@ -11,7 +11,7 @@ from botocore.credentials import Credentials
 from database import get_db
 from enums import Permission
 from fastapi.testclient import TestClient
-from models import AuditEvent, Base, Blob, File, Folder, FolderAccess
+from models import Base, Blob, File, Folder, FolderAccess
 from services import s3_signing
 from services.auth import create_session_token
 from services.storage_maintenance import purge_dereferenced_blobs_batch
@@ -234,7 +234,7 @@ def test_native_header_put_creates_file_and_marks_key_used(
     file = db_session.scalar(select(File).where(File.name == "native-cat.jpg"))
     assert file is not None
     assert file.actor_id == user.id
-    assert file.meta["kvs"]["album"] == "native"
+    assert file.meta["album"] == "native"
     blob = db_session.get(Blob, file.blob_id)
     assert fake_storage.objects[(physical_bucket.bucket, blob.bucket_key)] == body
 
@@ -423,7 +423,6 @@ def test_presigned_delete_drops_file_and_blob(
     purge_dereferenced_blobs_batch(db_session, batch=S.STORAGE_MAINTENANCE_PURGE_BATCH)
     assert db_session.scalar(select(Blob).where(Blob.id == blob_id)) is None
     assert fake_storage.objects == {}
-    assert db_session.scalars(select(AuditEvent)).all() == []
 
 
 def test_delete_idempotent_on_missing_key(
@@ -447,7 +446,6 @@ def test_delete_idempotent_on_missing_key(
     second = client.delete(signed["url"], headers=signed["headers"])
     assert first.status_code == 204
     assert second.status_code == 204
-    assert db_session.scalars(select(AuditEvent)).all() == []
 
 
 def test_delete_keeps_blob_when_other_files_share_it(
@@ -650,7 +648,7 @@ def test_presigned_copy_replace_directive_overrides_meta(
     archived = db_session.scalar(
         select(File).where(File.folder_id == archives_folder.id)
     )
-    assert archived.meta["kvs"]["album"] == "winter"
+    assert archived.meta["album"] == "winter"
 
 
 # ---------------------------------------------------------------------------
@@ -678,15 +676,9 @@ def test_presigned_download_streams_bytes(
     digest = hashlib.sha256(b"cat photo").hexdigest()
     assert response.headers["etag"] == f'"{digest}"'
     assert response.headers["content-type"] == "image/jpeg"
-    assert (
-        db_session.scalar(
-            select(AuditEvent).where(AuditEvent.operation == "object.get")
-        )
-        is None
-    )
 
 
-def test_presigned_head_does_not_emit_audit_event(
+def test_presigned_head_returns_ok(
     client, db_session, user, photos_folder, physical_bucket, fake_storage
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
@@ -703,12 +695,6 @@ def test_presigned_head_does_not_emit_audit_event(
 
     response = client.head(signed.url, headers=signed.headers)
     assert response.status_code == 200
-    assert (
-        db_session.scalar(
-            select(AuditEvent).where(AuditEvent.operation == "object.head")
-        )
-        is None
-    )
 
 
 def test_multipart_upload_completes_object(

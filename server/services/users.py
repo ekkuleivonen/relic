@@ -91,7 +91,10 @@ def update_user(
 
 
 def delete_user(
-    db: Session, user_id: uuid.UUID, *, event_context: EventContext | None = None
+    db: Session,
+    user_id: uuid.UUID,
+    *,
+    event_context: EventContext | None = None,
 ) -> None:
     user = get_user(db, user_id)
     uploaded_file_id = db.scalar(select(File.id).where(File.actor_id == user.id).limit(1))
@@ -100,8 +103,6 @@ def delete_user(
 
     metadata = {"user_id": str(user.id), "email": user.email}
     actor_id = event_context.actor_id if event_context else None
-    if actor_id == user.id:
-        actor_id = None
     db.delete(user)
     if event_context is not None:
         create_audit_event(

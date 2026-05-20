@@ -38,10 +38,12 @@ import { formatBytes } from "@/lib/format"
 import { PERM, can } from "@/lib/permissions"
 import { buildSingleFilterHref } from "@/lib/search-query"
 import { cn } from "@/lib/utils"
-import type {
-  FileMetaSection,
-  FileSystemFile,
-  FolderTreeNode,
+import {
+  metaKvs,
+  metaString,
+  metaStringList,
+  type FileSystemFile,
+  type FolderTreeNode,
 } from "@/types/filesystem"
 
 export function FileDetailPage() {
@@ -145,7 +147,9 @@ function FileDetailContent({
   const [titleEditing, setTitleEditing] = React.useState(false)
   const [titleDraft, setTitleDraft] = React.useState(file.name)
   const renameCommitRef = React.useRef(false)
-  const kvEntries = Object.entries(file.meta.kvs)
+  const tags = metaStringList(file.meta, "tags")
+  const keywords = metaStringList(file.meta, "keywords")
+  const kvEntries = Object.entries(metaKvs(file.meta))
 
   function beginTitleRename() {
     setTitleDraft(file.name)
@@ -268,18 +272,14 @@ function FileDetailContent({
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <StatCard
-          label="Status"
-          value={formatFileInfoStatus(file.meta.sections?.file_info?.status)}
-        />
-        <StatCard label="Size" value={formatBytes(file.meta.size)} />
-        <StatCard label="Type" value={file.meta.mimetype || "Unknown"} />
+        <StatCard label="Size" value={formatBytes(file.size_bytes)} />
+        <StatCard label="Type" value={file.mimetype || "Unknown"} />
+        <StatCard label="Extension" value={file.extension || "—"} />
       </div>
 
       <Card>
         <CardHeader className="gap-2 sm:flex sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>File Metadata</CardTitle>
-          <Badge variant="outline">schema {file.meta.schema_version}</Badge>
         </CardHeader>
         <CardContent className="space-y-4">
           <DetailGrid
@@ -288,38 +288,34 @@ function FileDetailContent({
               { label: "Blob ID", value: file.blob_id },
               {
                 label: "Uploaded by",
-                value: file.uploaded_by_name ?? file.uploaded_by,
+                value: file.actor_name ?? file.actor_id,
                 href: buildSingleFilterHref({
-                  uploaded_by: file.uploaded_by,
+                  uploaded_by: file.actor_id,
                 }),
                 hint: "Find files uploaded by this user",
               },
               {
-                label: "Original filename",
-                value: file.meta.original_filename ?? file.name,
-              },
-              {
                 label: "Extension",
-                value: file.meta.extension || "—",
-                href: file.meta.extension
+                value: file.extension || "—",
+                href: file.extension
                   ? buildSingleFilterHref({
-                      extensions: [file.meta.extension],
+                      extensions: [file.extension],
                     })
                   : undefined,
                 hint: "Find files with this extension",
               },
               {
                 label: "MIME type",
-                value: file.meta.mimetype || "—",
-                href: file.meta.mimetype
+                value: file.mimetype || "—",
+                href: file.mimetype
                   ? buildSingleFilterHref({
-                      mimetypes: [file.meta.mimetype],
+                      mimetypes: [file.mimetype],
                     })
                   : undefined,
                 hint: "Find files with this MIME type",
               },
-              { label: "Size", value: formatBytes(file.meta.size) },
-              { label: "Summary", value: file.meta.summary || "—" },
+              { label: "Size", value: formatBytes(file.size_bytes) },
+              { label: "Summary", value: metaString(file.meta, "summary") ?? "—" },
               { label: "Created", value: formatDateTime(file.created_at) },
               { label: "Updated", value: formatDateTime(file.updated_at) },
             ]}
@@ -330,14 +326,12 @@ function FileDetailContent({
       <Card>
         <CardHeader className="gap-2 sm:flex sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>Tags & Keywords</CardTitle>
-          <Badge variant="outline">
-            {file.meta.tags.length + file.meta.keywords.length} terms
-          </Badge>
+          <Badge variant="outline">{tags.length + keywords.length} terms</Badge>
         </CardHeader>
         <CardContent className="space-y-5">
           <TokenGroup
             label="Tags"
-            values={file.meta.tags}
+            values={tags}
             tone="tag"
             buildHref={(value) =>
               buildSingleFilterHref({ tags: [value] })
@@ -346,7 +340,7 @@ function FileDetailContent({
           />
           <TokenGroup
             label="Keywords"
-            values={file.meta.keywords}
+            values={keywords}
             tone="keyword"
             buildHref={(value) =>
               buildSingleFilterHref({ keywords: [value] })
@@ -372,96 +366,10 @@ function FileDetailContent({
         </CardContent>
       </Card>
 
-      <ProcessorSectionsCard sections={file.meta.sections ?? {}} />
     </>
   )
 }
 
-function ProcessorSectionsCard({
-  sections,
-}: {
-  sections: Record<string, FileMetaSection>
-}) {
-  const kinds = Object.keys(sections).sort()
-  return (
-    <Card>
-      <CardHeader className="gap-2 sm:flex sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle>Processor Sections</CardTitle>
-        <Badge variant="outline">{kinds.length} sections</Badge>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {kinds.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No processor has written a section for this file yet.
-          </p>
-        ) : (
-          kinds.map((kind) => (
-            <ProcessorSectionRow key={kind} kind={kind} section={sections[kind]} />
-          ))
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function ProcessorSectionRow({
-  kind,
-  section,
-}: {
-  kind: string
-  section: FileMetaSection
-}) {
-  const kvEntries = Object.entries(section.kvs ?? {})
-  return (
-    <div className="rounded-md border p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium">{kind}</span>
-        <Badge variant="outline" className="capitalize">
-          {section.status}
-        </Badge>
-        {section.extracted_at && (
-          <span className="text-xs text-muted-foreground">
-            {formatDateTime(section.extracted_at)}
-          </span>
-        )}
-      </div>
-      {section.summary && (
-        <p className="mt-2 text-sm text-muted-foreground">{section.summary}</p>
-      )}
-      {(section.tags?.length || section.keywords?.length) ? (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {section.tags?.map((tag) => (
-            <Badge key={`tag-${tag}`} variant="secondary">
-              {tag}
-            </Badge>
-          ))}
-          {section.keywords?.map((keyword) => (
-            <Badge key={`kw-${keyword}`} variant="outline">
-              {keyword}
-            </Badge>
-          ))}
-        </div>
-      ) : null}
-      {kvEntries.length > 0 && (
-        <dl className="mt-3 grid gap-1 text-sm sm:grid-cols-[10rem_1fr]">
-          {kvEntries.map(([key, value]) => (
-            <React.Fragment key={key}>
-              <dt className="text-muted-foreground">{key}</dt>
-              <dd className="break-all font-mono text-xs">
-                {value === null ? "—" : String(value)}
-              </dd>
-            </React.Fragment>
-          ))}
-        </dl>
-      )}
-      {section.error_message && (
-        <p className="mt-2 text-sm text-destructive">
-          {section.error_class}: {section.error_message}
-        </p>
-      )}
-    </div>
-  )
-}
 
 function FileBreadcrumbs({
   root,
@@ -767,19 +675,3 @@ function formatDetailValue(value: unknown) {
   return JSON.stringify(value)
 }
 
-function formatFileInfoStatus(status: string | undefined) {
-  switch (status) {
-    case "pending":
-      return "Pending"
-    case "in_progress":
-      return "Extracting"
-    case "completed":
-      return "Ready"
-    case "failed":
-      return "Failed"
-    case "skipped":
-      return "Skipped"
-    default:
-      return "Unknown"
-  }
-}

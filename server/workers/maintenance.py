@@ -6,8 +6,6 @@ from arq.cron import cron
 
 from database import get_sessionmaker
 from services import audit_events as audit_event_service
-from services import file_events as file_event_service
-from services import maintenance_events as maintenance_event_service
 from services import s3_multipart
 from services import storage_maintenance
 from infra.arq import arq_redis_settings
@@ -112,10 +110,10 @@ async def trim_old_audit_events_worker(ctx) -> None:
                 retention_days=S.EVENT_RETENTION_DAYS,
             )
             if deleted_rows > 0:
-                maintenance_event_service.create_maintenance_event(
+                audit_event_service.create_audit_event(
                     db,
                     job="trim_audit_events",
-                    action="audit.trimmed",
+                    operation="audit_event.trimmed",
                     status="succeeded",
                     batch_id=batch_id,
                     metadata={
@@ -126,72 +124,6 @@ async def trim_old_audit_events_worker(ctx) -> None:
             db.commit()
         log.info(
             "audit_event_retention_trimmed",
-            retention_days=S.EVENT_RETENTION_DAYS,
-            deleted_rows=deleted_rows,
-        )
-
-    await asyncio.to_thread(run)
-
-
-async def trim_old_file_events_worker(ctx) -> None:
-    del ctx
-
-    def run() -> None:
-        batch_id = uuid.uuid4()
-        sm = get_sessionmaker()
-        with sm() as db:
-            deleted_rows = file_event_service.trim_file_events_older_than(
-                db,
-                retention_days=S.EVENT_RETENTION_DAYS,
-            )
-            if deleted_rows > 0:
-                maintenance_event_service.create_maintenance_event(
-                    db,
-                    job="trim_file_events",
-                    action="file_event.trimmed",
-                    status="succeeded",
-                    batch_id=batch_id,
-                    metadata={
-                        "retention_days": S.EVENT_RETENTION_DAYS,
-                        "deleted_rows": deleted_rows,
-                    },
-                )
-            db.commit()
-        log.info(
-            "file_event_retention_trimmed",
-            retention_days=S.EVENT_RETENTION_DAYS,
-            deleted_rows=deleted_rows,
-        )
-
-    await asyncio.to_thread(run)
-
-
-async def trim_old_maintenance_events_worker(ctx) -> None:
-    del ctx
-
-    def run() -> None:
-        batch_id = uuid.uuid4()
-        sm = get_sessionmaker()
-        with sm() as db:
-            deleted_rows = maintenance_event_service.trim_maintenance_events_older_than(
-                db,
-                retention_days=S.EVENT_RETENTION_DAYS,
-            )
-            if deleted_rows > 0:
-                maintenance_event_service.create_maintenance_event(
-                    db,
-                    job="trim_maintenance_events",
-                    action="maintenance_event.trimmed",
-                    status="succeeded",
-                    batch_id=batch_id,
-                    metadata={
-                        "retention_days": S.EVENT_RETENTION_DAYS,
-                        "deleted_rows": deleted_rows,
-                    },
-                )
-            db.commit()
-        log.info(
-            "maintenance_event_retention_trimmed",
             retention_days=S.EVENT_RETENTION_DAYS,
             deleted_rows=deleted_rows,
         )
@@ -211,10 +143,10 @@ async def abort_incomplete_multipart_uploads_worker(ctx) -> None:
         with sm() as db:
             deleted_rows = s3_multipart.abort_incomplete_uploads_older_than(db, cutoff)
             if deleted_rows > 0:
-                maintenance_event_service.create_maintenance_event(
+                audit_event_service.create_audit_event(
                     db,
                     job="abort_incomplete_multipart_uploads",
-                    action="multipart_upload.aborted",
+                    operation="multipart_upload.aborted",
                     status="succeeded",
                     batch_id=batch_id,
                     metadata={
@@ -240,8 +172,6 @@ async def storage_maintenance_tick(ctx) -> None:
     await redis.enqueue_job("promote_recently_accessed_worker")
     await redis.enqueue_job("trim_old_bucket_probes_worker")
     await redis.enqueue_job("trim_old_audit_events_worker")
-    await redis.enqueue_job("trim_old_file_events_worker")
-    await redis.enqueue_job("trim_old_maintenance_events_worker")
     await redis.enqueue_job("abort_incomplete_multipart_uploads_worker")
     log.info(
         "storage_maintenance_tick_enqueued",
@@ -257,8 +187,6 @@ class WorkerSettings:
         demote_pressured_buckets_worker,
         promote_recently_accessed_worker,
         trim_old_audit_events_worker,
-        trim_old_file_events_worker,
-        trim_old_maintenance_events_worker,
         abort_incomplete_multipart_uploads_worker,
     ]
     cron_jobs = [

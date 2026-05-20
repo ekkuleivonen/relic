@@ -1,7 +1,7 @@
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.dependencies import CurrentUser
@@ -14,9 +14,9 @@ from constants import (
     SEARCH_MAX_LIMIT,
 )
 from database import DbSession
+from models import File
 from services import files as files_service
 from services import filesystem as filesystem_service
-from services.event_context import context_from_headers
 from services import search as search_service
 
 router = APIRouter()
@@ -39,8 +39,29 @@ class FileRead(BaseModel):
     actor_name: str | None
     name: str
     meta: dict
+    size_bytes: int
+    mimetype: str
+    extension: str
     created_at: dt.datetime
     updated_at: dt.datetime
+
+    @classmethod
+    def from_file(cls, file: File) -> "FileRead":
+        blob = file.blob
+        return cls(
+            id=file.id,
+            folder_id=file.folder_id,
+            blob_id=file.blob_id,
+            actor_id=file.actor_id,
+            actor_name=file.actor_name,
+            name=file.name,
+            meta=file.meta or {},
+            size_bytes=blob.size_bytes if blob is not None else 0,
+            mimetype=blob.mimetype if blob is not None else "application/octet-stream",
+            extension=blob.extension if blob is not None else "",
+            created_at=file.created_at,
+            updated_at=file.updated_at,
+        )
 
 
 class MoveFileRequest(BaseModel):
@@ -54,6 +75,12 @@ class RenameFileRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=255)
+
+
+class PatchFileMetaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    meta: dict = Field(default_factory=dict)
 
 
 class FacetValueRead(BaseModel):
@@ -119,7 +146,7 @@ async def list_files(
         order=order,
     )
     return FileListResponse(
-        items=[FileRead.model_validate(file) for file in page.items],
+        items=[FileRead.from_file(file) for file in page.items],
         total=page.total,
         limit=limit,
         offset=offset,
@@ -177,7 +204,7 @@ async def search_files(
     )
     results = search_service.search_files(db, user=current_user, query=query)
     return FileSearchResponse(
-        items=[FileRead.model_validate(file) for file in results.items],
+        items=[FileRead.from_file(file) for file in results.items],
         total=results.total,
         limit=results.limit,
         offset=results.offset,
@@ -324,47 +351,53 @@ async def get_file(
     return files_service.get_file(db, file_id, current_user)
 
 
+@router.patch("/{file_id}/meta")
+async def patch_file_meta(
+    file_id: uuid.UUID,
+    payload: PatchFileMetaRequest,
+    db: DbSession,
+    current_user: CurrentUser,
+) -> FileRead:
+    """Deep-merge ``meta`` keys into the file's consumer-owned metadata."""
+    file = files_service.patch_file_meta(
+        db,
+        file_id=file_id,
+        patch=payload.meta,
+        current_user=current_user,
+    )
+    return FileRead.from_file(file)
+
+
 @router.patch("/{file_id}")
 async def rename_file(
     file_id: uuid.UUID,
     payload: RenameFileRequest,
-    request: Request,
     db: DbSession,
     current_user: CurrentUser,
 ) -> FileRead:
-    """Rename a file in place and mark extracted metadata stale."""
-    return files_service.rename_file(
+    """Rename a file in place."""
+    file = files_service.rename_file(
         db,
         file_id=file_id,
         name=payload.name,
         current_user=current_user,
-        event_context=context_from_headers(
-            request.headers,
-            actor_id=current_user.id,
-        ),
     )
+    return FileRead.from_file(file)
 
 
 @router.post("/{file_id}/move")
 async def move_file(
     file_id: uuid.UUID,
     payload: MoveFileRequest,
-    request: Request,
     db: DbSession,
     current_user: CurrentUser,
 ) -> FileRead:
-    """
-    Move a file to another folder. Atomic; refcount on Blob unchanged.
-    Extracted metadata is marked stale only when the move also changes the name.
-    """
-    return files_service.move_file(
+    """Move a file to another folder. Atomic; refcount on Blob unchanged."""
+    file = files_service.move_file(
         db,
         file_id=file_id,
         destination_folder_id=payload.destination_folder_id,
         name=payload.name,
         current_user=current_user,
-        event_context=context_from_headers(
-            request.headers,
-            actor_id=current_user.id,
-        ),
     )
+    return FileRead.from_file(file)

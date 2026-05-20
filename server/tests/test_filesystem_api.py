@@ -3,7 +3,6 @@ from api.app import app
 from database import get_db
 from enums import Permission, UserRole
 from fastapi.testclient import TestClient
-from domain.files.meta import init_file_meta
 from models import (
     Base,
     File,
@@ -250,7 +249,7 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
     bucket = BucketFactory.build()
     db_session.add(bucket)
     db_session.flush()
-    blob = BlobFactory.build(bucket_id=bucket.id)
+    blob = BlobFactory.build(bucket_id=bucket.id, size_bytes=1024)
     db_session.add(blob)
     db_session.flush()
     db_session.add_all(
@@ -260,24 +259,14 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
                 blob_id=blob.id,
                 actor_id=user.id,
                 name="image.jpg",
-                meta=init_file_meta(
-                    file_name="image.jpg",
-                    size=1024,
-                    user_meta={},
-                    mimetype="image/jpeg",
-                ),
+                meta={},
             ),
             File(
                 folder_id=docs.id,
                 blob_id=blob.id,
                 actor_id=user.id,
                 name="notes.txt",
-                meta=init_file_meta(
-                    file_name="notes.txt",
-                    size=12,
-                    user_meta={},
-                    mimetype="text/plain",
-                ),
+                meta={},
             ),
         ]
     )
@@ -290,7 +279,7 @@ def test_list_files_filters_by_folder(client, db_session, user, root_folder):
     assert body["total"] == 1
     assert len(body["items"]) == 1
     assert [item["name"] for item in body["items"]] == ["image.jpg"]
-    assert body["items"][0]["meta"]["size"] == 1024
+    assert body["items"][0]["size_bytes"] == 1024
     assert body["limit"] == 50
     assert body["offset"] == 0
 
@@ -324,21 +313,21 @@ def test_recursive_list_files_excludes_unreadable_descendants(
                 blob_id=blob.id,
                 actor_id=user.id,
                 name="image.jpg",
-                meta=init_file_meta(file_name="image.jpg", size=1024, user_meta={}),
+                meta={},
             ),
             File(
                 folder_id=raw.id,
                 blob_id=blob.id,
                 actor_id=user.id,
                 name="raw.nef",
-                meta=init_file_meta(file_name="raw.nef", size=2048, user_meta={}),
+                meta={},
             ),
             File(
                 folder_id=docs.id,
                 blob_id=blob.id,
                 actor_id=user.id,
                 name="notes.txt",
-                meta=init_file_meta(file_name="notes.txt", size=12, user_meta={}),
+                meta={},
             ),
         ]
     )
@@ -369,7 +358,7 @@ def test_list_files_pagination(client, db_session, user, root_folder):
                 blob_id=blob.id,
                 actor_id=user.id,
                 name=name,
-                meta=init_file_meta(file_name=name, size=100, user_meta={}),
+                meta={},
             )
         )
     db_session.commit()

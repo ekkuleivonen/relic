@@ -5,11 +5,12 @@ from typing import Annotated
 import settings as S
 from database import DbSession
 from enums import UserRole
-from fastapi import APIRouter, Cookie, Response, status
+from fastapi import APIRouter, Cookie, Request, Response, status
 from domain.exceptions import BadRequestError
 from pydantic import BaseModel, ConfigDict, Field
 from services import audit_events as audit_event_service
 from services import auth as auth_service
+from services.event_context import request_id_from_headers
 
 from api.dependencies import CurrentUser
 
@@ -42,8 +43,9 @@ class SessionRead(BaseModel):
 
 @router.post("/login")
 async def login(
-    payload: LoginRequest, response: Response, db: DbSession
+    payload: LoginRequest, response: Response, db: DbSession, request: Request
 ) -> SessionRead:
+    request_id = request_id_from_headers(request.headers)
     try:
         user = auth_service.authenticate_user(
             db,
@@ -55,7 +57,8 @@ async def login(
             db,
             operation="auth.login.failed",
             status="failed",
-            metadata={"email": payload.email.lower()},
+            request_id=request_id,
+            metadata={"email": payload.email},
         )
         raise
     response.set_cookie(
@@ -70,6 +73,7 @@ async def login(
         db,
         operation="auth.login.succeeded",
         actor_id=user.id,
+        request_id=request_id,
         metadata={"email": user.email},
     )
     return SessionRead(user=SessionUserRead.model_validate(user))
@@ -79,6 +83,7 @@ async def login(
 async def logout(
     response: Response,
     db: DbSession,
+    request: Request,
     session_token: Annotated[str | None, Cookie(alias=S.SESSION_COOKIE_NAME)] = None,
 ) -> Response:
     user = auth_service.get_session_user(db, session_token)
@@ -92,6 +97,8 @@ async def logout(
         db,
         operation="auth.logout",
         actor_id=user.id if user else None,
+        request_id=request_id_from_headers(request.headers),
+        metadata={"email": user.email} if user else {},
     )
     response.status_code = status.HTTP_204_NO_CONTENT
     return response

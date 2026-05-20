@@ -15,12 +15,7 @@ class Permission(enum.IntFlag):
     READ = 1
     WRITE = 2
     DELETE = 4
-    ENRICH = 8  # for processors updating meta
-
-
-class ProcessorSource(enum.StrEnum):
-    SEED = "seed"
-    ADMIN = "admin"
+    ENRICH = 8  # for patching file meta
 
 
 class EventStatus(enum.StrEnum):

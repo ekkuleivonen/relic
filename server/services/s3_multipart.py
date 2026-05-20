@@ -15,7 +15,6 @@ from utils.logging import get_logger
 
 from services import folder_access as folder_access_service
 from services import objects as object_service
-from services.event_context import EventContext
 from services.placement import choose_bucket, effective_preferred_bucket_id
 
 log = get_logger(__name__)
@@ -58,14 +57,12 @@ def create_multipart_upload(
     key: str,
     ingest_meta: dict,
     current_user: User,
-    event_context: EventContext | None = None,
 ) -> MultipartUpload:
     folder, _file_name = object_service.resolve_object_path(
         db,
         bucket_name=bucket_name,
         key=key,
         current_user=current_user,
-        event_context=event_context,
     )
     folder_access_service.require_folder_permission_strict(
         db,
@@ -157,7 +154,6 @@ def complete_multipart_upload(
     key: str,
     requested_parts: list[CompleteMultipartPart],
     current_user: User,
-    event_context: EventContext | None = None,
 ) -> CompleteMultipartResult:
     upload = require_upload(
         db,
@@ -211,7 +207,6 @@ def complete_multipart_upload(
         ingest_meta=upload.meta,
         current_user=current_user,
         allow_overwrite=True,
-        event_context=event_context,
     )
 
     for part in upload.parts:

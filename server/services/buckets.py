@@ -10,12 +10,7 @@ from sqlalchemy.orm import Session
 
 from domain.exceptions import BadRequestError, ConflictError, ResourceNotFound
 from models import Blob, Bucket, BucketProbe
-from services.audit_events import (
-    create_audit_event,
-    elapsed_ms,
-    latency_metadata,
-    timer_start,
-)
+from services.audit_events import create_audit_event
 from services.event_context import EventContext
 from services.placement import (
     BucketHotness,
@@ -25,6 +20,7 @@ from services.placement import (
     hotness_for_buckets,
 )
 from utils.logging import get_logger
+from utils.timing import elapsed_ms, latency_metadata, timer_start
 
 log = get_logger(__name__)
 

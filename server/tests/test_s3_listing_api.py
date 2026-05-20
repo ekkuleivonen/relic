@@ -6,7 +6,6 @@ from api.app import app
 from database import get_db
 from enums import Permission
 from fastapi.testclient import TestClient
-from domain.files.meta import init_file_meta
 from models import Base, Blob, File, Folder, FolderAccess
 from services import s3_signing
 from sqlalchemy import create_engine
@@ -99,7 +98,7 @@ def add_file(db_session, folder: Folder, user, filename: str, body: bytes) -> Fi
         blob_id=blob.id,
         actor_id=user.id,
         name=filename,
-        meta=init_file_meta(file_name=filename, size=len(body), user_meta={}),
+        meta={},
     )
     db_session.add(file)
     db_session.commit()

@@ -24,7 +24,6 @@ from domain.exceptions import (
     ResourceNotFound,
 )
 from models import User
-from services.event_context import context_from_headers
 from services import objects as object_service
 from services import s3_listing
 from services import s3_multipart
@@ -371,10 +370,6 @@ async def multipart_post(
                 key=key,
                 ingest_meta=extract_user_metadata(request),
                 current_user=user,
-                event_context=context_from_headers(
-                    request.headers,
-                    actor_id=user.id,
-                ),
             )
             return Response(
                 content=render_create_multipart_upload(bucket, key, upload.id),
@@ -392,10 +387,6 @@ async def multipart_post(
             key=key,
             requested_parts=parts,
             current_user=user,
-            event_context=context_from_headers(
-                request.headers,
-                actor_id=user.id,
-            ),
         )
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
@@ -560,10 +551,6 @@ async def put_object(
             ingest_meta=extract_user_metadata(request),
             current_user=user,
             allow_overwrite=request.headers.get("x-relic-if-none-match") != "*",
-            event_context=context_from_headers(
-                request.headers,
-                actor_id=user.id,
-            ),
         )
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
@@ -596,10 +583,6 @@ def handle_copy_object(
         ingest_meta=extract_user_metadata(request),
         metadata_directive=metadata_directive,
         current_user=user,
-        event_context=context_from_headers(
-            request.headers,
-            actor_id=user.id,
-        ),
     )
     last_modified = result.file.updated_at.strftime("%Y-%m-%dT%H:%M:%S.000Z")
     body = (
@@ -810,16 +793,12 @@ def render_list_multipart_parts(
 def build_object_response_headers(
     result: object_service.GetObjectResult,
 ) -> dict[str, str]:
-    file_meta = result.file.meta or {}
     headers: dict[str, str] = {
         "ETag": f'"{result.blob.content_hash.hex()}"',
         "Last-Modified": result.file.updated_at.strftime("%a, %d %b %Y %H:%M:%S GMT"),
         "Content-Length": str(result.blob.size_bytes),
+        "Content-Type": result.blob.mimetype or "application/octet-stream",
     }
-    if file_meta.get("mimetype"):
-        headers["Content-Type"] = file_meta["mimetype"]
-    else:
-        headers["Content-Type"] = "application/octet-stream"
     return headers
 
 
@@ -861,10 +840,6 @@ async def delete_object(
             bucket_name=bucket,
             key=key,
             current_user=user,
-            event_context=context_from_headers(
-                request.headers,
-                actor_id=user.id,
-            ),
         )
     except s3_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
