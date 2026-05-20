@@ -193,9 +193,9 @@ def attach_children(
     children_by_parent: dict[uuid.UUID | None, list[Folder]],
 ) -> None:
     children = children_by_parent.get(folder.id, [])
-    folder.children = sorted(children, key=lambda child: child.name)
+    folder.tree_children = sorted(children, key=lambda child: child.name)
 
-    for child in folder.children:
+    for child in folder.tree_children:
         attach_children(child, children_by_parent)
 
 

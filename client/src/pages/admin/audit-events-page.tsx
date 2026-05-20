@@ -4,11 +4,7 @@ import { RefreshCw, X } from "lucide-react"
 import { AuditEventDetailDrawer } from "@/components/audit-events/audit-event-detail-drawer"
 import { AuditEventsTable } from "@/components/audit-events/audit-events-table"
 import { OffsetPaginationBar } from "@/components/pagination-offset"
-import {
-  DateFilterPicker,
-  toEndOfDayIso,
-  toStartOfDayIso,
-} from "@/components/filters/date-filter-picker"
+import { DateFilterPicker } from "@/components/filters/date-filter-picker"
 import { FilterFieldLabel } from "@/components/filters/filter-field-label"
 import { StringOptionCombobox } from "@/components/filters/string-option-combobox"
 import { Button } from "@/components/ui/button"
@@ -20,6 +16,7 @@ import {
 } from "@/hooks/use-audit-events"
 import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { extractApiError } from "@/lib/api"
+import { toEndOfDayIso, toStartOfDayIso } from "@/lib/date-filter"
 import type {
   AuditEventRecord,
   AuditEventsQuery,
@@ -87,10 +84,13 @@ export function AuditEventsPage() {
     ]
   )
 
+  /* Pagination resets when debounced filters change; syncing via effect is intentional. */
+  /* eslint-disable react-hooks/set-state-in-effect -- see comment above */
   React.useEffect(() => {
     setOffset(0)
     setSelectedEvent(null)
   }, [filterParams])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const filters = React.useMemo<AuditEventsQuery>(
     () => ({

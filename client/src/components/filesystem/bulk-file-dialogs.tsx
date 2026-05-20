@@ -150,12 +150,13 @@ export function BulkPatchMetaDialog({
   const [metaJson, setMetaJson] = React.useState("{}")
   const [parseError, setParseError] = React.useState<string | null>(null)
 
-  React.useEffect(() => {
-    if (!open) {
+  function handleOpenChange(next: boolean) {
+    if (!next) {
       setMetaJson("{}")
       setParseError(null)
     }
-  }, [open])
+    onOpenChange(next)
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -168,7 +169,7 @@ export function BulkPatchMetaDialog({
 
     try {
       await bulkPatch.mutateAsync({ file_ids: fileIds, meta })
-      onOpenChange(false)
+      handleOpenChange(false)
       onCompleted()
     } catch {
       // hook toasts the error
@@ -176,7 +177,7 @@ export function BulkPatchMetaDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Merge metadata into {fileIds.length} files</DialogTitle>
@@ -199,7 +200,7 @@ export function BulkPatchMetaDialog({
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleOpenChange(false)}
               disabled={bulkPatch.isPending}
             >
               Cancel

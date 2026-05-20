@@ -247,7 +247,7 @@ def filter_visible_tree(
 
     root.path = paths[root.id]
     root.effective_permissions = permissions_by_folder.get(root.id, 0)
-    root.children = build_visible_children(
+    root.tree_children = build_visible_children(
         root, children_by_parent, visible_ids, permissions_by_folder
     )
     return root
@@ -363,7 +363,7 @@ def build_visible_children(
         children_by_parent.get(folder.id, []), key=lambda item: item.name
     ):
         child.effective_permissions = permissions_by_folder.get(child.id, 0)
-        child.children = build_visible_children(
+        child.tree_children = build_visible_children(
             child,
             children_by_parent,
             visible_ids,
@@ -372,7 +372,7 @@ def build_visible_children(
         if child.id in visible_ids:
             visible_children.append(child)
         else:
-            visible_children.extend(child.children)
+            visible_children.extend(child.tree_children)
 
     return visible_children
 

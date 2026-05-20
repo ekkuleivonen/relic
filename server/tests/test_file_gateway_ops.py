@@ -207,6 +207,11 @@ class FakeStorageBackendStore:
 
             def abort_multipart_upload(self, Bucket, Key, UploadId):
                 store._uploads.pop(UploadId, None)
+                prefix = f"__relic_multipart_uploads/{UploadId}/"
+                for object_key in list(store.objects):
+                    bucket, key = object_key
+                    if bucket == Bucket and key.startswith(prefix):
+                        store.objects.pop(object_key, None)
 
         return _Client()
 

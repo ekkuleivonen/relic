@@ -2,7 +2,6 @@ import * as React from "react"
 
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { parseMetaPatchJson } from "@/lib/file-meta"
 import { cn } from "@/lib/utils"
 
 type MetaJsonEditorProps = {
@@ -57,8 +56,4 @@ export function MetaJsonEditor({
       {error ? <p className="text-xs text-destructive">{error}</p> : null}
     </div>
   )
-}
-
-export function validateMetaJsonEditor(value: string): string | null {
-  return parseMetaPatchJson(value).error
 }

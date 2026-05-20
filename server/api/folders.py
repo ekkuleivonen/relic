@@ -143,7 +143,7 @@ def _folder_to_tree_read(
             _folder_to_tree_read(
                 uow, child, include_storage_policy=include_storage_policy
             )
-            for child in folder.children
+            for child in folder.tree_children
         ],
         preferred_storage_backend_id=(
             folder.preferred_storage_backend_id if include_storage_policy else None
