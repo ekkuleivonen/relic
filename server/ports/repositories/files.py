@@ -6,6 +6,10 @@ from infra.db.models import File, Folder
 
 
 class FileStore(Protocol):
+    def get_by_folder_and_name(
+        self, folder_id: uuid.UUID, name: str
+    ) -> File | None: ...
+
     def ensure_name_available(self, folder_id: uuid.UUID, name: str) -> None: ...
 
     def save(self, file: File) -> None: ...

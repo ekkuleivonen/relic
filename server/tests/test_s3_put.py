@@ -16,8 +16,8 @@ from infra.db.models import (
     Folder,
     FolderAccess,
 )
-from application.gateway import object_writes
-from application.control_plane.placement import choose_bucket, clear_bucket_usage_cache, get_bucket_usage
+from infra.gateway import object_writes
+from infra.db.stores.placement import choose_bucket, clear_bucket_usage_cache, get_bucket_usage
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -249,7 +249,7 @@ def test_put_object_passes_inherited_preferred_bucket_to_choose_bucket(
         captured.append(preferred_bucket_id)
         return physical_cold
 
-    monkeypatch.setattr("application.gateway.object_writes.choose_bucket", fake_choose)
+    monkeypatch.setattr("infra.gateway.object_writes.choose_bucket", fake_choose)
 
     class FakeS3Client:
         def put_object(self, Bucket, Key, Body):

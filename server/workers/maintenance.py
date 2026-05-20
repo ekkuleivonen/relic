@@ -5,7 +5,7 @@ import uuid
 from arq.cron import cron
 
 from application.maintenance import retention as retention_maintenance
-from application.maintenance import storage as storage_maintenance
+from infra.maintenance import storage as storage_maintenance
 from application.uow_runner import run_with_uow
 from infra.arq import arq_redis_settings
 from infra.db.engine import get_sessionmaker

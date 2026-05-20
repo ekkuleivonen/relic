@@ -7,8 +7,8 @@ from infra.db.engine import get_db
 from enums import UserRole
 from fastapi.testclient import TestClient
 from infra.db.models import AuditEvent, Base
-from application.control_plane.audit_events import create_audit_event, trim_audit_events_older_than
-from application.control_plane.auth import create_session_token
+from infra.db.stores.audit_events import create_audit_event, trim_audit_events_older_than
+from infra.db.stores.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool

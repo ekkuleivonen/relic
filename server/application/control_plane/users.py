@@ -1,19 +1,12 @@
 import uuid
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
-from domain.exceptions import ResourceNotFound
+from application.uow import UnitOfWork
 from infra.db.models import User
 
 
-def list_users(db: Session) -> list[User]:
-    return list(db.scalars(select(User).order_by(User.email)).all())
+def list_users(uow: UnitOfWork) -> list[User]:
+    return uow.users.list_all()
 
 
-def get_user(db: Session, user_id: uuid.UUID) -> User:
-    user = db.get(User, user_id)
-    if not user:
-        raise ResourceNotFound("User not found")
-
-    return user
+def get_user(uow: UnitOfWork, user_id: uuid.UUID) -> User:
+    return uow.users.get(user_id)

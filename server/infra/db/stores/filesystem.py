@@ -14,7 +14,7 @@ from infra.db.models import Blob, File, Folder, User
 from sqlalchemy import asc, desc, func, nullslast, select
 from sqlalchemy.orm import Session, joinedload
 
-from application.control_plane import folder_access
+from infra.db.stores import folder_access
 
 
 @dataclass(frozen=True)

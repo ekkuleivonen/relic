@@ -13,7 +13,7 @@ from infra.db.models import (
     FolderAccess,
     User,
 )
-from application.control_plane.auth import create_session_token
+from infra.db.stores.auth import create_session_token
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool

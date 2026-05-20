@@ -6,7 +6,7 @@ from infra.db.engine import get_db
 from enums import UserRole
 from fastapi.testclient import TestClient
 from infra.db.models import Base, Bucket, User
-from application.control_plane.auth import create_session_token
+from infra.db.stores.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -175,7 +175,7 @@ def test_probe_bucket_records_probe_sample(client, db_session, monkeypatch):
     def fake_client(*args, **kwargs):
         return FakeS3Client()
 
-    monkeypatch.setattr("application.control_plane.bucket_mutations.boto3.client", fake_client)
+    monkeypatch.setattr("infra.db.stores.bucket_probe.boto3.client", fake_client)
     bucket_id = client.post("/api/buckets/", json=bucket_payload()).json()["id"]
 
     response = client.post(f"/api/buckets/{bucket_id}/probe")

@@ -1,25 +1,20 @@
 """Request-scoped context for use cases and audit emission."""
 
 import uuid
-from dataclasses import dataclass
 
 from infra.db.models import User
+from ports.context import Actor, EventContext
 from starlette.datastructures import Headers
 
 
-@dataclass(frozen=True)
-class Actor:
-    id: uuid.UUID
-
-    @classmethod
-    def from_user(cls, user: User) -> "Actor":
-        return cls(id=user.id)
+def actor_from_user(user: User) -> Actor:
+    return Actor(id=user.id)
 
 
-@dataclass(frozen=True)
-class EventContext:
-    actor_id: uuid.UUID | None = None
-    request_id: str | None = None
+# Backwards-compatible alias used across the codebase.
+Actor.from_user = classmethod(  # type: ignore[method-assign,attr-defined]
+    lambda cls, user: cls(id=user.id)
+)
 
 
 def request_id_from_headers(headers: Headers) -> str | None:

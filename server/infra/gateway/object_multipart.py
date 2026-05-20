@@ -15,11 +15,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from utils.logging import get_logger
 
-from application.control_plane import folder_access
-from application.gateway import blob_storage
-from application.gateway import object_paths
-from application.gateway import object_writes
-from application.control_plane.placement import choose_bucket, effective_preferred_bucket_id
+from infra.db.stores import folder_access
+from infra.gateway import blob_storage
+from infra.gateway import object_paths
+from infra.gateway import object_writes
+from infra.db.stores.placement import choose_bucket, effective_preferred_bucket_id
 
 log = get_logger(__name__)
 
@@ -62,7 +62,6 @@ def create_multipart_upload(
     key: str,
     ingest_meta: dict,
     current_user: User,
-    commit: bool = False,
 ) -> MultipartUpload:
     folder, _file_name = object_paths.resolve_object_path(
         db,
@@ -89,10 +88,6 @@ def create_multipart_upload(
         storage_bucket_id=storage_bucket.id,
         meta=ingest_meta,
     )
-    if commit:
-        created = multipart_store.create(upload)
-        db.commit()
-        return created
     return multipart_store.create(upload)
 
 
@@ -109,7 +104,6 @@ def upload_part(
     content_md5: bytes,
     size_bytes: int,
     current_user: User,
-    commit: bool = False,
 ) -> UploadedPart:
     validate_part_number(part_number)
     upload = require_upload(
@@ -152,8 +146,6 @@ def upload_part(
         bucket_key=bucket_key,
         body=body,
     )
-    if commit:
-        db.commit()
     return UploadedPart(part_number=part_number, etag=etag)
 
 
@@ -166,7 +158,6 @@ def complete_multipart_upload(
     key: str,
     requested_parts: list[CompleteMultipartPart],
     current_user: User,
-    commit: bool = False,
 ) -> CompleteMultipartResult:
     upload = require_upload(
         db,
@@ -222,7 +213,6 @@ def complete_multipart_upload(
         ingest_meta=upload.meta,
         current_user=current_user,
         allow_overwrite=True,
-        commit=False,
     )
 
     for part in upload.parts:
@@ -236,8 +226,6 @@ def complete_multipart_upload(
                 error=str(exc),
             )
     db.delete(upload)
-    if commit:
-        db.commit()
     return CompleteMultipartResult(
         bucket=bucket_name,
         key=key,
@@ -253,7 +241,6 @@ def abort_multipart_upload(
     bucket_name: str,
     key: str,
     current_user: User,
-    commit: bool = False,
 ) -> None:
     upload = require_upload(
         db,
@@ -274,8 +261,6 @@ def abort_multipart_upload(
                 error=str(exc),
             )
     db.delete(upload)
-    if commit:
-        db.commit()
 
 
 def list_multipart_uploads(
@@ -322,7 +307,7 @@ def list_multipart_parts(
 
 
 def abort_incomplete_uploads_older_than(
-    db: Session, cutoff, *, storage: StorageRegistry, commit: bool = False
+    db: Session, cutoff, *, storage: StorageRegistry
 ) -> int:
     uploads = list(
         db.scalars(
@@ -346,8 +331,6 @@ def abort_incomplete_uploads_older_than(
                     error=str(exc),
                 )
         db.delete(upload)
-    if commit:
-        db.commit()
     return len(uploads)
 
 

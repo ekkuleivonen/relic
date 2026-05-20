@@ -1,4 +1,4 @@
-from application.control_plane.access_keys import AccessKeyRow
+from infra.db.stores.access_keys import AccessKeyRow
 from domain.exceptions import ResourceNotFound
 from infra.db.models import AccessKey, User
 from ports.repositories.access_keys import AccessKeyStore

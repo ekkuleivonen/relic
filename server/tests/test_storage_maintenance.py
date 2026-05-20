@@ -3,8 +3,8 @@ import io
 
 import pytest
 from infra.db.models import AuditEvent, Base, Blob, BucketProbe
-from application.control_plane.placement import clear_bucket_usage_cache, get_bucket_usage
-from application.maintenance.storage import (
+from infra.db.stores.placement import clear_bucket_usage_cache, get_bucket_usage
+from infra.maintenance.storage import (
     demote_pressured_buckets_batch,
     probe_all_buckets,
     promote_recently_accessed_batch,
@@ -178,7 +178,7 @@ def test_successful_scheduled_probe_records_probe_without_maintenance_event(
             return None
 
     monkeypatch.setattr(
-        "application.control_plane.bucket_mutations.boto3.client",
+        "infra.db.stores.bucket_probe.boto3.client",
         lambda *args, **kwargs: FakeS3Client(),
     )
     bucket_row = BucketFactory.build()

@@ -1,7 +1,7 @@
 from ports.cache import CachePort
 from infra.cache.hotpath import clear_list_objects_response_cache
-from application.control_plane import folder_access_cache
-from application.control_plane import access_keys
+from infra.cache import folder_access as folder_access_cache
+from infra.db.stores import access_keys
 from sqlalchemy.orm import Session
 
 

@@ -11,7 +11,6 @@ from application.control_plane.user_mutations import (
 )
 from enums import UserRole
 from fastapi import APIRouter, Request, Response, status
-from infra.db.engine import DbSession
 from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter()
@@ -58,12 +57,12 @@ class UserRead(BaseModel):
 
 
 @router.get("/")
-async def list_users(request: Request, db: DbSession) -> list[UserRead]:
+async def list_users(request: Request, uow: UnitOfWorkDep) -> list[UserRead]:
     """
     GET /users -> list all users. Admin-only.
     Query params: ?limit=50&cursor=<id>&role=<int>
     """
-    return users.list_users(db)
+    return users.list_users(uow)
 
 
 @router.post("/")
@@ -89,12 +88,12 @@ async def create_user(
 
 
 @router.get("/{user_id}")
-async def get_user(user_id: uuid.UUID, request: Request, db: DbSession) -> UserRead:
+async def get_user(user_id: uuid.UUID, request: Request, uow: UnitOfWorkDep) -> UserRead:
     """
     GET /users/{id} -> fetch a single user.
     Self or admin only.
     """
-    return users.get_user(db, user_id)
+    return users.get_user(uow, user_id)
 
 
 @router.patch("/{user_id}")

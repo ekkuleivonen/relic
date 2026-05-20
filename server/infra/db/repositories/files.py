@@ -11,6 +11,13 @@ class SqlAlchemyFileStore:
     def __init__(self, session: Session) -> None:
         self._session = session
 
+    def get_by_folder_and_name(
+        self, folder_id: uuid.UUID, name: str
+    ) -> File | None:
+        return self._session.scalar(
+            select(File).where(File.folder_id == folder_id, File.name == name)
+        )
+
     def ensure_name_available(self, folder_id: uuid.UUID, name: str) -> None:
         existing = self._session.scalar(
             select(File).where(File.folder_id == folder_id, File.name == name)

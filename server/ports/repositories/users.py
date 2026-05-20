@@ -5,6 +5,8 @@ from infra.db.models import User
 
 
 class UserStore(Protocol):
+    def list_all(self) -> list[User]: ...
+
     def get(self, user_id: uuid.UUID) -> User: ...
 
     def ensure_email_available(

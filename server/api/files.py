@@ -29,10 +29,9 @@ from constants import (
     SEARCH_MAX_FACET_TOP,
     SEARCH_MAX_LIMIT,
 )
-from infra.db.engine import DbSession
 from infra.db.models import File
 from application.control_plane.files import get_file as get_file_use_case
-from application.control_plane import filesystem
+from infra.db.stores import filesystem
 from domain.files.search import KvsFilter, SearchQuery
 from application.control_plane.search_files import compute_facets, search_files
 
@@ -181,7 +180,7 @@ class BulkPatchFileMetaResponse(BaseModel):
 
 @router.get("/")
 async def list_files(
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: CurrentUser,
     folder_id: uuid.UUID | None = None,
     recursive: bool = False,
@@ -195,7 +194,7 @@ async def list_files(
     order: str = Query(default="asc"),
 ) -> FileListResponse:
     page = filesystem.list_files(
-        db,
+        uow.session,
         current_user,
         folder_id=folder_id,
         recursive=recursive,

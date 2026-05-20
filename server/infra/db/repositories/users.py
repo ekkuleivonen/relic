@@ -11,6 +11,11 @@ class SqlAlchemyUserStore:
     def __init__(self, session: Session) -> None:
         self._session = session
 
+    def list_all(self) -> list[User]:
+        return list(
+            self._session.scalars(select(User).order_by(User.email)).all()
+        )
+
     def get(self, user_id: uuid.UUID) -> User:
         user = self._session.get(User, user_id)
         if user is None:

@@ -1,11 +1,11 @@
+import datetime as dt
 import uuid
 from typing import Any
 
 from domain.exceptions import ConflictError, ResourceNotFound
 from infra.db.models import Blob, Bucket, BucketProbe
 from ports.repositories.buckets import BucketStore
-from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 
@@ -49,6 +49,16 @@ class SqlAlchemyBucketStore:
     def add_probe(self, probe: BucketProbe) -> None:
         self._session.add(probe)
         self._session.flush()
+
+    def delete_probes_older_than(self, cutoff: dt.datetime) -> int:
+        result = self._session.execute(
+            delete(BucketProbe).where(BucketProbe.observed_at < cutoff)
+        )
+        return int(result.rowcount or 0)
+
+    def refresh(self, *entities: object) -> None:
+        for entity in entities:
+            self._session.refresh(entity)
 
 
 def build_bucket_store(session: Session) -> BucketStore:

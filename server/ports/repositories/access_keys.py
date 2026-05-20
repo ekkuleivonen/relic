@@ -1,7 +1,7 @@
 import uuid
 from typing import Protocol
 
-from application.control_plane.access_keys import AccessKeyRow
+from infra.db.stores.access_keys import AccessKeyRow
 from infra.db.models import AccessKey
 
 

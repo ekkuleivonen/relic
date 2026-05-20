@@ -8,18 +8,18 @@ Do not call ``object_writes.put_object`` directly from HTTP handlers; use
 
 from typing import BinaryIO
 
-from application.gateway import object_multipart
-from application.gateway import object_writes
-from application.gateway import object_deletes
-from application.gateway import object_copies
-from application.gateway.object_multipart import (
+from infra.gateway import object_multipart
+from infra.gateway import object_writes
+from application.gateway import delete_object as delete_object_use_case
+from infra.gateway import object_copies
+from infra.gateway.object_multipart import (
     CompleteMultipartPart,
     CompleteMultipartResult,
     MultipartPartListPage,
     MultipartUploadListPage,
     UploadedPart,
 )
-from application.gateway.object_types import CopyObjectResult, DeleteObjectResult, PutObjectResult
+from infra.gateway.object_types import CopyObjectResult, DeleteObjectResult, PutObjectResult
 from application.uow import UnitOfWork
 from infra.db.models import MultipartUpload, User
 
@@ -47,7 +47,6 @@ def put_object(
         content_hash=content_hash,
         size_bytes=size_bytes,
         allow_overwrite=allow_overwrite,
-        commit=False,
     )
     uow.cache.invalidate_list_objects()
     uow.cache.invalidate_folder_hotpath(uow.session)
@@ -61,15 +60,12 @@ def delete_object(
     key: str,
     current_user: User | None = None,
 ) -> DeleteObjectResult:
-    result = object_deletes.delete_object(
-        uow.session,
+    return delete_object_use_case.delete_object(
+        uow,
         bucket_name=bucket_name,
         key=key,
         current_user=current_user,
-        commit=False,
     )
-    uow.cache.invalidate_list_objects()
-    return result
 
 
 def copy_object(
@@ -92,7 +88,6 @@ def copy_object(
         ingest_meta=ingest_meta,
         metadata_directive=metadata_directive,
         current_user=current_user,
-        commit=False,
     )
     uow.cache.invalidate_list_objects()
     uow.cache.invalidate_folder_hotpath(uow.session)
@@ -118,7 +113,6 @@ def create_multipart_upload(
         key=key,
         ingest_meta=ingest_meta,
         current_user=current_user,
-        commit=False,
     )
 
 
@@ -147,7 +141,6 @@ def upload_part(
         content_md5=content_md5,
         size_bytes=size_bytes,
         current_user=current_user,
-        commit=False,
     )
 
 
@@ -168,7 +161,6 @@ def complete_multipart_upload(
         key=key,
         requested_parts=requested_parts,
         current_user=current_user,
-        commit=False,
     )
     uow.cache.invalidate_list_objects()
     uow.cache.invalidate_folder_hotpath(uow.session)
@@ -190,7 +182,6 @@ def abort_multipart_upload(
         bucket_name=bucket_name,
         key=key,
         current_user=current_user,
-        commit=False,
     )
 
 
@@ -229,5 +220,4 @@ def abort_incomplete_uploads_older_than(uow: UnitOfWork, cutoff) -> int:
         uow.session,
         cutoff,
         storage=uow.storage,
-        commit=False,
     )

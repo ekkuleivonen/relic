@@ -3,9 +3,9 @@
 import uuid
 from xml.sax.saxutils import escape
 
-from application.gateway import object_listing
-from application.gateway import object_multipart
-from application.gateway.object_types import GetObjectResult
+from infra.gateway import object_listing
+from infra.gateway import object_multipart
+from infra.gateway.object_types import GetObjectResult
 from domain.exceptions import (
     BadRequestError,
     ConflictError,

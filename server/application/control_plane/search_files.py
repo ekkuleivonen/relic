@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass, replace
 
 from constants import (
@@ -24,8 +23,7 @@ from domain.files.search import (
     top_facet_values,
 )
 from infra.db.models import File, User
-from application.control_plane import filesystem
-from application.control_plane import folder_access
+from infra.db.stores.search_scope import scope_folder_ids
 from application.uow import UnitOfWork
 
 
@@ -119,24 +117,5 @@ def _validate_query(query: SearchQuery) -> None:
 
 
 def _matched_files(uow: UnitOfWork, *, user: User, query: SearchQuery) -> list[File]:
-    scope_ids = _scope_folder_ids(uow.session, user=user, query=query)
+    scope_ids = scope_folder_ids(uow.session, user=user, query=query)
     return uow.search.match_files(scope_folder_ids=scope_ids, query=query)
-
-
-def _scope_folder_ids(db, *, user: User, query: SearchQuery) -> set[uuid.UUID]:
-    visible_ids = folder_access.visible_folder_ids(db, user)
-    if not visible_ids:
-        return set()
-
-    if query.folder_id is None:
-        return visible_ids
-
-    if query.recursive:
-        descendants = filesystem.collect_descendant_folder_ids(
-            db, query.folder_id
-        )
-        return {folder_id for folder_id in descendants if folder_id in visible_ids}
-
-    if query.folder_id not in visible_ids:
-        return set()
-    return {query.folder_id}

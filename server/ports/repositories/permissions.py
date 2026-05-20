@@ -1,7 +1,7 @@
 import uuid
 from typing import Protocol
 
-from application.context import Actor
+from ports.context import Actor
 from enums import Permission
 from infra.db.models import File, Folder
 

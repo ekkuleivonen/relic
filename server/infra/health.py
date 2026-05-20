@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 import settings as S
 from enums import HealthStatus
 from infra.db.models import Bucket
-from application.control_plane.placement import bucket_is_reachable
+from infra.db.stores.placement import bucket_is_reachable
 from infra.arq import arq_redis_settings
 
 

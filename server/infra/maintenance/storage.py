@@ -31,17 +31,17 @@ from typing import Any
 
 import settings as S
 from botocore.exceptions import BotoCoreError, ClientError
-from infra.db.models import Blob, Bucket, BucketProbe, File
-from sqlalchemy import delete, select
+from infra.db.models import Blob, Bucket, File
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from utils.logging import get_logger
 
-from application.uow import UnitOfWork
-from application.control_plane import buckets
-from application.control_plane.bucket_mutations import probe_bucket as probe_bucket_mutation
+from infra.db.stores import bucket_reads
+from infra.db.stores.bucket_probe import probe_bucket as probe_bucket_mutation
+from ports.uow import UnitOfWork
 from utils.timing import elapsed_ms, timer_start
-from application.gateway import blob_storage
-from application.control_plane.placement import (
+from infra.gateway import blob_storage
+from infra.db.stores.placement import (
     BucketHotness,
     adjust_bucket_usage_cache,
     agreed_preferred_bucket_id,
@@ -179,7 +179,7 @@ def probe_all_buckets(
     batch_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
     effective_batch_id = batch_id or uuid.uuid4()
-    all_buckets = buckets.list_buckets(uow.session)
+    all_buckets = bucket_reads.list_buckets(uow.session)
     ok = 0
     failed = 0
     for b in all_buckets:
@@ -235,16 +235,12 @@ def trim_old_bucket_probes_batch(
     batch_id: uuid.UUID | None = None,
     now: dt.datetime | None = None,
 ) -> dict[str, Any]:
-    db = uow.session
     effective_batch_id = batch_id or uuid.uuid4()
     effective_now = now or dt.datetime.now(dt.UTC)
     cutoff = effective_now - dt.timedelta(days=retention_days)
 
     started_at = timer_start()
-    result = db.execute(
-        delete(BucketProbe).where(BucketProbe.observed_at < cutoff)
-    )
-    deleted_rows = result.rowcount or 0
+    deleted_rows = uow.buckets.delete_probes_older_than(cutoff)
     if deleted_rows > 0:
         uow.audit.emit(
             job="trim_bucket_probes",
@@ -860,7 +856,7 @@ def _has_headroom(
 
 
 def _usage_after_delta(usage: Any, delta_bytes: int) -> Any:
-    from application.control_plane.placement import BucketUsage
+    from infra.db.stores.placement import BucketUsage
 
     return BucketUsage(
         object_count=max(0, usage.object_count + (1 if delta_bytes > 0 else -1)),

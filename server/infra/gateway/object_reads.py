@@ -6,10 +6,10 @@ from ports.storage_registry import StorageRegistry
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from application.control_plane import folder_access
-from application.gateway import blob_storage
-from application.gateway.object_paths import require_existing_object_path
-from application.gateway.object_types import GetObjectBytesResult, GetObjectResult
+from infra.db.stores import folder_access
+from infra.gateway import blob_storage
+from infra.gateway.object_paths import require_existing_object_path
+from infra.gateway.object_types import GetObjectBytesResult, GetObjectResult
 
 
 def get_object(

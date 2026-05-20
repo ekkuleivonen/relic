@@ -1,6 +1,6 @@
 import uuid
 
-from application.maintenance.storage import purge_dereferenced_blobs_batch
+from infra.maintenance.storage import purge_dereferenced_blobs_batch
 from application.uow import UnitOfWork
 
 import settings as S

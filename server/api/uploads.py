@@ -3,14 +3,13 @@ import uuid
 from typing import Literal
 
 import settings as S
-from infra.db.engine import DbSession
 from enums import Permission
 from fastapi import APIRouter, Request
 from domain.exceptions import BadRequestError
 from pydantic import BaseModel, ConfigDict, Field
-from application.control_plane import folder_access
-from application.control_plane import file_access
-from application.gateway import object_paths
+from infra.db.stores import folder_access
+from infra.db.stores import file_access
+from infra.gateway import object_paths
 from application.gateway import object_mutations
 from application.gateway import object_signing
 
@@ -61,18 +60,18 @@ class PresignUploadResponse(BaseModel):
 async def presign_upload(
     payload: PresignUploadRequest,
     request: Request,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> PresignUploadResponse:
-    folder = folder_access.require_folder(db, payload.folder_id)
+    folder = folder_access.require_folder(uow.session, payload.folder_id)
     folder_access.require_folder_permission_strict(
-        db,
+        uow.session,
         current_user,
         folder.id,
         Permission.WRITE,
     )
     bucket, key = object_paths.build_bucket_and_key_for_destination(
-        db, folder=folder, filename=payload.filename
+        uow.session, folder=folder, filename=payload.filename
     )
     user_metadata = normalize_user_metadata(payload.meta)
     signed = object_signing.sign_put_url(
@@ -97,13 +96,13 @@ async def presign_upload(
 async def presign_delete(
     payload: PresignDeleteRequest,
     request: Request,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> PresignUploadResponse:
     file = file_access.get_file_for_user(
-        db, payload.file_id, current_user, Permission.DELETE
+        uow.session, payload.file_id, current_user, Permission.DELETE
     )
-    bucket, key = object_paths.build_bucket_and_key_for_file(db, file)
+    bucket, key = object_paths.build_bucket_and_key_for_file(uow.session, file)
     signed = object_signing.sign_delete_url(
         bucket=bucket,
         key=key,
@@ -150,25 +149,25 @@ async def presign_download(
 async def presign_copy(
     payload: PresignCopyRequest,
     request: Request,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> PresignUploadResponse:
     source_file = file_access.get_file_for_user(
-        db, payload.source_file_id, current_user, Permission.READ
+        uow.session, payload.source_file_id, current_user, Permission.READ
     )
     dest_folder = folder_access.require_folder(
-        db, payload.destination_folder_id
+        uow.session, payload.destination_folder_id
     )
     folder_access.require_folder_permission_strict(
-        db, current_user, dest_folder.id, Permission.WRITE
+        uow.session, current_user, dest_folder.id, Permission.WRITE
     )
 
     dest_filename = payload.name or source_file.name
     source_bucket, source_key = object_paths.build_bucket_and_key_for_file(
-        db, source_file
+        uow.session, source_file
     )
     dest_bucket, dest_key = object_paths.build_bucket_and_key_for_destination(
-        db, folder=dest_folder, filename=dest_filename
+        uow.session, folder=dest_folder, filename=dest_filename
     )
 
     if source_bucket == dest_bucket and source_key == dest_key:

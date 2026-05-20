@@ -10,9 +10,9 @@ from ports.storage_registry import StorageRegistry
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from application.gateway import blob_storage
-from application.gateway.object_types import CreateBlobResult
-from application.control_plane.placement import adjust_bucket_usage_cache
+from infra.gateway import blob_storage
+from infra.gateway.object_types import CreateBlobResult
+from infra.db.stores.placement import adjust_bucket_usage_cache
 from utils.timing import elapsed_ms, timer_start
 
 

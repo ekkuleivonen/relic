@@ -13,7 +13,6 @@ from application.control_plane.bucket_mutations import (
 from application.control_plane.drain_bucket import drain_bucket as drain_bucket_use_case
 from enums import StorageKind
 from fastapi import APIRouter, Query, Request, Response, status
-from infra.db.engine import DbSession
 from infra.db.models import BucketProbe
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import desc, select
@@ -27,7 +26,7 @@ infrastructure, not user data.
 The access credentials are encrypted at rest with settings.ENCRYPTION_SECRET.
 
 There is no static "tier" anymore. Placement ranks buckets by their recent
-probe latency (see application.control_plane.placement.hotness_ranked_buckets) and the cron
+probe latency (see infra.db.stores.placement.hotness_ranked_buckets) and the cron
 job rebalances blobs based on access patterns + bucket pressure.
 """
 
@@ -94,12 +93,12 @@ class BucketProbeSample(BaseModel):
 
 
 @router.get("/")
-async def list_buckets(request: Request, db: DbSession) -> list[BucketRead]:
+async def list_buckets(request: Request, uow: UnitOfWorkDep) -> list[BucketRead]:
     """
     GET /buckets -> list all configured buckets.
     Includes blob-derived usage and the rolling-average probe latency.
     """
-    return buckets.list_bucket_reads(db)
+    return buckets.list_bucket_reads(uow)
 
 
 @router.post("/")
@@ -107,7 +106,6 @@ async def create_bucket(
     request: Request,
     payload: BucketCreate,
     uow: UnitOfWorkDep,
-    db: DbSession,
     current_user: AdminUser,
 ) -> BucketRead:
     """
@@ -122,15 +120,15 @@ async def create_bucket(
             actor_id=current_user.id,
         ),
     )
-    return buckets.get_bucket_read(db, bucket.id)
+    return buckets.get_bucket_read(uow, bucket.id)
 
 
 @router.get("/{bucket_id}")
 async def get_bucket(
-    bucket_id: uuid.UUID, request: Request, db: DbSession
+    bucket_id: uuid.UUID, request: Request, uow: UnitOfWorkDep
 ) -> BucketRead:
     """GET /buckets/{id} -> single bucket with usage and rolling-average latency."""
-    return buckets.get_bucket_read(db, bucket_id)
+    return buckets.get_bucket_read(uow, bucket_id)
 
 
 @router.patch("/{bucket_id}")
@@ -139,7 +137,6 @@ async def update_bucket(
     request: Request,
     payload: BucketUpdate,
     uow: UnitOfWorkDep,
-    db: DbSession,
     current_user: AdminUser,
 ) -> BucketRead:
     """PATCH /buckets/{id} -> update mutable fields."""
@@ -152,7 +149,7 @@ async def update_bucket(
             actor_id=current_user.id,
         ),
     )
-    return buckets.get_bucket_read(db, bucket_id)
+    return buckets.get_bucket_read(uow, bucket_id)
 
 
 @router.delete("/{bucket_id}")
@@ -183,7 +180,6 @@ async def probe_bucket(
     bucket_id: uuid.UUID,
     request: Request,
     uow: UnitOfWorkDep,
-    db: DbSession,
     current_user: AdminUser,
 ) -> BucketProbeRead:
     """
@@ -192,7 +188,7 @@ async def probe_bucket(
     most recent N successful probes.
     """
     probe_bucket_use_case(uow, bucket_id)
-    return BucketProbeRead(**buckets.get_bucket_read(db, bucket_id))
+    return BucketProbeRead(**buckets.get_bucket_read(uow, bucket_id))
 
 
 class DrainBucketResponse(BaseModel):
@@ -225,14 +221,14 @@ async def drain_bucket(
 async def list_bucket_probes(
     bucket_id: uuid.UUID,
     request: Request,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: AdminUser,
     limit: int = Query(default=20, ge=1, le=200),
 ) -> list[BucketProbeSample]:
     """GET /buckets/{id}/probes -> recent probe samples (newest first)."""
-    buckets.get_bucket(db, bucket_id)
+    buckets.get_bucket(uow, bucket_id)
     rows = list(
-        db.scalars(
+        uow.session.scalars(
             select(BucketProbe)
             .where(BucketProbe.bucket_id == bucket_id)
             .order_by(desc(BucketProbe.observed_at))

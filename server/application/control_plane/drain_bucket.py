@@ -1,7 +1,7 @@
 import uuid
 
 from application.context import EventContext
-from application.maintenance.storage import drain_bucket_batch
+from infra.maintenance.storage import drain_bucket_batch
 from application.uow import UnitOfWork
 from domain.exceptions import BadRequestError
 

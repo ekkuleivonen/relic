@@ -1,8 +1,8 @@
 import uuid
 
-from application.context import EventContext
-from application.control_plane import folder_access
-from application.control_plane.folder_access import FolderAccessRow
+from ports.context import EventContext
+from infra.db.stores import folder_access
+from infra.db.stores.folder_access_types import FolderAccessRow
 from application.uow import UnitOfWork
 
 

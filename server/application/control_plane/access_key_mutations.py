@@ -1,7 +1,7 @@
 import uuid
 
 from application.context import EventContext
-from application.control_plane.access_keys import (
+from infra.db.stores.access_keys import (
     AccessKeyRow,
     CreatedAccessKey,
     generate_key_id,

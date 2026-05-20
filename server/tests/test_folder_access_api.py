@@ -6,7 +6,7 @@ from infra.db.engine import get_db
 from enums import Permission, UserRole
 from fastapi.testclient import TestClient
 from infra.db.models import Base, FolderAccess
-from application.control_plane.auth import create_session_token
+from infra.db.stores.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool

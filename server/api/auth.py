@@ -11,7 +11,7 @@ from enums import UserRole
 from fastapi import APIRouter, Cookie, Request, Response, status
 from domain.exceptions import BadRequestError
 from pydantic import BaseModel, ConfigDict, Field
-from application.control_plane import auth
+from infra.db.stores import auth
 
 from api.dependencies import CurrentUser
 

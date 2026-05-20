@@ -10,7 +10,6 @@ from application.control_plane.audit_mutations import (
     clear_audit_events as clear_audit_events_use_case,
 )
 from constants import AUDIT_EVENT_DEFAULT_LIMIT, AUDIT_EVENT_MAX_LIMIT
-from infra.db.engine import DbSession
 from infra.db.models import AuditEvent
 from application.control_plane import audit_events
 
@@ -66,7 +65,7 @@ class AuditEventListResponse(BaseModel):
 
 @router.get("/")
 async def list_audit_events(
-    db: DbSession,
+    uow: UnitOfWorkDep,
     operation: str | None = None,
     status: str | None = None,
     actor_id: uuid.UUID | None = None,
@@ -85,7 +84,7 @@ async def list_audit_events(
     offset: int = Query(default=0, ge=0),
 ) -> AuditEventListResponse:
     page = audit_events.list_audit_events(
-        db,
+        uow.session,
         operation=operation,
         status=status,
         actor_id=actor_id,

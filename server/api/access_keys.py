@@ -7,14 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.dependencies import AdminUser, UnitOfWorkDep
 from api.users import UserRead
 from application.context import context_from_headers
-from application.control_plane import access_keys
+from infra.db.stores import access_keys
 from application.control_plane.access_key_mutations import (
     create_access_key as create_access_key_use_case,
     delete_access_key as delete_access_key_use_case,
     revoke_access_key as revoke_access_key_use_case,
 )
-from application.control_plane.access_keys import AccessKeyRow, CreatedAccessKey
-from infra.db.engine import DbSession
+from infra.db.stores.access_keys import AccessKeyRow, CreatedAccessKey
 
 router = APIRouter()
 
@@ -79,13 +78,13 @@ class AccessKeyCreated(AccessKeyRead):
 
 
 @router.get("/")
-async def list_access_keys(db: DbSession) -> list[AccessKeyRead]:
+async def list_access_keys(uow: UnitOfWorkDep) -> list[AccessKeyRead]:
     """
     GET /access-keys -> list keys.
     Self sees own keys; admin sees all.
     Never returns the secret, only key_id, name, last_used_at, revoked_at.
     """
-    return [AccessKeyRead.from_row(row) for row in access_keys.list_access_keys(db)]
+    return [AccessKeyRead.from_row(row) for row in access_keys.list_access_keys(uow.session)]
 
 
 @router.post("/")
@@ -114,12 +113,12 @@ async def create_access_key(
 
 
 @router.get("/{key_id}")
-async def get_access_key(key_id: str, db: DbSession) -> AccessKeyRead:
+async def get_access_key(key_id: str, uow: UnitOfWorkDep) -> AccessKeyRead:
     """
     GET /access-keys/{id} -> metadata for one key.
     Self for own; admin for any. Secret never included.
     """
-    return AccessKeyRead.from_row(access_keys.get_access_key_by_key_id(db, key_id))
+    return AccessKeyRead.from_row(access_keys.get_access_key_by_key_id(uow.session, key_id))
 
 
 @router.post("/{key_id}/revoke")

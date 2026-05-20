@@ -13,7 +13,7 @@ from infra.db.models import (
     Folder,
     FolderAccess,
 )
-from application.control_plane.auth import create_session_token
+from infra.db.stores.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -220,11 +220,11 @@ def test_tampered_signed_metadata_header_fails(client, db_session, user, photos_
 def test_expired_url_fails(client, db_session, user, photos_folder, monkeypatch):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     frozen = dt.datetime(2026, 5, 9, 0, 0, tzinfo=dt.UTC)
-    monkeypatch.setattr("application.gateway.object_signing.now_utc", lambda: frozen)
+    monkeypatch.setattr("infra.auth.s3_signing.now_utc", lambda: frozen)
     response = presign(client, photos_folder)
     signed = response.json()
     monkeypatch.setattr(
-        "application.gateway.object_signing.now_utc",
+        "infra.auth.s3_signing.now_utc",
         lambda: frozen + dt.timedelta(minutes=6),
     )
 

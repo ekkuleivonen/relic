@@ -1,16 +1,15 @@
 import datetime as dt
-import uuid
 
 import factory
 from enums import EventStatus, Permission, StorageKind, UserRole
 from infra.db.models import (
     AccessKey,
+    AuditEvent,
     Blob,
     Bucket,
     BucketProbe,
     Folder,
     FolderAccess,
-    AuditEvent,
     User,
 )
 from utils.passwords import hash_password

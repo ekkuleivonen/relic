@@ -12,9 +12,9 @@ import settings as S
 from constants import S3_LISTING_DEFAULT_MAX_KEYS, S3_USER_BINDING_HEADER
 from domain.exceptions import BadRequestError
 from fastapi import Request
-from infra.db.engine import DbSession
+from sqlalchemy.orm import Session
 from infra.db.models import User
-from application.gateway import object_multipart
+from infra.gateway import object_multipart
 from application.gateway import object_signing
 from infra.cache.hotpath import begin_request, get_or_set_request
 
@@ -27,7 +27,7 @@ class SpoolResult:
     size_bytes: int
 
 
-def load_signed_user(request: Request, db: DbSession) -> User:
+def load_signed_user(request: Request, db: Session) -> User:
     if not getattr(request.state, "folder_hotpath_cache_started", False):
         begin_request(db)
         request.state.folder_hotpath_cache_started = True

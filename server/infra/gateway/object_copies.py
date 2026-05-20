@@ -10,14 +10,13 @@ from infra.db.models import Blob, File, User
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from application.control_plane import folder_access
-from application.gateway.object_blobs import ensure_file_name_available
-from application.gateway.object_paths import (
+from infra.db.stores import folder_access
+from infra.gateway.object_blobs import ensure_file_name_available
+from infra.gateway.object_paths import (
     require_existing_object_path,
     resolve_object_path,
 )
-from application.gateway.object_types import CopyObjectResult
-from infra.cache.hotpath import clear_list_objects_response_cache
+from infra.gateway.object_types import CopyObjectResult
 
 
 def copy_object(
@@ -30,7 +29,6 @@ def copy_object(
     ingest_meta: dict,
     metadata_directive: str = S3_METADATA_DIRECTIVE_COPY,
     current_user: User,
-    commit: bool = False,
 ) -> CopyObjectResult:
     if metadata_directive not in (
         S3_METADATA_DIRECTIVE_COPY,
@@ -95,9 +93,6 @@ def copy_object(
     db.add(new_file)
     blob.refcount += 1
     db.flush()
-    if commit:
-        db.commit()
-        clear_list_objects_response_cache()
 
     etag = blob.content_hash.hex()
     return CopyObjectResult(file=new_file, blob=blob, etag=etag)

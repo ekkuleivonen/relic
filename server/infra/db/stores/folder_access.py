@@ -1,28 +1,27 @@
 import uuid
 
 from constants import FOLDER_ACCESS_ALL_PERMISSIONS
-from enums import Permission, UserRole
 from domain.exceptions import PermissionDenied, ResourceNotFound
 from domain.filesystem.tree import ancestor_folder_ids
 from domain.permissions.effective import compute_effective_permissions
 from domain.permissions.grants import validate_folder_permissions
 from domain.permissions.visibility import visible_folder_ids as compute_visible_folder_ids
-from infra.db.models import Folder, FolderAccess, User
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-from utils.logging import get_logger
-
-from application.control_plane.audit_events import create_audit_event
-from application.context import EventContext
-from application.control_plane.folder_access_cache import (
+from enums import Permission, UserRole
+from infra.cache.folder_access import (
     cached_folder_paths,
     cached_folder_tree_rows,
     clear_hotpath_cache,
     get_cached_effective_permissions,
     set_cached_effective_permissions,
 )
-from application.control_plane.folder_access_types import FolderAccessRow, FolderTreeRow
-from infra.cache.hotpath import engine_cache_key, request_cache
+from infra.cache.hotpath import engine_cache_key, get_or_set_request, request_cache
+from infra.db.models import Folder, FolderAccess, User
+from infra.db.stores.audit_events import create_audit_event
+from infra.db.stores.folder_access_types import FolderAccessRow, FolderTreeRow
+from ports.context import EventContext
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from utils.logging import get_logger
 
 log = get_logger(__name__)
 
@@ -57,7 +56,7 @@ def grant_folder_access(
     commit: bool = False,
 ) -> FolderAccessRow:
     """Insert or update an access grant. Idempotent on (actor_id, folder_id)."""
-    validate_permissions(permissions)
+    validate_folder_permissions(permissions)
     user = require_user(db, actor_id)
     folder = require_folder(db, folder_id)
 
@@ -182,13 +181,6 @@ def require_folder_permission_strict(
     folder_id: uuid.UUID,
     required: Permission,
 ) -> int:
-    """
-    Like require_folder_permission, but distinguishes 404 vs 403.
-
-    Returns 404 (ResourceNotFound) when the user can't READ the folder at all,
-    so unreadable folders never leak existence. Returns 403 (PermissionDenied)
-    when the user can READ but lacks the specific `required` bit.
-    """
     permissions = get_effective_permissions(
         db,
         user,
@@ -309,8 +301,6 @@ def effective_permissions_by_folder(
 
 
 def collect_ancestor_folder_ids(db: Session, folder_id: uuid.UUID) -> list[uuid.UUID]:
-    from infra.cache.hotpath import get_or_set_request
-
     request_key = f"ancestor_folder_ids:{folder_id}"
     return get_or_set_request(
         db,
@@ -363,10 +353,6 @@ def build_visible_children(
     return visible_children
 
 
-def validate_permissions(permissions: int) -> None:
-    validate_folder_permissions(permissions)
-
-
 def require_user(db: Session, user_id: uuid.UUID) -> User:
     user = db.get(User, user_id)
     if not user:
@@ -384,7 +370,6 @@ def require_folder(db: Session, folder_id: uuid.UUID) -> Folder:
 def compute_folder_paths(
     db: Session, folder_ids: set[uuid.UUID]
 ) -> dict[uuid.UUID, str]:
-    """Resolve full paths for the given folder ids by walking the folder tree once."""
     if not folder_ids:
         return {}
 

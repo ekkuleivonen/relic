@@ -1,7 +1,7 @@
 import hashlib
 
 import pytest
-from application.gateway import object_writes
+from infra.gateway import object_writes
 from enums import UserRole
 from infra.db.models import Folder
 from tests.factories.models import BucketFactory, BucketProbeFactory, UserFactory

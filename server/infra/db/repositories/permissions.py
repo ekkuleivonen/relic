@@ -1,17 +1,16 @@
 import uuid
 
-from application.context import Actor
-from application.control_plane import file_access, folder_access
 from domain.exceptions import ResourceNotFound
 from enums import Permission
+from infra.db.stores import folder_access
 from infra.db.models import File, Folder, User
+from infra.db.stores import file_access as file_access_service
+from ports.context import Actor
 from ports.repositories.permissions import PermissionStore
 from sqlalchemy.orm import Session
 
 
 class SqlAlchemyPermissionStore:
-    """Permission checks backed by folder-access rules and SQLAlchemy session I/O."""
-
     def __init__(self, session: Session) -> None:
         self._session = session
 
@@ -24,7 +23,7 @@ class SqlAlchemyPermissionStore:
     def get_file_for_actor(
         self, actor: Actor, file_id: uuid.UUID, permission: Permission
     ) -> File:
-        return file_access.get_file_for_actor(
+        return file_access_service.get_file_for_actor(
             self._session, actor, file_id, permission
         )
 

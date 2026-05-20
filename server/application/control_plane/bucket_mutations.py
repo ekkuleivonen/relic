@@ -1,15 +1,13 @@
 import uuid
 from typing import Any
 
-import boto3
-from botocore.exceptions import BotoCoreError, ClientError
-
 from application.context import EventContext
-from application.control_plane.buckets import BucketProbeResult, timed_ms
-from application.control_plane.placement import clear_bucket_usage_cache
+from infra.db.stores.bucket_probe import probe_bucket as run_bucket_probe
+from infra.db.stores.bucket_reads import BucketProbeResult
+from infra.db.stores.placement import clear_bucket_usage_cache
 from application.uow import UnitOfWork
 from domain.exceptions import ConflictError
-from infra.db.models import Bucket, BucketProbe
+from infra.db.models import Bucket
 from utils.logging import get_logger
 from utils.timing import elapsed_ms, latency_metadata, timer_start
 
@@ -104,54 +102,4 @@ def delete_bucket(
 
 
 def probe_bucket(uow: UnitOfWork, bucket_id: uuid.UUID) -> BucketProbeResult:
-    bucket = uow.buckets.get(bucket_id)
-    probe_key = f"__relic_probe__/{uuid.uuid4()}"
-    probe_body = b"relic-probe"
-    put_ms: int | None = None
-    head_ms: int | None = None
-    get_ms: int | None = None
-    delete_ms: int | None = None
-    reachable = True
-
-    try:
-        client = boto3.client(
-            "s3",
-            endpoint_url=bucket.endpoint,
-            region_name=bucket.region,
-            aws_access_key_id=bucket.key_id,
-            aws_secret_access_key=bucket.secret_access_key,
-        )
-        put_ms = timed_ms(
-            lambda: client.put_object(
-                Bucket=bucket.bucket, Key=probe_key, Body=probe_body
-            )
-        )
-        head_ms = timed_ms(
-            lambda: client.head_object(Bucket=bucket.bucket, Key=probe_key)
-        )
-        get_ms = timed_ms(
-            lambda: client.get_object(Bucket=bucket.bucket, Key=probe_key)["Body"].read()
-        )
-        delete_ms = timed_ms(
-            lambda: client.delete_object(Bucket=bucket.bucket, Key=probe_key)
-        )
-    except (BotoCoreError, ClientError, OSError, ValueError) as exc:
-        reachable = False
-        log.warning(
-            "bucket_probe_failed",
-            bucket_id=str(bucket.id),
-            error=str(exc),
-        )
-
-    probe = BucketProbe(
-        bucket_id=bucket.id,
-        success=reachable,
-        put_ms=put_ms,
-        head_ms=head_ms,
-        get_ms=get_ms,
-        delete_ms=delete_ms,
-    )
-    uow.buckets.add_probe(probe)
-    uow.session.refresh(bucket)
-    uow.session.refresh(probe)
-    return BucketProbeResult(bucket=bucket, probe=probe, reachable=reachable)
+    return run_bucket_probe(uow, bucket_id)

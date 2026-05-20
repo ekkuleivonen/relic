@@ -33,22 +33,33 @@ control plane** operation matrix.
 
 ```
 server/
-  domain/              # Pure rules (naming, meta, paths, sniffing)
-  application/         # Use cases and orchestration
-    adapters/          # Store implementations that orchestrate domain + session
-    control_plane/     # Relic JSON API semantics
-    gateway/           # S3-shaped operations
-    maintenance/       # Background jobs
-  ports/repositories/  # Store interfaces (FileStore, PermissionStore, …)
-  infra/               # SQLAlchemy repos, engine, models, object storage adapters
-  api/                 # Thin HTTP entry points
-  workers/             # ARQ cron jobs
-  composition.py       # build_uow()
+  domain/                 # Pure rules (naming, meta, paths, permissions, search matching)
+  application/            # Use cases and orchestration (UoW in, no direct commits)
+    control_plane/        # Relic JSON API semantics
+    gateway/              # S3 mutation façade (object_mutations, delete_object, signing shims)
+    maintenance/          # Retention orchestration (audit trim, multipart abort)
+  ports/                    # Protocols (repositories, storage, cache, context)
+    repositories/         # FileStore, PermissionStore, SearchStore, …
+    context.py            # Actor, EventContext
+  infra/                    # SQLAlchemy, boto3, SigV4, caches
+    db/
+      models.py           # ORM
+      stores/             # folder_access, placement, access_keys, audit_events, …
+      repositories/       # Store implementations
+    gateway/              # Session-level S3 I/O (writes, listing, multipart, paths)
+    maintenance/          # Blob purge, rebalance, probe cron jobs
+    auth/                 # SigV4 (s3_signing)
+    object_storage/       # S3, filesystem, memory adapters + registry
+    auth/s3_signing.py    # SigV4 verify/sign
+    cache/                # list-objects + folder tree hot-path caches
+  api/                      # Thin HTTP entry points
+  workers/                  # ARQ cron jobs → run_with_uow
+  composition.py            # build_uow()
 ```
 
-Entry points import **`application.*`**. ORM models live in `infra/db/models.py`.
-Database sessions in `infra/db/engine.py`. The old `server/services/` directory
-has been removed.
+Entry points import **`application.*` use cases**. Persistence and I/O live in
+**`infra/`**. The old `server/services/` directory has been removed. Dead
+`processors/` tree removed.
 
 ---
 
@@ -68,21 +79,27 @@ Modules once sliced the problem on inconsistent axes (Relic domain vs S3 protoco
 vs infrastructure). **`services/` is deleted**; bounded contexts live under
 `application/` with ports in `ports/` and adapters in `infra/`.
 
-### Remaining gaps
+### Rewrite completion checklist
 
 | Area | Status |
 | --- | --- |
-| Unit of Work on mutations | Done — API + workers share `UnitOfWorkDep` / `run_with_uow` |
-| `StorageRegistry` on byte I/O | Done — gateway + maintenance via `blob_storage.py` |
-| `SearchStore`, `MultipartStore`, expanded `BlobStore` | Done — on UoW |
-| Control-plane bulk ops | Done — bulk delete/move/update |
-| Admin GC + bucket drain | Done — `POST /api/blobs/gc`, `POST /api/buckets/{id}/drain` |
-| Dual API file bytes on control plane | Gateway-first; presign helpers on `/api/uploads` |
-| `folder_access` tree/cache split | Done — domain paths + `folder_access_cache` module |
-| Tests via Alembic migrations | Done — `tests/db.py` runs Alembic upgrades |
-| Application tests with fake stores | Started — `MemoryStorageRegistry` + gateway put-object unit tests |
-| Gateway module naming | Done — `object_listing`, `object_multipart`, `object_signing`, `object_*` verbs |
-| Inverted repository ports | Improved — `PermissionStore`/`BlobStore` no longer call gateway; `FolderAccessStore` removed (use case calls `folder_access` directly) |
+| `services/` removed | **Done** |
+| Composition + `UnitOfWork` | **Done** — `UnitOfWorkDep` / `run_with_uow` |
+| Control-plane file ops on UoW | **Done** — move/rename/patch/bulk |
+| Gateway mutations on UoW | **Done** — `object_mutations` + `delete_object` |
+| Unified file delete | **Done** — `remove_file_record` (HTTP + S3 gateway) |
+| `folder_access` in infra | **Done** — `infra/db/stores/folder_access.py` + `infra/cache/folder_access.py` |
+| `SearchStore` dialect split | **Done** — Postgres vs portable |
+| `StorageRegistry` per bucket | **Done** — S3 + filesystem + `StorageKind` |
+| Maintenance on UoW | **Done** — purge/probe/rebalance/migrate |
+| SigV4 in infra | **Done** — `infra/auth/s3_signing.py` |
+| Tests via Alembic | **Done** — `tests/db.py` + shared `conftest.py` |
+| Dual API file delete | **Done** — `DELETE /api/files/{id}` + S3 `DeleteObject` share removal use case |
+| Dual API file bytes | **By design** — gateway bytes + `/api/uploads` presign to gateway URLs |
+| Application fake-store tests | **Started** — `tests/unit/application/`, `tests/fakes/` |
+| Read routes on `UnitOfWorkDep` | **Done** — HTTP handlers use `UnitOfWorkDep`; read use cases take `uow.session` or `uow` stores |
+| Gateway session I/O in infra | **Done** — `infra/gateway/*` (writes, reads, listing, multipart, paths); `application/gateway/` keeps `object_mutations`, `delete_object`, signing shims |
+| Zero SQLAlchemy in `application/` | **Done** — blob lifecycle jobs in `infra/maintenance/storage.py`; `UnitOfWork` protocol in `ports/uow.py` |
 
 ### Original pain points (for context)
 
@@ -421,17 +438,18 @@ Organize application modules by how Relic thinks, not how S3 thinks.
 
 | Today | Target home |
 | --- | --- |
-| `folder_access.py` | `PermissionStore` + `domain/filesystem/paths.py` + `infra/cache` |
+| `folder_access.py` | `infra/db/stores/folder_access.py` + `infra/cache/folder_access.py` + `PermissionStore` |
+| `placement.py` | `infra/db/stores/placement.py` + `domain/storage/hotness.py` |
+| `access_keys.py` | `infra/db/stores/access_keys.py` + `AccessKeyStore` |
+| `s3_signing.py` | `infra/auth/s3_signing.py` |
+| `event_context.py` | `ports/context.py` + `application/context.py` (Actor.from_user) |
 | `objects.py` | `application/gateway/*` + `BlobStore` + `ObjectStorage` |
 | `files.py`, `filesystem.py`, `folders.py` | `application/control_plane/*` + stores |
-| `s3_signing.py` | `infra/auth/s3_signing.py` |
-| `s3_listing.py`, `s3_multipart.py` | `application/gateway/*` |
-| `s3_hotpath_cache.py` | `infra/cache/request_scoped.py` |
-| `placement.py` | `domain/storage/placement.py` (pure) + `BucketStore` |
-| `storage_maintenance.py` | `application/maintenance/*` |
+| `s3_listing.py`, `s3_multipart.py` | `application/gateway/object_listing.py`, `object_multipart.py` |
+| `s3_hotpath_cache.py` | `infra/cache/hotpath.py`, `infra/cache/list_objects.py` |
+| `storage_maintenance.py` | `application/maintenance/storage.py`, `retention.py` |
 | `search.py` | `application/control_plane/search_files.py` + `SearchStore` |
-| `event_context.py` | `application/context.py` |
-| `health.py` | `infra/db/health.py` or thin composition check |
+| `health.py` | `application/health.py` |
 
 **Completed:** `services/` deleted. Business logic lives in `application/`; SQLAlchemy
 store implementations in `infra/db/repositories/`.
@@ -684,20 +702,19 @@ Eliminate duplicated per-file SQLite fixtures; one `build_uow(test_settings)`.
 
 ---
 
-## Rewrite Sequence
+## Rewrite Sequence (Complete)
 
-Migrate **vertically by slice**, not all ports at once:
+All slices below are implemented. New work should extend this layout, not reintroduce
+`services/` or Session-committed use cases.
 
-1. **Composition + UoW + one store** (e.g. `FileStore`) — prove wiring.
-2. **One control-plane vertical** — `move_file` end-to-end.
-3. **One gateway vertical** — `put_object` + `ObjectStorage` + blob stores.
-4. **Split `folder_access`** — PermissionStore + domain path logic.
-5. **SearchStore** — Postgres and SQLite adapters.
-6. **`StorageRegistry` + FilesystemObjectStorage** — per-bucket adapters, hot NVMe path.
-7. **Maintenance jobs** — purge, probe, rebalance, cross-backend `migrate_blob`.
-8. **Delete old `services/`** module by module.
-
-Each slice leaves the app runnable. No big-bang freeze.
+1. Composition + UoW + stores — **done**
+2. Control-plane verticals (`move_file`, bulk ops, folders, users) — **done**
+3. Gateway verticals (`object_mutations`, unified delete) — **done**
+4. `folder_access` → infra stores + cache — **done**
+5. `SearchStore` Postgres/SQLite — **done**
+6. `StorageRegistry` + filesystem adapter — **done**
+7. Maintenance on UoW + cross-backend blob migrate — **done**
+8. Delete `services/` — **done**
 
 ---
 

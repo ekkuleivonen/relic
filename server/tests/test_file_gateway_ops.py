@@ -14,9 +14,9 @@ from enums import Permission
 from fastapi.testclient import TestClient
 from infra.db.models import Base, Blob, File, Folder, FolderAccess
 from application.gateway import object_signing
-from application.control_plane.auth import create_session_token
+from infra.db.stores.auth import create_session_token
 from application.uow_runner import run_with_uow
-from application.maintenance.storage import purge_dereferenced_blobs_batch
+from infra.maintenance.storage import purge_dereferenced_blobs_batch
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -915,11 +915,11 @@ def test_delete_url_expired(
     file = db_session.scalar(select(File).where(File.name == "cat.jpg"))
 
     frozen = dt.datetime(2026, 5, 9, 0, 0, tzinfo=dt.UTC)
-    monkeypatch.setattr("application.gateway.object_signing.now_utc", lambda: frozen)
+    monkeypatch.setattr("infra.auth.s3_signing.now_utc", lambda: frozen)
     presign = client.post("/api/uploads/presign-delete", json={"file_id": str(file.id)})
     signed = presign.json()
     monkeypatch.setattr(
-        "application.gateway.object_signing.now_utc",
+        "infra.auth.s3_signing.now_utc",
         lambda: frozen + dt.timedelta(minutes=10),
     )
     response = client.delete(signed["url"], headers=signed["headers"])

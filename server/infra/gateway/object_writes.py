@@ -13,15 +13,12 @@ from ports.storage_registry import StorageRegistry
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from application.control_plane import folder_access
-from application.control_plane.placement import choose_bucket, effective_preferred_bucket_id
-from application.gateway.object_blobs import create_blob, prepare_body
-from application.gateway.object_paths import resolve_object_path
-from application.gateway.object_types import PutObjectResult
+from infra.db.stores import folder_access
+from infra.db.stores.placement import choose_bucket, effective_preferred_bucket_id
+from infra.gateway.object_blobs import create_blob, prepare_body
+from infra.gateway.object_paths import resolve_object_path
+from infra.gateway.object_types import PutObjectResult
 from domain.exceptions import ConflictError
-from infra.cache.hotpath import clear_list_objects_response_cache
-
-
 def put_object(
     db: Session,
     *,
@@ -34,7 +31,6 @@ def put_object(
     content_hash: bytes | None = None,
     size_bytes: int | None = None,
     allow_overwrite: bool = True,
-    commit: bool = False,
 ) -> PutObjectResult:
     folder, file_name = resolve_object_path(
         db,
@@ -103,7 +99,4 @@ def put_object(
             if old_blob.refcount < 0:
                 old_blob.refcount = 0
     db.flush()
-    if commit:
-        db.commit()
-        clear_list_objects_response_cache()
     return PutObjectResult(file=file, blob=blob, etag=digest_hex)

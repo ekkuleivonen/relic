@@ -1,12 +1,12 @@
-"""Control-plane file authorization (User / Actor + folder permissions)."""
+"""File row lookup with folder permission checks."""
 
 import uuid
 
-from application.context import Actor
-from application.control_plane import folder_access
 from domain.exceptions import ResourceNotFound
 from enums import Permission
+from infra.db.stores import folder_access
 from infra.db.models import File, User
+from ports.context import Actor
 from sqlalchemy.orm import Session
 
 

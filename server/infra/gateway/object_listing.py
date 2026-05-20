@@ -10,7 +10,7 @@ from infra.db.models import File, Folder, User
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from application.control_plane import folder_access
+from infra.db.stores import folder_access
 from infra.cache.hotpath import get_or_set_request
 
 

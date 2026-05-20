@@ -3,11 +3,6 @@
 import uuid
 
 import settings as S
-from infra.db.models import Folder
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
-from application.control_plane.folder_access_types import FolderTreeRow
 from domain.filesystem.paths import build_folder_paths
 from infra.cache.hotpath import (
     TtlCacheEntry,
@@ -16,6 +11,10 @@ from infra.cache.hotpath import (
     request_cache,
     set_ttl,
 )
+from infra.db.models import Folder
+from infra.db.stores.folder_access_types import FolderTreeRow
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 _FOLDER_TREE_CACHE: dict[int, TtlCacheEntry] = {}
 _FOLDER_PATHS_CACHE: dict[int, TtlCacheEntry] = {}

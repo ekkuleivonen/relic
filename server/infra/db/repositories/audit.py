@@ -2,8 +2,8 @@ import datetime as dt
 import uuid
 from typing import Any
 
-from application.context import EventContext
-from application.control_plane.audit_events import create_audit_event
+from ports.context import EventContext
+from infra.db.stores.audit_events import create_audit_event
 from infra.db.models import AuditEvent
 from ports.audit import AuditPort
 from sqlalchemy import delete

@@ -27,18 +27,17 @@ from api.s3.xml import (
     render_list_objects_v2,
     s3_error_response,
 )
-from application.gateway import object_listing
-from application.gateway import object_multipart
+from infra.gateway import object_listing
+from infra.gateway import object_multipart
 from application.gateway import object_mutations
-from application.gateway import object_reads
+from infra.gateway import object_reads
 from application.gateway import object_signing
-from application.gateway.object_types import CopyObjectResult
+from infra.gateway.object_types import CopyObjectResult
 from constants import S3_METADATA_DIRECTIVE_COPY
 from domain.exceptions import DomainError, ResourceNotFound
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import StreamingResponse
 from infra.cache.hotpath import get_list_objects_response, set_list_objects_response
-from infra.db.engine import DbSession
 from infra.db.models import User
 
 router = APIRouter()
@@ -53,10 +52,10 @@ against AccessKey rows.
 
 
 @router.get("/")
-async def list_buckets(request: Request, db: DbSession) -> Response:
+async def list_buckets(request: Request, uow: UnitOfWorkDep) -> Response:
     try:
-        user = load_signed_user(request, db)
-        buckets = object_listing.list_visible_buckets(db, user)
+        user = load_signed_user(request, uow.session)
+        buckets = object_listing.list_visible_buckets(uow.session, user)
     except object_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
     except DomainError as exc:
@@ -71,10 +70,10 @@ async def list_buckets(request: Request, db: DbSession) -> Response:
 
 
 @router.head("/{bucket}")
-async def head_bucket(bucket: str, request: Request, db: DbSession) -> Response:
+async def head_bucket(bucket: str, request: Request, uow: UnitOfWorkDep) -> Response:
     try:
-        user = load_signed_user(request, db)
-        object_listing.require_visible_bucket(db, user, bucket)
+        user = load_signed_user(request, uow.session)
+        object_listing.require_visible_bucket(uow.session, user, bucket)
     except object_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
     except ResourceNotFound:
@@ -86,14 +85,14 @@ async def head_bucket(bucket: str, request: Request, db: DbSession) -> Response:
 
 
 @router.get("/{bucket}")
-async def list_objects_v2(bucket: str, request: Request, db: DbSession) -> Response:
+async def list_objects_v2(bucket: str, request: Request, uow: UnitOfWorkDep) -> Response:
     query = request.query_params
     if "uploads" in query:
         try:
-            user = load_signed_user(request, db)
-            object_listing.require_visible_bucket(db, user, bucket)
+            user = load_signed_user(request, uow.session)
+            object_listing.require_visible_bucket(uow.session, user, bucket)
             page = object_multipart.list_multipart_uploads(
-                db,
+                uow.session,
                 bucket_name=bucket,
                 current_user=user,
             )
@@ -118,7 +117,7 @@ async def list_objects_v2(bucket: str, request: Request, db: DbSession) -> Respo
         )
 
     try:
-        user = load_signed_user(request, db)
+        user = load_signed_user(request, uow.session)
         max_keys = parse_max_keys(query.get("max-keys"))
         cache_key = list_objects_response_cache_key(
             user=user,
@@ -137,7 +136,7 @@ async def list_objects_v2(bucket: str, request: Request, db: DbSession) -> Respo
                 media_type="application/xml",
             )
         page = object_listing.list_objects_v2(
-            db,
+            uow.session,
             user,
             bucket_name=bucket,
             prefix=query.get("prefix") or "",

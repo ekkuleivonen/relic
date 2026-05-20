@@ -1,3 +1,4 @@
+from api.dependencies import UnitOfWorkDep
 from fastapi import Depends, FastAPI, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -5,8 +6,7 @@ from fastapi.responses import JSONResponse
 import settings as S
 from constants import API_PREFIX
 from enums import HealthStatus
-from infra.db.engine import DbSession
-from application import health
+import infra.health as health
 from .access_keys import router as access_keys_router
 from .auth import router as auth_router
 from .buckets import router as buckets_router
@@ -104,8 +104,8 @@ def healthz():
 
 
 @app.get("/readyz")
-async def readyz(db: DbSession):
-    payload = await health.readiness_response(db)
+async def readyz(uow: UnitOfWorkDep):
+    payload = await health.readiness_response(uow.session)
     if payload["status"] != HealthStatus.OK.value:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

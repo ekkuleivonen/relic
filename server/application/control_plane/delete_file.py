@@ -2,6 +2,7 @@ import uuid
 from dataclasses import dataclass
 
 from application.context import Actor
+from application.control_plane.remove_file import remove_file_by_id
 from application.uow import UnitOfWork
 from domain.exceptions import DomainError
 from enums import Permission
@@ -19,9 +20,7 @@ def delete_file(
     actor: Actor,
     file_id: uuid.UUID,
 ) -> None:
-    file = uow.permissions.get_file_for_actor(actor, file_id, Permission.DELETE)
-    uow.files.delete(file)
-    uow.cache.invalidate_list_objects()
+    remove_file_by_id(uow, actor=actor, file_id=file_id)
 
 
 def bulk_delete_files(

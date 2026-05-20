@@ -2,8 +2,8 @@
 
 import pytest
 from api.app import app
-from application.control_plane import folder_access_cache
-from application.control_plane.placement import clear_bucket_usage_cache
+from infra.cache import folder_access as folder_access_cache
+from infra.db.stores.placement import clear_bucket_usage_cache
 from fastapi.testclient import TestClient
 from infra.db.engine import get_db
 from sqlalchemy.orm import sessionmaker

@@ -1,7 +1,7 @@
 import uuid
 
 from application.context import EventContext
-from application.control_plane import auth
+from infra.db.stores import auth
 from application.uow import UnitOfWork
 from domain.exceptions import BadRequestError
 from infra.db.models import User

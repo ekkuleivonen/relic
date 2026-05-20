@@ -1,7 +1,8 @@
+import datetime as dt
 import uuid
 from typing import Any, Protocol
 
-from infra.db.models import Bucket
+from infra.db.models import Bucket, BucketProbe
 
 
 class BucketStore(Protocol):
@@ -20,3 +21,7 @@ class BucketStore(Protocol):
     def blob_count(self, bucket_id: uuid.UUID) -> int: ...
 
     def add_probe(self, probe: BucketProbe) -> None: ...
+
+    def delete_probes_older_than(self, cutoff: dt.datetime) -> int: ...
+
+    def refresh(self, *entities: object) -> None: ...

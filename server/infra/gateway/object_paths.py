@@ -7,8 +7,8 @@ from infra.db.models import Folder, User
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from application.control_plane import folder_access
-from application.control_plane import folder_access_cache
+from infra.db.stores import folder_access
+from infra.cache import folder_access as folder_access_cache
 
 
 def normalize_key(key: str) -> str:

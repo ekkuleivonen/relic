@@ -134,7 +134,7 @@ class BucketProbe(Base):
 
     Buckets do not carry a static ``tier`` anymore; placement ranks them by
     averaging ``put/head/get/delete`` latency across the most recent successful
-    probes (see :func:`application.control_plane.placement.hotness_ranked_buckets`).
+    probes (see :func:`infra.db.stores.placement.hotness_ranked_buckets`).
     """
 
     __tablename__ = "bucket_probes"

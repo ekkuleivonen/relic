@@ -8,7 +8,7 @@ from api.app import app
 from enums import HealthStatus
 from infra.db.engine import get_db
 from infra.db.models import Base
-from application import health
+import infra.health as health
 from tests.factories.models import BucketFactory, BucketProbeFactory
 
 

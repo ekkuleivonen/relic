@@ -1,4 +1,4 @@
-from application.uow import UnitOfWork
+from ports.uow import UnitOfWork
 from infra.object_storage.registry import build_storage_registry
 from infra.db.repositories.access_keys import build_access_key_store
 from infra.db.repositories.audit import build_audit_port
@@ -8,7 +8,7 @@ from infra.db.repositories.buckets import build_bucket_store
 from infra.db.repositories.files import build_file_store
 from infra.db.repositories.folders import build_folder_store
 from infra.db.repositories.multipart import build_multipart_store
-from application.adapters.permissions import build_permission_store
+from infra.db.repositories.permissions import build_permission_store
 from infra.db.repositories.search import build_search_store
 from infra.db.repositories.users import build_user_store
 from ports.audit import AuditPort

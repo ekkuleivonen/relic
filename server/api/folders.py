@@ -20,11 +20,11 @@ from application.control_plane.grant_folder_access import (
 from application.control_plane.update_folder import update_folder as update_folder_use_case
 from enums import UserRole
 from fastapi import APIRouter, Request, Response, status
-from infra.db.engine import DbSession
 from infra.db.models import Folder, User
+from sqlalchemy.orm import Session
 from pydantic import BaseModel, ConfigDict, Field
-from application.control_plane import filesystem
-from application.control_plane.placement import effective_preferred_bucket_id
+from infra.db.stores import filesystem
+from infra.db.stores.placement import effective_preferred_bucket_id
 
 router = APIRouter()
 
@@ -52,7 +52,7 @@ class FolderRead(BaseModel):
     @classmethod
     def from_result(
         cls,
-        db: DbSession,
+        session: Session,
         result: FolderResult,
         *,
         user: User,
@@ -74,7 +74,7 @@ class FolderRead(BaseModel):
             effective_permissions=result.effective_permissions,
             preferred_bucket_id=result.folder.preferred_bucket_id,
             effective_preferred_bucket_id=effective_preferred_bucket_id(
-                db, result.folder
+                session, result.folder
             ),
         )
 
@@ -128,7 +128,7 @@ class FolderStatsRead(BaseModel):
 
 
 def _folder_to_tree_read(
-    db: DbSession,
+    session: Session,
     folder: Folder,
     *,
     include_storage_policy: bool,
@@ -141,7 +141,7 @@ def _folder_to_tree_read(
         effective_permissions=folder.effective_permissions,
         children=[
             _folder_to_tree_read(
-                db, child, include_storage_policy=include_storage_policy
+                session, child, include_storage_policy=include_storage_policy
             )
             for child in folder.children
         ],
@@ -149,7 +149,7 @@ def _folder_to_tree_read(
             folder.preferred_bucket_id if include_storage_policy else None
         ),
         effective_preferred_bucket_id=(
-            effective_preferred_bucket_id(db, folder)
+            effective_preferred_bucket_id(session, folder)
             if include_storage_policy
             else None
         ),
@@ -159,7 +159,7 @@ def _folder_to_tree_read(
 @router.get("/tree")
 async def get_folder_tree(
     request: Request,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: CurrentUser,
     root_id: uuid.UUID | None = None,
 ) -> FolderTreeRead:
@@ -168,15 +168,17 @@ async def get_folder_tree(
     Convenience for UI navigation; equivalent to walking list_folders.
     Query params: ?root_id=<uuid> to subtree from a specific folder.
     """
-    root = filesystem.get_folder_tree(db, current_user, root_id)
+    root = filesystem.get_folder_tree(uow.session, current_user, root_id)
     include_storage = current_user.role == UserRole.ADMIN
-    return _folder_to_tree_read(db, root, include_storage_policy=include_storage)
+    return _folder_to_tree_read(
+        uow.session, root, include_storage_policy=include_storage
+    )
 
 
 @router.get("/{folder_id}/stats")
 async def get_folder_stats(
     folder_id: uuid.UUID,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> FolderStatsRead:
     """
@@ -186,7 +188,7 @@ async def get_folder_stats(
     Caller needs READ on the folder.
     """
     stats = filesystem.get_folder_stats(
-        db, current_user, folder_id=folder_id
+        uow.session, current_user, folder_id=folder_id
     )
     return FolderStatsRead(
         folder_id=stats.folder_id,
@@ -202,7 +204,6 @@ async def create_folder(
     payload: FolderCreate,
     request: Request,
     uow: UnitOfWorkDep,
-    db: DbSession,
     current_user: CurrentUser,
 ) -> FolderRead:
     """
@@ -217,7 +218,7 @@ async def create_folder(
         parent_id=payload.parent_id,
         name=payload.name,
     )
-    return FolderRead.from_result(db, result, user=current_user)
+    return FolderRead.from_result(uow.session, result, user=current_user)
 
 
 @router.patch("/{folder_id}")
@@ -226,7 +227,6 @@ async def update_folder(
     payload: FolderUpdate,
     request: Request,
     uow: UnitOfWorkDep,
-    db: DbSession,
     current_user: CurrentUser,
 ) -> FolderRead:
     """
@@ -243,7 +243,7 @@ async def update_folder(
         preferred_bucket_id=payload.preferred_bucket_id,
         set_preferred_bucket_id="preferred_bucket_id" in payload.model_fields_set,
     )
-    return FolderRead.from_result(db, result, user=current_user)
+    return FolderRead.from_result(uow.session, result, user=current_user)
 
 
 @router.delete("/{folder_id}")
@@ -276,7 +276,6 @@ async def copy_folder(
     payload: FolderDuplicate,
     request: Request,
     uow: UnitOfWorkDep,
-    db: DbSession,
     current_user: CurrentUser,
 ) -> FolderRead:
     """
@@ -294,4 +293,4 @@ async def copy_folder(
         name=payload.name,
         recursive=payload.recursive,
     )
-    return FolderRead.from_result(db, result, user=current_user)
+    return FolderRead.from_result(uow.session, result, user=current_user)
