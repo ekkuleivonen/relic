@@ -123,11 +123,10 @@ def upload_part(
         bucket_name=bucket_name,
         key=key,
         current_user=current_user,
-        with_parts=True,
     )
     projected_total = size_bytes + sum(
         part.size_bytes
-        for part in upload.parts
+        for part in _list_upload_parts(db, upload.id)
         if part.part_number != part_number
     )
     enforce_max_object_bytes(size_bytes=projected_total)
@@ -158,6 +157,8 @@ def upload_part(
         )
         db.add(part)
 
+    db.flush()
+
     blob_storage.upload_blob(
         storage=storage,
         bucket=storage_bucket,
@@ -183,12 +184,13 @@ def complete_multipart_upload(
         bucket_name=bucket_name,
         key=key,
         current_user=current_user,
-        with_parts=True,
     )
     if not requested_parts:
         raise BadRequestError("CompleteMultipartUpload requires at least one part")
 
-    ordered_parts = _validate_complete_parts(upload, requested_parts)
+    ordered_parts = _validate_complete_parts(
+        _list_upload_parts(db, upload.id), requested_parts
+    )
     completed_etag = build_complete_multipart_etag(ordered_parts)
     adapter = storage.for_storage_backend(upload.storage_backend)
 
@@ -229,7 +231,7 @@ def complete_multipart_upload(
         )
         put_etag = put_result.etag
 
-    for part in upload.parts:
+    for part in ordered_parts:
         try:
             delete_part_bytes(upload, part, storage=storage)
         except BadRequestError as exc:
@@ -252,10 +254,10 @@ def complete_multipart_upload(
 
 
 def _validate_complete_parts(
-    upload: MultipartUpload,
+    uploaded_parts: list[MultipartUploadPart],
     requested_parts: list[CompleteMultipartPart],
 ) -> list[MultipartUploadPart]:
-    by_part_number = {part.part_number: part for part in upload.parts}
+    by_part_number = {part.part_number: part for part in uploaded_parts}
     ordered_parts: list[MultipartUploadPart] = []
     for requested in requested_parts:
         validate_part_number(requested.part_number)
@@ -419,9 +421,8 @@ def abort_multipart_upload(
         bucket_name=bucket_name,
         key=key,
         current_user=current_user,
-        with_parts=True,
     )
-    for part in upload.parts:
+    for part in _list_upload_parts(db, upload.id):
         try:
             delete_part_bytes(upload, part, storage=storage)
         except BadRequestError as exc:
@@ -472,9 +473,10 @@ def list_multipart_parts(
         bucket_name=bucket_name,
         key=key,
         current_user=current_user,
-        with_parts=True,
     )
-    return MultipartPartListPage(upload=upload, parts=list(upload.parts))
+    return MultipartPartListPage(
+        upload=upload, parts=_list_upload_parts(db, upload.id)
+    )
 
 
 def abort_incomplete_uploads_older_than(
@@ -505,6 +507,18 @@ def abort_incomplete_uploads_older_than(
     return len(uploads)
 
 
+def _list_upload_parts(
+    db: Session, upload_id: uuid.UUID
+) -> list[MultipartUploadPart]:
+    return list(
+        db.scalars(
+            select(MultipartUploadPart)
+            .where(MultipartUploadPart.upload_id == upload_id)
+            .order_by(MultipartUploadPart.part_number)
+        )
+    )
+
+
 def require_upload(
     db: Session,
     *,
@@ -514,12 +528,14 @@ def require_upload(
     current_user: User,
     with_parts: bool = False,
 ) -> MultipartUpload:
-    stmt = select(MultipartUpload).where(MultipartUpload.id == upload_id)
+    stmt = (
+        select(MultipartUpload)
+        .where(MultipartUpload.id == upload_id)
+        .options(selectinload(MultipartUpload.storage_backend))
+        .execution_options(populate_existing=True)
+    )
     if with_parts:
-        stmt = stmt.options(
-            selectinload(MultipartUpload.parts),
-            selectinload(MultipartUpload.storage_backend),
-        )
+        stmt = stmt.options(selectinload(MultipartUpload.parts))
     upload = db.scalar(stmt)
     if upload is None:
         raise ResourceNotFound("Multipart upload not found")

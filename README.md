@@ -213,8 +213,8 @@ every push to `main` and on version tags (`v*`):
 
 | Image | Context | Default command |
 |-------|---------|-----------------|
-| `ghcr.io/<owner>/<repo>/server` | `server/` | `uvicorn api.app:app --host 0.0.0.0 --port 8000` |
-| `ghcr.io/<owner>/<repo>/client` | `client/` | nginx on port 80 |
+| `ghcr.io/<owner>/<repo>/relic-server` | `server/` | `uvicorn api.app:app --host 0.0.0.0 --port 8000` |
+| `ghcr.io/<owner>/<repo>/relic-client` | `client/` | nginx on port 80 |
 
 The **server image** serves both the API Deployment and the maintenance worker.
 Only the container command differs.
