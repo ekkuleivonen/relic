@@ -8,7 +8,7 @@ from infra.db.stores.access_keys import (
     generate_secret_access_key,
 )
 from application.uow import UnitOfWork
-from infra.db.models import AccessKey
+from ports.entities import AccessKey
 from utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -42,6 +42,7 @@ def create_access_key(
         },
     )
     uow.cache.invalidate_access_key(uow.session, access_key.key_id)
+    uow.cache.invalidate_list_objects()
     log.info(
         "access_key_create",
         access_key_id=str(access_key.id),
@@ -73,6 +74,7 @@ def revoke_access_key(
             },
         )
         uow.cache.invalidate_access_key(uow.session, row.access_key.key_id)
+        uow.cache.invalidate_list_objects()
         log.info(
             "access_key_revoke",
             access_key_id=str(row.access_key.id),
@@ -100,6 +102,7 @@ def delete_access_key(
     )
     uow.access_keys.delete(row.access_key)
     uow.cache.invalidate_access_key(uow.session, key_id)
+    uow.cache.invalidate_list_objects()
     log.info(
         "access_key_delete",
         access_key_id=str(row.access_key.id),

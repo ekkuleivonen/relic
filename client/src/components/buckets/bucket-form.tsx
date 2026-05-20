@@ -40,13 +40,14 @@ export function BucketForm({
   onCancel,
   onSubmit,
 }: BucketFormProps) {
+  const isEdit = bucketRecord !== undefined
   const [values, setValues] = React.useState<BucketFormValues>(() => ({
     name: bucketRecord?.name ?? "",
     endpoint: bucketRecord?.endpoint ?? "",
     region: bucketRecord?.region ?? "",
     bucket: bucketRecord?.bucket ?? "",
-    key_id: bucketRecord?.key_id ?? "",
-    secret_access_key: bucketRecord?.secret_access_key ?? "",
+    key_id: "",
+    secret_access_key: "",
   }))
   const [maxSizeValue, setMaxSizeValue] = React.useState(() =>
     bucketRecord ? String(bucketRecord.max_size_bytes / 1_000_000_000) : ""
@@ -148,7 +149,7 @@ export function BucketForm({
         />
         <Input
           id="bucket-key-id"
-          placeholder="GK..."
+          placeholder={isEdit ? "Leave blank to keep current key ID" : "GK..."}
           value={values.key_id}
           onChange={(event) =>
             setValues((current) => ({
@@ -156,8 +157,13 @@ export function BucketForm({
               key_id: event.target.value,
             }))
           }
-          required
+          required={!isEdit}
         />
+        {isEdit && bucketRecord ? (
+          <p className="text-xs text-muted-foreground">
+            Configured key ID: {bucketRecord.key_id}
+          </p>
+        ) : null}
       </div>
 
       <div className="grid gap-2">
@@ -169,7 +175,9 @@ export function BucketForm({
         <Input
           id="bucket-secret-access-key"
           type="password"
-          placeholder="Secret access key"
+          placeholder={
+            isEdit ? "Leave blank to keep current secret" : "Secret access key"
+          }
           value={values.secret_access_key}
           onChange={(event) =>
             setValues((current) => ({
@@ -177,7 +185,7 @@ export function BucketForm({
               secret_access_key: event.target.value,
             }))
           }
-          required
+          required={!isEdit}
         />
       </div>
 

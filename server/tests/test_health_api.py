@@ -27,16 +27,27 @@ def client(db_session):
 
 
 @pytest.fixture(autouse=True)
-def stub_redis(monkeypatch):
+def stub_external_health(monkeypatch):
     async def check_redis_queues():
         return {
-            "status": HealthStatus.OK,
+            "status": HealthStatus.OK.value,
             "queues": {
                 "relic:maintenance": {"depth": 0, "oldest_pending_age_seconds": None},
             },
         }
 
+    def check_workers():
+        return {
+            "status": HealthStatus.OK.value,
+            "maintenance": {
+                "status": HealthStatus.OK.value,
+                "required": False,
+                "last_seen_seconds_ago": None,
+            },
+        }
+
     monkeypatch.setattr(health, "check_redis_queues", check_redis_queues)
+    monkeypatch.setattr(health, "check_workers", check_workers)
 
 
 def test_healthz_reports_api_ok(client):
@@ -63,6 +74,7 @@ def test_readyz_reports_dependency_status(client, db_session):
     assert body["status"] == "ok"
     assert body["checks"]["database"]["status"] == "ok"
     assert body["checks"]["redis"]["status"] == "ok"
+    assert body["checks"]["workers"]["status"] == "ok"
     assert body["checks"]["object_stores"] == {
         "status": "ok",
         "configured": 1,
@@ -108,3 +120,32 @@ def test_readyz_returns_unavailable_for_redis_failure(client, monkeypatch):
         "error_class": "ConnectionError",
         "error_message": "redis down",
     }
+
+
+def test_readyz_reports_worker_heartbeat_failure(client, monkeypatch):
+    def check_workers():
+        return {
+            "status": HealthStatus.FAILED.value,
+            "maintenance": {
+                "status": HealthStatus.FAILED.value,
+                "required": True,
+                "last_seen_seconds_ago": 240.0,
+            },
+        }
+
+    monkeypatch.setattr(health, "check_workers", check_workers)
+
+    response = client.get("/readyz")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["checks"]["workers"]["maintenance"]["status"] == "failed"
+
+
+def test_metrics_endpoint_exposes_prometheus_metrics(client):
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "text/plain" in response.headers["content-type"]
+    assert "relic_api_requests_total" in response.text

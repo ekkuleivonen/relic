@@ -39,7 +39,10 @@ def domain_error_response(exc: DomainError) -> Response:
     if isinstance(exc, ConflictError):
         return s3_error_response("Conflict", str(exc.detail), status_code=409)
     if isinstance(exc, BadRequestError):
-        return s3_error_response("InvalidRequest", str(exc.detail), status_code=400)
+        message = str(exc.detail)
+        if "exceeds maximum allowed size" in message:
+            return s3_error_response("EntityTooLarge", message, status_code=400)
+        return s3_error_response("InvalidRequest", message, status_code=400)
     if isinstance(exc, ResourceNotFound):
         return s3_error_response("NoSuchKey", str(exc.detail), status_code=404)
     if isinstance(exc, PermissionDenied):

@@ -4,7 +4,7 @@ from application.context import EventContext
 from infra.db.stores import auth
 from application.uow import UnitOfWork
 from domain.exceptions import BadRequestError
-from infra.db.models import User
+from ports.entities import User
 
 
 def login(

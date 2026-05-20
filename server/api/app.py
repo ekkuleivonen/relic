@@ -1,12 +1,13 @@
 from api.dependencies import UnitOfWorkDep
-from fastapi import Depends, FastAPI, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 import settings as S
 from constants import API_PREFIX
 from enums import HealthStatus
 import infra.health as health
+import infra.metrics as metrics
 from .access_keys import router as access_keys_router
 from .auth import router as auth_router
 from .buckets import router as buckets_router
@@ -27,6 +28,29 @@ app = FastAPI(
     version="0.1.0",
 )
 register_exception_handlers(app)
+
+
+@app.middleware("http")
+async def record_request_metrics(request: Request, call_next):
+    if request.url.path == "/metrics":
+        return await call_next(request)
+
+    started_at = metrics.timer_start()
+    response = await call_next(request)
+    route = getattr(request.scope.get("route"), "path", request.url.path)
+    metrics.observe_api_request(
+        method=request.method,
+        route=route,
+        status_code=response.status_code,
+        started_at=started_at,
+    )
+    if request.url.path.startswith("/s3"):
+        metrics.observe_gateway_request(
+            operation=_gateway_operation(request),
+            status_code=response.status_code,
+            started_at=started_at,
+        )
+    return response
 
 if S.S3_CORS_ALLOWED_ORIGINS:
     app.add_middleware(
@@ -112,3 +136,44 @@ async def readyz(uow: UnitOfWorkDep):
             content=payload,
         )
     return payload
+
+
+@app.get("/metrics", include_in_schema=False)
+def prometheus_metrics():
+    return Response(
+        content=metrics.metrics_body(),
+        media_type=metrics.metrics_content_type(),
+    )
+
+
+def _gateway_operation(request: Request) -> str:
+    path = request.url.path.removeprefix("/s3").strip("/")
+    segments = [] if not path else path.split("/")
+    query = request.query_params
+    method = request.method.upper()
+
+    if not segments:
+        return "list_buckets"
+    if len(segments) == 1:
+        if method == "HEAD":
+            return "head_bucket"
+        if method == "GET" and "uploads" in query:
+            return "list_multipart_uploads"
+        if method == "GET":
+            return "list_objects_v2"
+        return "bucket_request"
+    if method == "POST":
+        return "create_multipart_upload" if "uploads" in query else "complete_multipart_upload"
+    if method == "PUT":
+        if "uploadId" in query:
+            return "upload_part"
+        if "x-amz-copy-source" in request.headers:
+            return "copy_object"
+        return "put_object"
+    if method == "HEAD":
+        return "head_object"
+    if method == "GET":
+        return "list_multipart_parts" if "uploadId" in query else "get_object"
+    if method == "DELETE":
+        return "abort_multipart_upload" if "uploadId" in query else "delete_object"
+    return "object_request"

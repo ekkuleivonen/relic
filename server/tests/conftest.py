@@ -3,6 +3,7 @@
 import pytest
 from api.app import app
 from infra.cache import folder_access as folder_access_cache
+from infra.cache.tiered import clear_all_tiered_caches
 from infra.db.stores.placement import clear_bucket_usage_cache
 from fastapi.testclient import TestClient
 from infra.db.engine import get_db
@@ -13,8 +14,10 @@ from tests.db import create_test_engine, upgrade_test_schema
 @pytest.fixture(autouse=True)
 def _clear_folder_access_caches():
     folder_access_cache.clear_hotpath_cache(None)
+    clear_all_tiered_caches()
     yield
     folder_access_cache.clear_hotpath_cache(None)
+    clear_all_tiered_caches()
 
 
 @pytest.fixture()

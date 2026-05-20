@@ -17,7 +17,7 @@ class FilesystemObjectStorage:
     @property
     def capabilities(self) -> StorageCapabilities:
         return StorageCapabilities(
-            multipart=False,
+            multipart=True,
             presigned_urls=False,
             max_single_put_bytes=512 * 1024 * 1024,
         )
@@ -75,6 +75,28 @@ class FilesystemObjectStorage:
             raise ResourceNotFound("Object not found")
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest)
+        import hashlib
+
+        return PutResult(etag=hashlib.sha256(dest.read_bytes()).hexdigest())
+
+    def compose_parts(
+        self,
+        *,
+        bucket: str,
+        dest_key: str,
+        source_keys: list[str],
+    ) -> PutResult:
+        dest = self._path(bucket, dest_key)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(dest.suffix + ".tmp")
+        with open(tmp, "wb") as output:
+            for source_key in source_keys:
+                src = self._path(bucket, source_key)
+                if not src.is_file():
+                    raise ResourceNotFound("Object not found")
+                with open(src, "rb") as source:
+                    shutil.copyfileobj(source, output)
+        os.replace(tmp, dest)
         import hashlib
 
         return PutResult(etag=hashlib.sha256(dest.read_bytes()).hexdigest())

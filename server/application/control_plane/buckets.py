@@ -4,7 +4,7 @@ import uuid
 from typing import Any
 
 from application.uow import UnitOfWork
-from infra.db.models import Bucket
+from ports.entities import Bucket
 from infra.db.stores import bucket_reads
 
 def list_buckets(uow: UnitOfWork) -> list[Bucket]:

@@ -1,7 +1,7 @@
 import uuid
 
 from application.uow import UnitOfWork
-from infra.db.models import User
+from ports.entities import User
 
 
 def list_users(uow: UnitOfWork) -> list[User]:

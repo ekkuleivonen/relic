@@ -5,7 +5,7 @@ import uuid
 from application.context import Actor
 from application.uow import UnitOfWork
 from enums import Permission
-from infra.db.models import File
+from ports.entities import File
 
 
 def remove_file_record(uow: UnitOfWork, *, file: File) -> None:

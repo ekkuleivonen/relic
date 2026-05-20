@@ -144,6 +144,8 @@ class FakeBucketStore:
 
     def __init__(self):
         self.objects: dict[str, bytes] = {}
+        self.compose_calls: list[tuple[str, str, list[str]]] = []
+        self._uploads: dict[str, tuple[str, str, dict[int, str]]] = {}
 
     def make_client(self):
         store = self
@@ -171,6 +173,40 @@ class FakeBucketStore:
 
             def delete_object(self, Bucket, Key):
                 store.objects.pop((Bucket, Key), None)
+
+            def create_multipart_upload(self, Bucket, Key):
+                upload_id = f"compose-{len(store._uploads) + 1}"
+                store._uploads[upload_id] = (Bucket, Key, {})
+                return {"UploadId": upload_id}
+
+            def upload_part_copy(
+                self, Bucket, Key, UploadId, PartNumber, CopySource
+            ):
+                source_key = CopySource["Key"]
+                store._uploads[UploadId][2][PartNumber] = source_key
+                etag = hashlib.md5(
+                    store.objects[(Bucket, source_key)],
+                    usedforsecurity=False,
+                ).hexdigest()
+                return {"CopyPartResult": {"ETag": f'"{etag}"'}}
+
+            def complete_multipart_upload(
+                self, Bucket, Key, UploadId, MultipartUpload
+            ):
+                _source_bucket, _dest_key, parts = store._uploads.pop(UploadId)
+                source_keys = [parts[part["PartNumber"]] for part in MultipartUpload["Parts"]]
+                store.compose_calls.append((Bucket, Key, source_keys))
+                store.objects[(Bucket, Key)] = b"".join(
+                    store.objects[(Bucket, source_key)] for source_key in source_keys
+                )
+                etag = hashlib.md5(
+                    store.objects[(Bucket, Key)],
+                    usedforsecurity=False,
+                ).hexdigest()
+                return {"ETag": f'"{etag}"'}
+
+            def abort_multipart_upload(self, Bucket, Key, UploadId):
+                store._uploads.pop(UploadId, None)
 
         return _Client()
 
@@ -799,6 +835,16 @@ def test_multipart_upload_completes_object(
         fake_storage.objects[(physical_bucket.bucket, blob.bucket_key)]
         == b"hello world"
     )
+    assert fake_storage.compose_calls == [
+        (
+            physical_bucket.bucket,
+            blob.bucket_key,
+            [
+                f"__relic_multipart_uploads/{upload_id}/1",
+                f"__relic_multipart_uploads/{upload_id}/2",
+            ],
+        )
+    ]
     assert not [
         key
         for (_bucket, key) in fake_storage.objects

@@ -31,6 +31,7 @@ from infra.db.stores.placement import (
     derive_bucket_usages,
     hotness_for_buckets,
 )
+from utils.secrets import mask_access_key_id, mask_secret_access_key
 
 
 def list_buckets(db: Session) -> list[Bucket]:
@@ -72,8 +73,8 @@ def bucket_read(
         "endpoint": bucket.endpoint,
         "region": bucket.region,
         "bucket": bucket.bucket,
-        "key_id": bucket.key_id,
-        "secret_access_key": bucket.secret_access_key,
+        "key_id": mask_access_key_id(bucket.key_id),
+        "secret_access_key": mask_secret_access_key(bucket.secret_access_key),
         "max_size_bytes": bucket.max_size_bytes,
         "storage_kind": bucket.storage_kind,
         "object_count": usage.object_count,

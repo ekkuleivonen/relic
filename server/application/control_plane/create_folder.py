@@ -5,7 +5,7 @@ from application.control_plane.folder_use_cases import folder_result, validate_f
 from application.control_plane.folders import FolderResult
 from application.uow import UnitOfWork
 from enums import Permission
-from infra.db.models import File, Folder
+from ports.entities import File, Folder
 from utils.logging import get_logger
 
 log = get_logger(__name__)

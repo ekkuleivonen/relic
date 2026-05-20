@@ -11,6 +11,7 @@ from urllib.parse import unquote
 import settings as S
 from constants import S3_LISTING_DEFAULT_MAX_KEYS, S3_USER_BINDING_HEADER
 from domain.exceptions import BadRequestError
+from ports.storage_policy import enforce_max_object_bytes
 from fastapi import Request
 from sqlalchemy.orm import Session
 from infra.db.models import User
@@ -104,6 +105,7 @@ async def spool_request_body(request: Request) -> SpoolResult:
         if not chunk:
             continue
         size_bytes += len(chunk)
+        enforce_max_object_bytes(size_bytes=size_bytes)
         digest.update(chunk)
         md5_digest.update(chunk)
         body.write(chunk)

@@ -20,9 +20,9 @@ def grant_folder_access(
         folder_id=folder_id,
         permissions=permissions,
         event_context=event_context,
-        commit=False,
     )
     uow.cache.invalidate_folder_hotpath(uow.session)
+    uow.cache.invalidate_list_objects()
     return row
 
 
@@ -36,6 +36,6 @@ def revoke_folder_access(
         uow.session,
         access_id,
         event_context=event_context,
-        commit=False,
     )
     uow.cache.invalidate_folder_hotpath(uow.session)
+    uow.cache.invalidate_list_objects()

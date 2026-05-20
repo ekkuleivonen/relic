@@ -29,9 +29,9 @@ from constants import (
     SEARCH_MAX_FACET_TOP,
     SEARCH_MAX_LIMIT,
 )
-from infra.db.models import File
+from ports.entities import File
 from application.control_plane.files import get_file as get_file_use_case
-from infra.db.stores import filesystem
+from application.control_plane import browse_filesystem
 from domain.files.search import KvsFilter, SearchQuery
 from application.control_plane.search_files import compute_facets, search_files
 
@@ -193,8 +193,8 @@ async def list_files(
     sort: str = Query(default="name"),
     order: str = Query(default="asc"),
 ) -> FileListResponse:
-    page = filesystem.list_files(
-        uow.session,
+    page = browse_filesystem.list_files(
+        uow,
         current_user,
         folder_id=folder_id,
         recursive=recursive,

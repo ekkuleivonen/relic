@@ -19,6 +19,8 @@ from infra.gateway.object_blobs import create_blob, prepare_body
 from infra.gateway.object_paths import resolve_object_path
 from infra.gateway.object_types import PutObjectResult
 from domain.exceptions import ConflictError
+from domain.exceptions import BadRequestError
+from ports.storage_policy import enforce_max_object_bytes, enforce_single_put_size
 def put_object(
     db: Session,
     *,
@@ -56,6 +58,7 @@ def put_object(
         content_hash=content_hash,
         size_bytes=size_bytes,
     )
+    enforce_max_object_bytes(size_bytes=object_size)
     digest_hex = digest.hex()
     blob = db.scalar(select(Blob).where(Blob.content_hash == digest, Blob.refcount > 0))
 
@@ -67,6 +70,10 @@ def put_object(
             db,
             size_bytes=object_size,
             preferred_bucket_id=effective_preferred_bucket_id(db, folder),
+        )
+        enforce_single_put_size(
+            caps=storage.for_bucket(bucket).capabilities,
+            size_bytes=object_size,
         )
         created_blob = create_blob(
             db,

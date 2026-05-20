@@ -6,6 +6,14 @@ from typing import Any, Callable, TypeVar
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+import settings as S
+from infra.cache.codec import (
+    decode_text,
+    encode_text,
+    list_objects_cache_key,
+)
+from infra.cache.tiered import get_tiered_cache
+
 T = TypeVar("T")
 
 _REQUEST_CACHE_KEY = "folder_hotpath_cache"
@@ -15,9 +23,6 @@ _REQUEST_CACHE_KEY = "folder_hotpath_cache"
 class TtlCacheEntry:
     expires_at: float
     value: Any
-
-
-_LIST_OBJECTS_RESPONSE_CACHE: dict[Any, TtlCacheEntry] = {}
 
 
 def begin_request(db: Session) -> None:
@@ -91,23 +96,26 @@ def uuid_key(value: uuid.UUID) -> str:
     return str(value)
 
 
-def get_list_objects_response(key: Any) -> str | None:
-    return get_ttl(_LIST_OBJECTS_RESPONSE_CACHE, key)
+def get_list_objects_response(key: tuple[Any, ...]) -> str | None:
+    cached = get_tiered_cache("list_objects").get(list_objects_cache_key(key))
+    if cached is None:
+        return None
+    return decode_text(cached)
 
 
 def set_list_objects_response(
-    key: Any,
+    key: tuple[Any, ...],
     value: str,
     *,
     ttl_seconds: int,
 ) -> str:
-    return set_ttl(
-        _LIST_OBJECTS_RESPONSE_CACHE,
-        key,
-        value,
+    get_tiered_cache("list_objects").set(
+        list_objects_cache_key(key),
+        encode_text(value),
         ttl_seconds=ttl_seconds,
     )
+    return value
 
 
 def clear_list_objects_response_cache() -> None:
-    _LIST_OBJECTS_RESPONSE_CACHE.clear()
+    get_tiered_cache("list_objects").invalidate()

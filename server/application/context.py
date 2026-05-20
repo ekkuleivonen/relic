@@ -1,13 +1,17 @@
 """Request-scoped context for use cases and audit emission."""
 
 import uuid
+from typing import Protocol
 
-from infra.db.models import User
 from ports.context import Actor, EventContext
 from starlette.datastructures import Headers
 
 
-def actor_from_user(user: User) -> Actor:
+class AuthenticatedUser(Protocol):
+    id: uuid.UUID
+
+
+def actor_from_user(user: AuthenticatedUser) -> Actor:
     return Actor(id=user.id)
 
 

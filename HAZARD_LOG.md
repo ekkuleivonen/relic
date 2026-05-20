@@ -69,6 +69,10 @@ control, search, maintenance, and operational surfaces.
 ### H-007: Multipart completion assembles the whole object through local disk
 
 - **Area:** Multipart uploads, S3 gateway
+- **Status:** Partially mitigated. Multipart completion now uses storage-level
+  compose when the backend supports server-side copy: S3 uses multipart
+  `UploadPartCopy`, and filesystem storage streams parts into the final object.
+  Relic still reads part bytes once to compute the canonical SHA-256 digest.
 - **Impact:** Medium. Large multipart uploads are downloaded from temporary
   object parts, reassembled locally, then uploaded again, which can exhaust disk,
   saturate API workers, and make large client uploads unreliable.
@@ -79,6 +83,9 @@ control, search, maintenance, and operational surfaces.
 ### H-008: Search and facets load all visible candidate files into memory
 
 - **Area:** Search and metadata
+- **Status:** Partially mitigated. Search result pagination and totals now run
+  in SQL for the common path. Facets and KVS-filtered searches can still scan
+  the full visible candidate set in Python.
 - **Impact:** Medium. Large tenants or broad recursive searches can become slow
   or memory-heavy because filtering, sorting, totals, and facets happen over all
   visible `File` rows in Python.
@@ -89,6 +96,10 @@ control, search, maintenance, and operational surfaces.
 ### H-009: Recursive folder walks scan the full folder table
 
 - **Area:** Filesystem, permissions, search scopes, processors
+- **Status:** Partially mitigated. Search scopes, recursive listing/stat scopes,
+  and folder mutation descendant checks now reuse cached folder-tree rows.
+  Extremely large trees may still need recursive CTEs, materialized paths, or a
+  closure table for stricter latency bounds.
 - **Impact:** Medium. Large folder trees make recursive listings, stats, search
   scopes, and processor folder scopes increasingly expensive and latency-prone.
 - **Suggested fix or mitigation:** Use a recursive CTE, closure table, materialized
@@ -97,6 +108,9 @@ control, search, maintenance, and operational surfaces.
 ### H-010: Prometheus metrics endpoint is missing
 
 - **Area:** Observability
+- **Status:** Mitigated. `/metrics` now exposes low-cardinality Prometheus
+  counters, histograms, and gauges for API requests, S3 gateway requests,
+  maintenance jobs, maintenance queue depth, and bucket probe outcomes.
 - **Impact:** Medium. Operators cannot alert on request latency, S3 errors,
   queue depth, cursor lag, bucket probe health, or maintenance failures with
   standard scrape-based monitoring.
@@ -107,6 +121,9 @@ control, search, maintenance, and operational surfaces.
 ### H-011: Worker heartbeat state is missing
 
 - **Area:** Processing and maintenance operations
+- **Status:** Mitigated for the shipped maintenance worker. The maintenance cron
+  and worker jobs write Redis heartbeats, and `/readyz` reports stale or missing
+  heartbeat state when `MAINTENANCE_HEARTBEAT_REQUIRED=true`.
 - **Impact:** Medium. `/readyz` reports queue depth and processor registry state,
   but it cannot prove dispatcher, processing worker, or maintenance worker pods
   are alive and making progress.

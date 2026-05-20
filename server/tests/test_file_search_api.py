@@ -208,6 +208,37 @@ def test_search_returns_only_visible_files(
     assert body["items"][0]["name"] == "cat.jpg"
 
 
+def test_search_paginates_with_stable_total(
+    client, db_session, user, bucket, photos_folder
+):
+    grant(db_session, user, photos_folder, int(Permission.READ))
+    for index in range(12):
+        blob = make_blob(db_session, bucket=bucket, content_hash=100 + index)
+        make_file(
+            db_session,
+            folder=photos_folder,
+            blob=blob,
+            user=user,
+            name=f"item-{index:02d}.bin",
+        )
+
+    response = client.get(
+        "/api/files/search",
+        params={"sort": "name", "order": "asc", "limit": 5, "offset": 5},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 12
+    assert [item["name"] for item in body["items"]] == [
+        "item-05.bin",
+        "item-06.bin",
+        "item-07.bin",
+        "item-08.bin",
+        "item-09.bin",
+    ]
+
+
 def test_search_q_matches_name_summary_and_keywords(
     client, db_session, user, bucket, photos_folder
 ):

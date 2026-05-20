@@ -12,6 +12,7 @@ from enums import HealthStatus
 from infra.db.models import Bucket
 from infra.db.stores.placement import bucket_is_reachable
 from infra.arq import arq_redis_settings
+from infra.worker_heartbeats import maintenance_heartbeat_status
 
 
 def health_response() -> dict[str, Any]:
@@ -28,6 +29,7 @@ async def readiness_response(db: Session) -> dict[str, Any]:
         "database": check_database(db),
         "redis": await check_redis_queues(),
         "object_stores": check_object_stores(db),
+        "workers": check_workers(),
         "configuration": check_configuration(),
     }
     status = (
@@ -108,6 +110,16 @@ def check_object_stores(db: Session) -> dict[str, Any]:
         "configured": len(buckets),
         "healthy": len(buckets) - len(unhealthy),
         "unhealthy": unhealthy,
+    }
+
+
+def check_workers() -> dict[str, Any]:
+    maintenance = maintenance_heartbeat_status()
+    return {
+        "status": HealthStatus.OK.value
+        if maintenance["status"] == HealthStatus.OK.value
+        else HealthStatus.FAILED.value,
+        "maintenance": maintenance,
     }
 
 

@@ -61,3 +61,18 @@ class MemoryObjectStorage:
             body=BytesIO(data),
             size=len(data),
         )
+
+    def compose_parts(
+        self,
+        *,
+        bucket: str,
+        dest_key: str,
+        source_keys: list[str],
+    ) -> PutResult:
+        data = b"".join(self.get(bucket=bucket, key=source_key) for source_key in source_keys)
+        return self.put(
+            bucket=bucket,
+            key=dest_key,
+            body=BytesIO(data),
+            size=len(data),
+        )

@@ -11,8 +11,8 @@ from application.control_plane.grant_folder_access import (
     grant_folder_access as grant_folder_access_use_case,
     revoke_folder_access as revoke_folder_access_use_case,
 )
+from application.control_plane.list_folder_access import list_folder_access as list_folder_access_use_case
 from infra.db.stores.folder_access_types import FolderAccessRow
-from infra.db.stores import folder_access
 
 router = APIRouter()
 
@@ -62,7 +62,7 @@ async def list_folder_access(uow: UnitOfWorkDep) -> list[FolderAccessRead]:
     GET /folder-access -> all grants across the filesystem.
     Returns a flat list with embedded user info and resolved folder paths.
     """
-    rows = folder_access.list_folder_access(uow.session)
+    rows = list_folder_access_use_case(uow)
     return [FolderAccessRead.from_row(row) for row in rows]
 
 

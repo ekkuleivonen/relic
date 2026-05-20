@@ -19,10 +19,9 @@ from domain.files.search import (
     count_kvs_keys,
     count_list_axis,
     count_scalar_axis,
-    sort_key,
     top_facet_values,
 )
-from infra.db.models import File, User
+from ports.entities import File, User
 from infra.db.stores.search_scope import scope_folder_ids
 from application.uow import UnitOfWork
 
@@ -46,12 +45,11 @@ class Facets:
 
 def search_files(uow: UnitOfWork, *, user: User, query: SearchQuery) -> SearchResults:
     _validate_query(query)
-    matched = _matched_files(uow, user=user, query=query)
-    matched.sort(key=sort_key(query.sort), reverse=query.order == "desc")
-    page = matched[query.offset : query.offset + query.limit]
+    scope_ids = scope_folder_ids(uow.session, user=user, query=query)
+    page = uow.search.search_page(scope_folder_ids=scope_ids, query=query)
     return SearchResults(
-        items=page,
-        total=len(matched),
+        items=page.items,
+        total=page.total,
         limit=query.limit,
         offset=query.offset,
     )

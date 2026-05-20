@@ -43,3 +43,11 @@ class ObjectStorage(Protocol):
         dest_bucket: str,
         dest_key: str,
     ) -> PutResult: ...
+
+    def compose_parts(
+        self,
+        *,
+        bucket: str,
+        dest_key: str,
+        source_keys: list[str],
+    ) -> PutResult: ...

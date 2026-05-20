@@ -24,6 +24,8 @@ Bucket backend management. Admin-only across the board - buckets are
 infrastructure, not user data.
 
 The access credentials are encrypted at rest with settings.ENCRYPTION_SECRET.
+Read responses return masked key identifiers and never return decrypted secrets;
+supply new credentials via POST/PATCH when rotating.
 
 There is no static "tier" anymore. Placement ranks buckets by their recent
 probe latency (see infra.db.stores.placement.hotness_ranked_buckets) and the cron
@@ -66,7 +68,9 @@ class BucketRead(BaseModel):
     region: str
     bucket: str
     key_id: str
-    secret_access_key: str
+    secret_access_key: str = Field(
+        description="Always masked on read; write-only via create/update payloads."
+    )
     max_size_bytes: int
     storage_kind: StorageKind
     object_count: int

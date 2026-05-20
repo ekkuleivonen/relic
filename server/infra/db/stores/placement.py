@@ -155,23 +155,38 @@ def choose_bucket(
     preferred_bucket_id: uuid.UUID | None = None,
     exclude_bucket_ids: set[uuid.UUID] | frozenset[uuid.UUID] | None = None,
     headroom_ratio: float | None = None,
+    require_reachable: bool | None = None,
 ) -> Bucket:
     """Pick a bucket that fits ``size_bytes`` while leaving write headroom.
 
     Preference order:
       1. The requested ``preferred_bucket_id`` if it exists, isn't excluded,
-         and would stay under ``headroom_ratio`` after the write.
+         is reachable (when required), and would stay under ``headroom_ratio``
+         after the write.
       2. Otherwise the hottest bucket (per probe-derived ranking) that
          satisfies the headroom constraint.
 
     Headroom guards against the user write path saturating a bucket, which
     would otherwise force the demote cron to play catch-up.
+
+    When ``require_reachable`` is true (default from
+    ``PLACEMENT_REQUIRE_REACHABLE_BUCKET``), buckets without a recent successful
+    probe are excluded from new writes.
     """
     effective_excluded = set(exclude_bucket_ids or ())
     effective_headroom = (
         headroom_ratio if headroom_ratio is not None else S.STORAGE_WRITE_HEADROOM_RATIO
     )
+    effective_require_reachable = (
+        S.PLACEMENT_REQUIRE_REACHABLE_BUCKET
+        if require_reachable is None
+        else require_reachable
+    )
     ranked = hotness_ranked_buckets(db)
+    if effective_require_reachable:
+        ranked = [hotness for hotness in ranked if hotness.reachable]
+        if not ranked:
+            raise ConflictError("No reachable buckets are configured")
     candidates = [h.bucket for h in ranked if h.bucket.id not in effective_excluded]
     if not candidates:
         raise ConflictError("No buckets are configured")

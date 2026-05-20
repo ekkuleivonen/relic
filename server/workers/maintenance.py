@@ -5,7 +5,9 @@ import uuid
 from arq.cron import cron
 
 from application.maintenance import retention as retention_maintenance
+from infra import metrics
 from infra.maintenance import storage as storage_maintenance
+from infra.worker_heartbeats import touch_maintenance_heartbeat
 from application.uow_runner import run_with_uow
 from infra.arq import arq_redis_settings
 from infra.db.engine import get_sessionmaker
@@ -32,7 +34,7 @@ async def purge_dereferenced_blobs_worker(ctx) -> None:
                 ),
             )
 
-    await asyncio.to_thread(run)
+    await _run_maintenance_job("purge_dereferenced_blobs", run)
 
 
 async def refresh_all_bucket_probes_worker(ctx) -> None:
@@ -49,7 +51,7 @@ async def refresh_all_bucket_probes_worker(ctx) -> None:
                 ),
             )
 
-    await asyncio.to_thread(run)
+    await _run_maintenance_job("refresh_all_bucket_probes", run)
 
 
 async def trim_old_bucket_probes_worker(ctx) -> None:
@@ -68,7 +70,7 @@ async def trim_old_bucket_probes_worker(ctx) -> None:
                 ),
             )
 
-    await asyncio.to_thread(run)
+    await _run_maintenance_job("trim_old_bucket_probes", run)
 
 
 async def demote_pressured_buckets_worker(ctx) -> None:
@@ -90,7 +92,7 @@ async def demote_pressured_buckets_worker(ctx) -> None:
                 ),
             )
 
-    await asyncio.to_thread(run)
+    await _run_maintenance_job("demote_pressured_buckets", run)
 
 
 async def promote_recently_accessed_worker(ctx) -> None:
@@ -112,7 +114,7 @@ async def promote_recently_accessed_worker(ctx) -> None:
                 ),
             )
 
-    await asyncio.to_thread(run)
+    await _run_maintenance_job("promote_recently_accessed", run)
 
 
 async def trim_old_audit_events_worker(ctx) -> None:
@@ -136,7 +138,7 @@ async def trim_old_audit_events_worker(ctx) -> None:
             deleted_rows=deleted_rows,
         )
 
-    await asyncio.to_thread(run)
+    await _run_maintenance_job("trim_old_audit_events", run)
 
 
 async def abort_incomplete_multipart_uploads_worker(ctx) -> None:
@@ -164,22 +166,53 @@ async def abort_incomplete_multipart_uploads_worker(ctx) -> None:
             deleted_rows=deleted_rows,
         )
 
-    await asyncio.to_thread(run)
+    await _run_maintenance_job("abort_incomplete_multipart_uploads", run)
 
 
 async def storage_maintenance_tick(ctx) -> None:
+    started_at = metrics.timer_start()
+    status = "succeeded"
     redis = ctx["redis"]
-    await redis.enqueue_job("purge_dereferenced_blobs_worker")
-    await redis.enqueue_job("refresh_all_bucket_probes_worker")
-    await redis.enqueue_job("demote_pressured_buckets_worker")
-    await redis.enqueue_job("promote_recently_accessed_worker")
-    await redis.enqueue_job("trim_old_bucket_probes_worker")
-    await redis.enqueue_job("trim_old_audit_events_worker")
-    await redis.enqueue_job("abort_incomplete_multipart_uploads_worker")
-    log.info(
-        "storage_maintenance_tick_enqueued",
-        queue=S.MAINTENANCE_QUEUE_NAME,
-    )
+    try:
+        await redis.enqueue_job("purge_dereferenced_blobs_worker")
+        await redis.enqueue_job("refresh_all_bucket_probes_worker")
+        await redis.enqueue_job("demote_pressured_buckets_worker")
+        await redis.enqueue_job("promote_recently_accessed_worker")
+        await redis.enqueue_job("trim_old_bucket_probes_worker")
+        await redis.enqueue_job("trim_old_audit_events_worker")
+        await redis.enqueue_job("abort_incomplete_multipart_uploads_worker")
+        queue_depth = int(await redis.zcard(S.MAINTENANCE_QUEUE_NAME))
+        metrics.set_maintenance_queue_depth(
+            queue=S.MAINTENANCE_QUEUE_NAME,
+            depth=queue_depth,
+        )
+        log.info(
+            "storage_maintenance_tick_enqueued",
+            queue=S.MAINTENANCE_QUEUE_NAME,
+        )
+        touch_maintenance_heartbeat()
+    except Exception:
+        status = "failed"
+        raise
+    finally:
+        metrics.observe_maintenance_job(
+            job="storage_maintenance_tick",
+            status=status,
+            started_at=started_at,
+        )
+
+
+async def _run_maintenance_job(job: str, run) -> None:
+    started_at = metrics.timer_start()
+    status = "succeeded"
+    try:
+        await asyncio.to_thread(run)
+    except Exception:
+        status = "failed"
+        raise
+    finally:
+        touch_maintenance_heartbeat()
+        metrics.observe_maintenance_job(job=job, status=status, started_at=started_at)
 
 
 class WorkerSettings:

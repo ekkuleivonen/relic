@@ -1,5 +1,4 @@
 import uuid
-from collections import defaultdict
 from dataclasses import dataclass
 
 from constants import (
@@ -10,6 +9,8 @@ from constants import (
 )
 from enums import Permission
 from domain.exceptions import BadRequestError, ResourceNotFound
+from domain.filesystem.tree import collect_descendant_ids, index_children
+from infra.cache.folder_access import cached_folder_tree_rows
 from infra.db.models import Blob, File, Folder, User
 from sqlalchemy import asc, desc, func, nullslast, select
 from sqlalchemy.orm import Session, joinedload
@@ -199,19 +200,9 @@ def attach_children(
 
 
 def collect_descendant_folder_ids(db: Session, folder_id: uuid.UUID) -> list[uuid.UUID]:
-    folders = db.execute(select(Folder.id, Folder.parent_id)).all()
-    children_by_parent: dict[uuid.UUID | None, list[uuid.UUID]] = defaultdict(list)
-
-    for child_id, parent_id in folders:
-        children_by_parent[parent_id].append(child_id)
-
-    folder_ids = [folder_id]
-    queue = [folder_id]
-
-    while queue:
-        parent_id = queue.pop(0)
-        child_ids = children_by_parent.get(parent_id, [])
-        folder_ids.extend(child_ids)
-        queue.extend(child_ids)
-
-    return folder_ids
+    rows = cached_folder_tree_rows(db)
+    return collect_descendant_ids(
+        folder_id,
+        index_children(rows),
+        include_root=True,
+    )

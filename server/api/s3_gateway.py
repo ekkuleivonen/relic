@@ -27,9 +27,8 @@ from api.s3.xml import (
     render_list_objects_v2,
     s3_error_response,
 )
-from infra.gateway import object_listing
-from infra.gateway import object_multipart
 from application.gateway import object_mutations
+from application.gateway import s3_listing as gateway_listing
 from infra.gateway import object_reads
 from application.gateway import object_signing
 from infra.gateway.object_types import CopyObjectResult
@@ -38,7 +37,7 @@ from domain.exceptions import DomainError, ResourceNotFound
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import StreamingResponse
 from infra.cache.hotpath import get_list_objects_response, set_list_objects_response
-from infra.db.models import User
+from ports.entities import User
 
 router = APIRouter()
 
@@ -55,7 +54,7 @@ against AccessKey rows.
 async def list_buckets(request: Request, uow: UnitOfWorkDep) -> Response:
     try:
         user = load_signed_user(request, uow.session)
-        buckets = object_listing.list_visible_buckets(uow.session, user)
+        buckets = gateway_listing.list_visible_buckets(uow, user)
     except object_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
     except DomainError as exc:
@@ -73,7 +72,7 @@ async def list_buckets(request: Request, uow: UnitOfWorkDep) -> Response:
 async def head_bucket(bucket: str, request: Request, uow: UnitOfWorkDep) -> Response:
     try:
         user = load_signed_user(request, uow.session)
-        object_listing.require_visible_bucket(uow.session, user, bucket)
+        gateway_listing.require_visible_bucket(uow, user, bucket)
     except object_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)
     except ResourceNotFound:
@@ -90,9 +89,9 @@ async def list_objects_v2(bucket: str, request: Request, uow: UnitOfWorkDep) -> 
     if "uploads" in query:
         try:
             user = load_signed_user(request, uow.session)
-            object_listing.require_visible_bucket(uow.session, user, bucket)
-            page = object_multipart.list_multipart_uploads(
-                uow.session,
+            gateway_listing.require_visible_bucket(uow, user, bucket)
+            page = object_mutations.list_multipart_uploads(
+                uow,
                 bucket_name=bucket,
                 current_user=user,
             )
@@ -135,9 +134,9 @@ async def list_objects_v2(bucket: str, request: Request, uow: UnitOfWorkDep) -> 
                 status_code=200,
                 media_type="application/xml",
             )
-        page = object_listing.list_objects_v2(
-            uow.session,
-            user,
+        page = gateway_listing.list_objects_v2(
+            uow,
+            user=user,
             bucket_name=bucket,
             prefix=query.get("prefix") or "",
             delimiter=query.get("delimiter") or None,

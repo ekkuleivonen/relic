@@ -125,6 +125,53 @@ class S3ObjectStorage:
         except (BotoCoreError, ClientError) as exc:
             raise BadRequestError("Failed to copy object in bucket") from exc
 
+    def compose_parts(
+        self,
+        *,
+        bucket: str,
+        dest_key: str,
+        source_keys: list[str],
+    ) -> PutResult:
+        del bucket
+        client = self._client()
+        upload_id = None
+        try:
+            created = client.create_multipart_upload(
+                Bucket=self._bucket.bucket,
+                Key=dest_key,
+            )
+            upload_id = created["UploadId"]
+            completed_parts = []
+            for index, source_key in enumerate(source_keys, start=1):
+                response = client.upload_part_copy(
+                    Bucket=self._bucket.bucket,
+                    Key=dest_key,
+                    UploadId=upload_id,
+                    PartNumber=index,
+                    CopySource={"Bucket": self._bucket.bucket, "Key": source_key},
+                )
+                etag = response.get("CopyPartResult", {}).get("ETag", "").strip('"')
+                completed_parts.append({"PartNumber": index, "ETag": etag})
+            completed = client.complete_multipart_upload(
+                Bucket=self._bucket.bucket,
+                Key=dest_key,
+                UploadId=upload_id,
+                MultipartUpload={"Parts": completed_parts},
+            )
+            etag = completed.get("ETag", "").strip('"')
+            return PutResult(etag=etag)
+        except (BotoCoreError, ClientError) as exc:
+            if upload_id:
+                try:
+                    client.abort_multipart_upload(
+                        Bucket=self._bucket.bucket,
+                        Key=dest_key,
+                        UploadId=upload_id,
+                    )
+                except (BotoCoreError, ClientError):
+                    pass
+            raise BadRequestError("Failed to compose multipart object") from exc
+
 
 class SqlAlchemyStorageRegistry:
     """Per-bucket adapter selection by ``Bucket.storage_kind``."""

@@ -4,53 +4,54 @@ import uuid
 
 import settings as S
 from domain.filesystem.paths import build_folder_paths
-from infra.cache.hotpath import (
-    TtlCacheEntry,
-    engine_cache_key,
-    get_ttl,
-    request_cache,
-    set_ttl,
+from infra.cache.codec import (
+    decode_folder_tree_rows,
+    decode_uuid_int_map,
+    decode_uuid_str_map,
+    effective_permissions_cache_key,
+    encode_folder_tree_rows,
+    encode_uuid_int_map,
+    encode_uuid_str_map,
+    folder_paths_cache_key,
+    folder_tree_cache_key,
 )
+from infra.cache.hotpath import request_cache
+from infra.cache.scope import deployment_scope
+from infra.cache.tiered import get_tiered_cache
 from infra.db.models import Folder
 from infra.db.stores.folder_access_types import FolderTreeRow
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-_FOLDER_TREE_CACHE: dict[int, TtlCacheEntry] = {}
-_FOLDER_PATHS_CACHE: dict[int, TtlCacheEntry] = {}
-_EFFECTIVE_PERMISSIONS_CACHE: dict[tuple[int, uuid.UUID, int], TtlCacheEntry] = {}
-
 
 def clear_hotpath_cache(db: Session | None = None) -> None:
-    if db is None:
-        _FOLDER_TREE_CACHE.clear()
-        _FOLDER_PATHS_CACHE.clear()
-        _EFFECTIVE_PERMISSIONS_CACHE.clear()
-        return
-
-    key = engine_cache_key(db)
-    _FOLDER_TREE_CACHE.pop(key, None)
-    _FOLDER_PATHS_CACHE.pop(key, None)
-    for cache_key in list(_EFFECTIVE_PERMISSIONS_CACHE):
-        if cache_key[0] == key:
-            _EFFECTIVE_PERMISSIONS_CACHE.pop(cache_key, None)
-    db.info.pop("folder_hotpath_cache", None)
+    get_tiered_cache("folder_tree").invalidate()
+    get_tiered_cache("folder_paths").invalidate()
+    get_tiered_cache("effective_permissions").invalidate()
+    if db is not None:
+        db.info.pop("folder_hotpath_cache", None)
 
 
 def get_cached_effective_permissions(
-    process_key: tuple[int, uuid.UUID, int],
+    process_key: tuple[str, uuid.UUID, int],
 ) -> dict[uuid.UUID, int] | None:
-    return get_ttl(_EFFECTIVE_PERMISSIONS_CACHE, process_key)
+    scope, user_id, required = process_key
+    cached = get_tiered_cache("effective_permissions").get(
+        effective_permissions_cache_key(scope, user_id, required)
+    )
+    if cached is None:
+        return None
+    return decode_uuid_int_map(cached)
 
 
 def set_cached_effective_permissions(
-    process_key: tuple[int, uuid.UUID, int],
+    process_key: tuple[str, uuid.UUID, int],
     permissions: dict[uuid.UUID, int],
 ) -> None:
-    set_ttl(
-        _EFFECTIVE_PERMISSIONS_CACHE,
-        process_key,
-        permissions,
+    scope, user_id, required = process_key
+    get_tiered_cache("effective_permissions").set(
+        effective_permissions_cache_key(scope, user_id, required),
+        encode_uuid_int_map(permissions),
         ttl_seconds=S.FOLDER_METADATA_CACHE_TTL_SECONDS,
     )
 
@@ -61,11 +62,14 @@ def cached_folder_tree_rows(db: Session) -> tuple[FolderTreeRow, ...]:
     if request_key in cache:
         return cache[request_key]
 
-    key = engine_cache_key(db)
-    cached = get_ttl(_FOLDER_TREE_CACHE, key)
+    scope = deployment_scope()
+    cache_key = folder_tree_cache_key(scope)
+    tiered = get_tiered_cache("folder_tree")
+    cached = tiered.get(cache_key)
     if cached is not None:
-        cache[request_key] = cached
-        return cached
+        rows = decode_folder_tree_rows(cached)
+        cache[request_key] = rows
+        return rows
 
     rows = tuple(
         FolderTreeRow(id=folder_id, parent_id=parent_id, name=name)
@@ -73,10 +77,9 @@ def cached_folder_tree_rows(db: Session) -> tuple[FolderTreeRow, ...]:
             select(Folder.id, Folder.parent_id, Folder.name)
         ).all()
     )
-    set_ttl(
-        _FOLDER_TREE_CACHE,
-        key,
-        rows,
+    tiered.set(
+        cache_key,
+        encode_folder_tree_rows(rows),
         ttl_seconds=S.FOLDER_METADATA_CACHE_TTL_SECONDS,
     )
     cache[request_key] = rows
@@ -96,17 +99,19 @@ def cached_folder_paths(db: Session) -> dict[uuid.UUID, str]:
     if request_key in cache:
         return cache[request_key]
 
-    key = engine_cache_key(db)
-    cached = get_ttl(_FOLDER_PATHS_CACHE, key)
+    scope = deployment_scope()
+    cache_key = folder_paths_cache_key(scope)
+    tiered = get_tiered_cache("folder_paths")
+    cached = tiered.get(cache_key)
     if cached is not None:
-        cache[request_key] = cached
-        return cached
+        paths = decode_uuid_str_map(cached)
+        cache[request_key] = paths
+        return paths
 
     paths = derive_folder_paths(db)
-    set_ttl(
-        _FOLDER_PATHS_CACHE,
-        key,
-        paths,
+    tiered.set(
+        cache_key,
+        encode_uuid_str_map(paths),
         ttl_seconds=S.FOLDER_METADATA_CACHE_TTL_SECONDS,
     )
     cache[request_key] = paths

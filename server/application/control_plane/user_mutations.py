@@ -3,7 +3,7 @@ import uuid
 from application.context import EventContext
 from application.uow import UnitOfWork
 from domain.exceptions import ConflictError
-from infra.db.models import User
+from ports.entities import User
 from utils.logging import get_logger
 from utils.passwords import hash_password
 

@@ -65,9 +65,8 @@ def record_audit_event(
     blob_id: uuid.UUID | None = None,
     duration_ms: int | None = None,
     metadata: dict | None = None,
-    commit: bool = False,
 ) -> AuditEvent:
-    event = create_audit_event(
+    return create_audit_event(
         db,
         operation=operation,
         status=status,
@@ -80,18 +79,11 @@ def record_audit_event(
         duration_ms=duration_ms,
         metadata=metadata,
     )
-    if commit:
-        db.commit()
-        db.refresh(event)
-    return event
 
 
-def clear_audit_events(db: Session, *, commit: bool = False) -> int:
+def clear_audit_events(db: Session) -> int:
     result = db.execute(delete(AuditEvent))
-    deleted = result.rowcount or 0
-    if commit:
-        db.commit()
-    return deleted
+    return result.rowcount or 0
 
 
 def trim_audit_events_older_than(
@@ -99,15 +91,11 @@ def trim_audit_events_older_than(
     *,
     retention_days: int,
     now: dt.datetime | None = None,
-    commit: bool = False,
 ) -> int:
     effective_now = now or dt.datetime.now(dt.UTC)
     cutoff = effective_now - dt.timedelta(days=retention_days)
     result = db.execute(delete(AuditEvent).where(AuditEvent.created_at < cutoff))
-    deleted = result.rowcount or 0
-    if commit:
-        db.commit()
-    return deleted
+    return result.rowcount or 0
 
 
 def list_audit_events(

@@ -21,7 +21,7 @@ from infra.gateway.object_multipart import (
 )
 from infra.gateway.object_types import CopyObjectResult, DeleteObjectResult, PutObjectResult
 from application.uow import UnitOfWork
-from infra.db.models import MultipartUpload, User
+from ports.entities import MultipartUpload, User
 
 
 def put_object(
@@ -108,6 +108,7 @@ def create_multipart_upload(
 ) -> MultipartUpload:
     return object_multipart.create_multipart_upload(
         uow.session,
+        storage=uow.storage,
         multipart_store=uow.multipart,
         bucket_name=bucket_name,
         key=key,

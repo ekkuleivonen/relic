@@ -3,8 +3,14 @@ import hashlib
 import io
 from typing import BinaryIO
 
-from domain.blobs.sniff import sniff_blob_attributes
+from constants import FILE_INFO_PREFIX_BYTES
+from domain.blobs.sniff import (
+    detect_mime_type,
+    extension_from_filename,
+    sniff_blob_attributes,
+)
 from domain.exceptions import BadRequestError, ConflictError
+from ports.storage_policy import enforce_max_object_bytes
 from infra.db.models import Blob, Bucket
 from ports.storage_registry import StorageRegistry
 from sqlalchemy import select
@@ -35,10 +41,13 @@ def prepare_body(
     if isinstance(body, bytes):
         digest = content_hash or hashlib.sha256(body).digest()
         object_size = size_bytes if size_bytes is not None else len(body)
+        enforce_max_object_bytes(size_bytes=object_size)
         return io.BytesIO(body), digest, object_size
 
     if content_hash is None or size_bytes is None:
         raise BadRequestError("Streaming uploads must provide content hash and size")
+
+    enforce_max_object_bytes(size_bytes=size_bytes)
 
     body.seek(0)
     return body, content_hash, size_bytes
@@ -78,6 +87,47 @@ def create_blob(
         bucket=bucket,
         bucket_key=blob.bucket_key,
         body=body,
+    )
+    remote_latency_ms = elapsed_ms(remote_started, minimum=0)
+
+    adjust_bucket_usage_cache(
+        bucket.id, object_count_delta=1, size_bytes_delta=size_bytes
+    )
+    return CreateBlobResult(blob=blob, remote_latency_ms=remote_latency_ms)
+
+
+def create_composed_blob(
+    db: Session,
+    *,
+    storage: StorageRegistry,
+    bucket: Bucket,
+    digest: bytes,
+    size_bytes: int,
+    filename: str,
+    source_keys: list[str],
+    prefix: bytes,
+) -> CreateBlobResult:
+    blob = Blob(
+        bucket_id=bucket.id,
+        bucket_key="",
+        content_hash=digest,
+        size_bytes=size_bytes,
+        mimetype=detect_mime_type(
+            prefix=prefix[:FILE_INFO_PREFIX_BYTES],
+            filename=filename,
+        ),
+        extension=extension_from_filename(filename),
+        refcount=1,
+    )
+    db.add(blob)
+    db.flush()
+
+    blob.bucket_key = build_blob_bucket_key(blob)
+    remote_started = timer_start()
+    storage.for_bucket(bucket).compose_parts(
+        bucket=bucket.bucket,
+        dest_key=blob.bucket_key,
+        source_keys=source_keys,
     )
     remote_latency_ms = elapsed_ms(remote_started, minimum=0)
 

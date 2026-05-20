@@ -91,15 +91,19 @@ vs infrastructure). **`services/` is deleted**; bounded contexts live under
 | `folder_access` in infra | **Done** — `infra/db/stores/folder_access.py` + `infra/cache/folder_access.py` |
 | `SearchStore` dialect split | **Done** — Postgres vs portable |
 | `StorageRegistry` per bucket | **Done** — S3 + filesystem + `StorageKind` |
+| `StorageCapabilities` enforced | **Done** — `ports/storage_policy.py`; put + multipart in `infra/gateway` |
 | Maintenance on UoW | **Done** — purge/probe/rebalance/migrate |
 | SigV4 in infra | **Done** — `infra/auth/s3_signing.py` |
 | Tests via Alembic | **Done** — `tests/db.py` + shared `conftest.py` |
 | Dual API file delete | **Done** — `DELETE /api/files/{id}` + S3 `DeleteObject` share removal use case |
 | Dual API file bytes | **By design** — gateway bytes + `/api/uploads` presign to gateway URLs |
-| Application fake-store tests | **Started** — `tests/unit/application/`, `tests/fakes/` |
-| Read routes on `UnitOfWorkDep` | **Done** — HTTP handlers use `UnitOfWorkDep`; read use cases take `uow.session` or `uow` stores |
-| Gateway session I/O in infra | **Done** — `infra/gateway/*` (writes, reads, listing, multipart, paths); `application/gateway/` keeps `object_mutations`, `delete_object`, signing shims |
-| Zero SQLAlchemy in `application/` | **Done** — blob lifecycle jobs in `infra/maintenance/storage.py`; `UnitOfWork` protocol in `ports/uow.py` |
+| Application fake-store tests | **Done** — `test_remove_file`, `test_gateway_put_object`, `test_storage_policy` |
+| Read routes via application | **Done** — `browse_filesystem`, `list_folder_access`, `s3_listing`, `session_auth`, `presigned_access` |
+| API imports application for orchestration | **Done** — routes call `application.*`; infra only for XML/helpers |
+| No `infra.db.models` in `application/` | **Done** — use `ports.entities` |
+| Infra stores defer commit to UoW | **Done** — no `commit=` on folder_access / audit / access_keys |
+| Gateway session I/O in infra | **Done** — `infra/gateway/*`; `application/gateway/` façade + signing re-export |
+| `UnitOfWork` protocol in `ports/uow.py` | **Done** |
 
 ### Original pain points (for context)
 

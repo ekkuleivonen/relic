@@ -7,8 +7,8 @@ from composition import build_uow
 from infra.db.engine import DbSession
 from enums import UserRole
 from fastapi import Cookie, Depends, HTTPException, status
-from infra.db.models import User
-from infra.db.stores import auth
+from application.control_plane import session_auth
+from ports.entities import User
 
 
 def get_uow(db: DbSession) -> Generator[UnitOfWork, None, None]:
@@ -27,7 +27,7 @@ def require_user(
     uow: Annotated[UnitOfWork, Depends(get_uow)],
     session_token: Annotated[str | None, Cookie(alias=S.SESSION_COOKIE_NAME)] = None,
 ) -> User:
-    user = auth.get_session_user(uow.session, session_token)
+    user = session_auth.get_session_user(uow, session_token)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

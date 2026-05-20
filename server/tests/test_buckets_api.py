@@ -12,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from tests.factories.models import BlobFactory, BucketFactory
 from utils.passwords import hash_password
+from utils.secrets import MASKED_SECRET
 
 
 
@@ -51,14 +52,15 @@ def bucket_payload(name: str = "garage-hot") -> dict:
 
 
 def test_create_and_list_buckets(client):
-    create_response = client.post("/api/buckets/", json=bucket_payload())
+    payload = bucket_payload()
+    create_response = client.post("/api/buckets/", json=payload)
 
     assert create_response.status_code == 200
     created = create_response.json()
     assert created["name"] == "garage-hot"
     assert created["bucket"] == "blobs"
-    assert created["key_id"].startswith("GK")
-    assert created["secret_access_key"].startswith("secret-")
+    assert created["key_id"] == "****" + payload["key_id"][-4:]
+    assert created["secret_access_key"] == MASKED_SECRET
     assert created["max_size_bytes"] == 1_000_000_000
     assert created["object_count"] == 0
     assert created["current_size_bytes"] == 0
@@ -118,6 +120,21 @@ def test_bucket_usage_is_derived_from_blobs(client, db_session):
     body = response.json()
     assert body["object_count"] == 2
     assert body["current_size_bytes"] == 42
+
+
+def test_bucket_read_responses_mask_credentials(client):
+    payload = bucket_payload()
+    bucket_id = client.post("/api/buckets/", json=payload).json()["id"]
+
+    get_response = client.get(f"/api/buckets/{bucket_id}")
+    listed = client.get("/api/buckets/").json()
+
+    assert get_response.status_code == 200
+    body = get_response.json()
+    assert body["key_id"] == "****" + payload["key_id"][-4:]
+    assert body["secret_access_key"] == MASKED_SECRET
+    assert payload["secret_access_key"] not in body["secret_access_key"]
+    assert listed[0]["secret_access_key"] == MASKED_SECRET
 
 
 def test_bucket_credentials_are_encrypted_at_rest(client, db_session):

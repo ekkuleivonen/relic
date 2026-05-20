@@ -5,7 +5,7 @@ from application.uow import UnitOfWork
 from domain.exceptions import BadRequestError
 from domain.files.meta import patch_meta
 from enums import Permission
-from infra.db.models import File
+from ports.entities import File
 
 
 def patch_file_meta(

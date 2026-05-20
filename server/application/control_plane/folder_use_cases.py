@@ -4,7 +4,7 @@ from application.context import Actor
 from application.control_plane.folders import FolderResult
 from application.uow import UnitOfWork
 from domain.exceptions import BadRequestError
-from infra.db.models import Folder
+from ports.entities import Folder
 
 
 def validate_folder_name(name: str) -> str:

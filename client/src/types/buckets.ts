@@ -4,7 +4,9 @@ export type Bucket = {
   endpoint: string
   region: string
   bucket: string
+  /** Masked on read (last four characters visible). */
   key_id: string
+  /** Always masked on read; supply a new value via update to rotate. */
   secret_access_key: string
   max_size_bytes: number
   object_count: number

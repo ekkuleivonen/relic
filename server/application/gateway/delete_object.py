@@ -6,7 +6,7 @@ from infra.gateway.object_paths import resolve_existing_object_path
 from infra.gateway.object_types import DeleteObjectResult
 from application.uow import UnitOfWork
 from enums import Permission
-from infra.db.models import User
+from ports.entities import User
 
 
 def delete_object(

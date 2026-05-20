@@ -30,7 +30,7 @@ import {
   useUpdateBucket,
 } from "@/hooks/use-buckets"
 import { useBlobGc } from "@/hooks/use-blobs"
-import type { Bucket, BucketCreateInput } from "@/types/buckets"
+import type { Bucket, BucketCreateInput, BucketUpdateInput } from "@/types/buckets"
 
 export function BucketsPage() {
   const bucketsQuery = useBuckets()
@@ -58,17 +58,23 @@ export function BucketsPage() {
       return
     }
 
+    const input: BucketUpdateInput = {
+      name: values.name,
+      endpoint: values.endpoint,
+      region: values.region,
+      bucket: values.bucket,
+      max_size_bytes: values.max_size_bytes,
+    }
+    if (values.key_id.trim()) {
+      input.key_id = values.key_id.trim()
+    }
+    if (values.secret_access_key.trim()) {
+      input.secret_access_key = values.secret_access_key.trim()
+    }
+
     await updateBucket.mutateAsync({
       bucketId: editingBucket.id,
-      input: {
-        name: values.name,
-        endpoint: values.endpoint,
-        region: values.region,
-        bucket: values.bucket,
-        key_id: values.key_id,
-        secret_access_key: values.secret_access_key,
-        max_size_bytes: values.max_size_bytes,
-      },
+      input,
     })
     setEditingBucket(null)
   }

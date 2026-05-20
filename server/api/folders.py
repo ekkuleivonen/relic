@@ -1,6 +1,7 @@
 import uuid
 
 from api.dependencies import AdminUser, CurrentUser, UnitOfWorkDep
+from application.uow import UnitOfWork
 from application.context import Actor
 from application.control_plane.bucket_mutations import (
     create_bucket as create_bucket_use_case,
@@ -20,11 +21,10 @@ from application.control_plane.grant_folder_access import (
 from application.control_plane.update_folder import update_folder as update_folder_use_case
 from enums import UserRole
 from fastapi import APIRouter, Request, Response, status
-from infra.db.models import Folder, User
-from sqlalchemy.orm import Session
+from ports.entities import Folder, User
 from pydantic import BaseModel, ConfigDict, Field
-from infra.db.stores import filesystem
-from infra.db.stores.placement import effective_preferred_bucket_id
+from application.control_plane import browse_filesystem
+from application.control_plane.folder_placement import effective_preferred_bucket_id
 
 router = APIRouter()
 
@@ -52,7 +52,7 @@ class FolderRead(BaseModel):
     @classmethod
     def from_result(
         cls,
-        session: Session,
+        uow: UnitOfWork,
         result: FolderResult,
         *,
         user: User,
@@ -74,7 +74,7 @@ class FolderRead(BaseModel):
             effective_permissions=result.effective_permissions,
             preferred_bucket_id=result.folder.preferred_bucket_id,
             effective_preferred_bucket_id=effective_preferred_bucket_id(
-                session, result.folder
+                uow, result.folder
             ),
         )
 
@@ -128,7 +128,7 @@ class FolderStatsRead(BaseModel):
 
 
 def _folder_to_tree_read(
-    session: Session,
+    uow: UnitOfWork,
     folder: Folder,
     *,
     include_storage_policy: bool,
@@ -141,7 +141,7 @@ def _folder_to_tree_read(
         effective_permissions=folder.effective_permissions,
         children=[
             _folder_to_tree_read(
-                session, child, include_storage_policy=include_storage_policy
+                uow, child, include_storage_policy=include_storage_policy
             )
             for child in folder.children
         ],
@@ -149,7 +149,7 @@ def _folder_to_tree_read(
             folder.preferred_bucket_id if include_storage_policy else None
         ),
         effective_preferred_bucket_id=(
-            effective_preferred_bucket_id(session, folder)
+            effective_preferred_bucket_id(uow, folder)
             if include_storage_policy
             else None
         ),
@@ -168,11 +168,9 @@ async def get_folder_tree(
     Convenience for UI navigation; equivalent to walking list_folders.
     Query params: ?root_id=<uuid> to subtree from a specific folder.
     """
-    root = filesystem.get_folder_tree(uow.session, current_user, root_id)
+    root = browse_filesystem.get_folder_tree(uow, current_user, root_id=root_id)
     include_storage = current_user.role == UserRole.ADMIN
-    return _folder_to_tree_read(
-        uow.session, root, include_storage_policy=include_storage
-    )
+    return _folder_to_tree_read(uow, root, include_storage_policy=include_storage)
 
 
 @router.get("/{folder_id}/stats")
@@ -187,8 +185,8 @@ async def get_folder_stats(
     logical size in bytes (sum of blob sizes per file row, no dedupe).
     Caller needs READ on the folder.
     """
-    stats = filesystem.get_folder_stats(
-        uow.session, current_user, folder_id=folder_id
+    stats = browse_filesystem.get_folder_stats(
+        uow, current_user, folder_id=folder_id
     )
     return FolderStatsRead(
         folder_id=stats.folder_id,
@@ -218,7 +216,7 @@ async def create_folder(
         parent_id=payload.parent_id,
         name=payload.name,
     )
-    return FolderRead.from_result(uow.session, result, user=current_user)
+    return FolderRead.from_result(uow, result, user=current_user)
 
 
 @router.patch("/{folder_id}")
@@ -243,7 +241,7 @@ async def update_folder(
         preferred_bucket_id=payload.preferred_bucket_id,
         set_preferred_bucket_id="preferred_bucket_id" in payload.model_fields_set,
     )
-    return FolderRead.from_result(uow.session, result, user=current_user)
+    return FolderRead.from_result(uow, result, user=current_user)
 
 
 @router.delete("/{folder_id}")
@@ -293,4 +291,4 @@ async def copy_folder(
         name=payload.name,
         recursive=payload.recursive,
     )
-    return FolderRead.from_result(uow.session, result, user=current_user)
+    return FolderRead.from_result(uow, result, user=current_user)

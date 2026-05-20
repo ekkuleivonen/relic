@@ -1,7 +1,7 @@
 import uuid
 from dataclasses import dataclass
 
-from infra.db.models import Folder
+from ports.entities import Folder
 
 
 @dataclass(frozen=True)

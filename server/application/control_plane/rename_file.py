@@ -4,7 +4,7 @@ from application.context import Actor
 from application.uow import UnitOfWork
 from domain.files.naming import normalize_requested_file_name
 from enums import Permission
-from infra.db.models import File
+from ports.entities import File
 
 
 def rename_file(

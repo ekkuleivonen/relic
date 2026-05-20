@@ -2,6 +2,8 @@ import uuid
 from collections import defaultdict
 
 from domain.exceptions import ConflictError, ResourceNotFound
+from domain.filesystem.tree import collect_descendant_ids, index_children
+from infra.cache.folder_access import cached_folder_tree_rows
 from infra.db.models import Folder
 from ports.repositories.folders import FolderStore
 from sqlalchemy import delete, select
@@ -53,18 +55,12 @@ class SqlAlchemyFolderStore:
             raise ConflictError("A folder with that name already exists here.")
 
     def collect_descendant_ids(self, folder_id: uuid.UUID) -> list[uuid.UUID]:
-        rows = self._session.execute(select(Folder.id, Folder.parent_id)).all()
-        children_by_parent: dict[uuid.UUID | None, list[uuid.UUID]] = defaultdict(list)
-        for child_id, parent_id in rows:
-            children_by_parent[parent_id].append(child_id)
-
-        descendants: list[uuid.UUID] = []
-        queue = list(children_by_parent.get(folder_id, []))
-        while queue:
-            current = queue.pop(0)
-            descendants.append(current)
-            queue.extend(children_by_parent.get(current, []))
-        return descendants
+        rows = cached_folder_tree_rows(self._session)
+        return collect_descendant_ids(
+            folder_id,
+            index_children(rows),
+            include_root=False,
+        )
 
     def children_by_parent(self) -> dict[uuid.UUID, list[Folder]]:
         folders = list(

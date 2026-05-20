@@ -1,4 +1,5 @@
 import datetime as dt
+import json
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -8,19 +9,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from domain.exceptions import ResourceNotFound
+from infra.cache.codec import access_key_cache_key
+from infra.cache.hotpath import TtlCacheEntry, get_ttl, monotonic_now, set_ttl
+from infra.cache.scope import deployment_scope
+from infra.cache.tiered import get_tiered_cache
 from infra.db.models import AccessKey, User
-from infra.cache.hotpath import (
-    TtlCacheEntry,
-    engine_cache_key,
-    get_ttl,
-    monotonic_now,
-    set_ttl,
-)
 from utils.logging import get_logger
 
 log = get_logger(__name__)
 
-_ACTIVE_ACCESS_KEY_CACHE: dict[tuple[int, str], TtlCacheEntry] = {}
 _LAST_USED_WRITE_CACHE: dict[tuple[int, uuid.UUID], TtlCacheEntry] = {}
 
 
@@ -41,6 +38,26 @@ class ActiveAccessKeyCredentials:
     access_key_id: uuid.UUID
     user_id: uuid.UUID
     secret_access_key: str
+
+
+def _encode_access_key_credentials(
+    credentials: ActiveAccessKeyCredentials,
+) -> bytes:
+    payload = {
+        "access_key_id": str(credentials.access_key_id),
+        "user_id": str(credentials.user_id),
+        "secret_access_key": credentials.secret_access_key,
+    }
+    return json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+
+def _decode_access_key_credentials(value: bytes) -> ActiveAccessKeyCredentials:
+    payload = json.loads(value.decode("utf-8"))
+    return ActiveAccessKeyCredentials(
+        access_key_id=uuid.UUID(payload["access_key_id"]),
+        user_id=uuid.UUID(payload["user_id"]),
+        secret_access_key=payload["secret_access_key"],
+    )
 
 
 def list_access_keys(db: Session) -> list[AccessKeyRow]:
@@ -74,10 +91,12 @@ def get_active_access_key_by_key_id(db: Session, key_id: str) -> AccessKeyRow:
 def get_active_access_key_credentials_by_key_id(
     db: Session, key_id: str
 ) -> ActiveAccessKeyCredentials:
-    cache_key = (engine_cache_key(db), key_id)
-    cached = get_ttl(_ACTIVE_ACCESS_KEY_CACHE, cache_key)
+    scope = deployment_scope()
+    cache = get_tiered_cache("access_key_active")
+    cache_key = access_key_cache_key(scope, key_id)
+    cached = cache.get(cache_key)
     if cached is not None:
-        return cached
+        return _decode_access_key_credentials(cached)
 
     row = get_active_access_key_by_key_id(db, key_id)
     credentials = ActiveAccessKeyCredentials(
@@ -85,22 +104,20 @@ def get_active_access_key_credentials_by_key_id(
         user_id=row.user.id,
         secret_access_key=row.access_key.secret_access_key,
     )
-    return set_ttl(
-        _ACTIVE_ACCESS_KEY_CACHE,
+    cache.set(
         cache_key,
-        credentials,
+        _encode_access_key_credentials(credentials),
         ttl_seconds=S.S3_ACCESS_KEY_CACHE_TTL_SECONDS,
     )
+    return credentials
 
 
 def mark_access_key_used(db: Session, access_key: AccessKey) -> None:
     mark_access_key_used_by_id(db, access_key.id)
 
 
-def mark_access_key_used_by_id(
-    db: Session, access_key_id: uuid.UUID, *, commit: bool = False
-) -> None:
-    cache_key = (engine_cache_key(db), access_key_id)
+def mark_access_key_used_by_id(db: Session, access_key_id: uuid.UUID) -> None:
+    cache_key = (id(db.get_bind()), access_key_id)
     if get_ttl(_LAST_USED_WRITE_CACHE, cache_key) is not None:
         return
 
@@ -109,8 +126,6 @@ def mark_access_key_used_by_id(
         return
 
     access_key.last_used_at = dt.datetime.now(dt.UTC)
-    if commit:
-        db.commit()
     set_ttl(
         _LAST_USED_WRITE_CACHE,
         cache_key,
@@ -121,10 +136,12 @@ def mark_access_key_used_by_id(
 
 
 def clear_access_key_hotpath_cache(db: Session, key_id: str | None = None) -> None:
-    engine_key = engine_cache_key(db)
-    for cache_key in list(_ACTIVE_ACCESS_KEY_CACHE):
-        if cache_key[0] == engine_key and (key_id is None or cache_key[1] == key_id):
-            _ACTIVE_ACCESS_KEY_CACHE.pop(cache_key, None)
+    cache = get_tiered_cache("access_key_active")
+    scope = deployment_scope()
+    if key_id is None:
+        cache.invalidate()
+        return
+    cache.invalidate_key(access_key_cache_key(scope, key_id))
 
 
 def generate_key_id() -> str:

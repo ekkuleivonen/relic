@@ -1,7 +1,11 @@
 import uuid
 
 from constants import FOLDER_ACCESS_ALL_PERMISSIONS
-from domain.filesystem.tree import FolderTreeNode
+from domain.filesystem.tree import (
+    FolderTreeNode,
+    collect_descendant_ids,
+    index_children,
+)
 from domain.permissions.effective import compute_effective_permissions
 from domain.permissions.grants import validate_folder_permissions
 from domain.permissions.visibility import visible_folder_ids
@@ -51,3 +55,18 @@ def test_visible_folder_ids_expands_read_grants_to_descendants():
     nodes, _root, child, grand = _tree()
     visible = visible_folder_ids(nodes, [child], is_admin=False)
     assert visible == {child, grand}
+
+
+def test_collect_descendant_ids_can_include_or_exclude_root():
+    nodes, root, child, grand = _tree()
+    children = index_children(nodes)
+
+    assert collect_descendant_ids(root, children, include_root=True) == [
+        root,
+        child,
+        grand,
+    ]
+    assert collect_descendant_ids(root, children, include_root=False) == [
+        child,
+        grand,
+    ]

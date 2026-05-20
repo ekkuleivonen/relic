@@ -7,7 +7,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.dependencies import AdminUser, UnitOfWorkDep
 from api.users import UserRead
 from application.context import context_from_headers
-from infra.db.stores import access_keys
+from application.control_plane.access_keys_queries import (
+    get_access_key_by_key_id as get_access_key_by_key_id_use_case,
+    list_access_keys as list_access_keys_use_case,
+)
 from application.control_plane.access_key_mutations import (
     create_access_key as create_access_key_use_case,
     delete_access_key as delete_access_key_use_case,
@@ -84,7 +87,7 @@ async def list_access_keys(uow: UnitOfWorkDep) -> list[AccessKeyRead]:
     Self sees own keys; admin sees all.
     Never returns the secret, only key_id, name, last_used_at, revoked_at.
     """
-    return [AccessKeyRead.from_row(row) for row in access_keys.list_access_keys(uow.session)]
+    return [AccessKeyRead.from_row(row) for row in list_access_keys_use_case(uow)]
 
 
 @router.post("/")
@@ -118,7 +121,7 @@ async def get_access_key(key_id: str, uow: UnitOfWorkDep) -> AccessKeyRead:
     GET /access-keys/{id} -> metadata for one key.
     Self for own; admin for any. Secret never included.
     """
-    return AccessKeyRead.from_row(access_keys.get_access_key_by_key_id(uow.session, key_id))
+    return AccessKeyRead.from_row(get_access_key_by_key_id_use_case(uow, key_id))
 
 
 @router.post("/{key_id}/revoke")

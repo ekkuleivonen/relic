@@ -101,6 +101,10 @@ UPLOAD_SPOOL_MAX_MEMORY_BYTES: int = env.int(
     "UPLOAD_SPOOL_MAX_MEMORY_BYTES",
     default=8 * 1024 * 1024,
 )
+MAX_OBJECT_BYTES: int = env.int(
+    "MAX_OBJECT_BYTES",
+    default=5 * 1024 * 1024 * 1024,
+)
 S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS: int = env.int(
     "S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS",
     default=24,
@@ -132,6 +136,18 @@ REDIS_PASSWORD: str = env.str("REDIS_PASSWORD", default="replace_me")
 MAINTENANCE_QUEUE_NAME: str = env.str(
     "MAINTENANCE_QUEUE_NAME",
     default="relic:maintenance",
+)
+MAINTENANCE_HEARTBEAT_TTL_SECONDS: int = env.int(
+    "MAINTENANCE_HEARTBEAT_TTL_SECONDS",
+    default=180,
+)
+MAINTENANCE_HEARTBEAT_STALE_SECONDS: int = env.int(
+    "MAINTENANCE_HEARTBEAT_STALE_SECONDS",
+    default=120,
+)
+MAINTENANCE_HEARTBEAT_REQUIRED: bool = env.bool(
+    "MAINTENANCE_HEARTBEAT_REQUIRED",
+    default=False,
 )
 
 # Storage maintenance (arq cron + jobs; see workers/maintenance.py)
@@ -188,6 +204,11 @@ STORAGE_PROMOTE_BATCH: int = env.int("STORAGE_PROMOTE_BATCH", default=24)
 # Hotness ranking averages over the last N successful probes per bucket so a
 # single noisy sample can't reorder buckets.
 PROBE_RANKING_WINDOW: int = env.int("PROBE_RANKING_WINDOW", default=3)
+# When true, choose_bucket skips buckets with no recent successful probe.
+PLACEMENT_REQUIRE_REACHABLE_BUCKET: bool = env.bool(
+    "PLACEMENT_REQUIRE_REACHABLE_BUCKET",
+    default=True,
+)
 # How long we keep historical bucket_probes rows (trimmed by maintenance cron).
 PROBES_RETENTION_DAYS: int = env.int("PROBES_RETENTION_DAYS", default=14)
 

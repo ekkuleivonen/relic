@@ -3,13 +3,11 @@ import uuid
 from typing import Literal
 
 import settings as S
-from enums import Permission
 from fastapi import APIRouter, Request
 from domain.exceptions import BadRequestError
 from pydantic import BaseModel, ConfigDict, Field
-from infra.db.stores import folder_access
-from infra.db.stores import file_access
-from infra.gateway import object_paths
+from application.context import Actor
+from application.control_plane import presigned_access
 from application.gateway import object_mutations
 from application.gateway import object_signing
 
@@ -63,15 +61,12 @@ async def presign_upload(
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> PresignUploadResponse:
-    folder = folder_access.require_folder(uow.session, payload.folder_id)
-    folder_access.require_folder_permission_strict(
-        uow.session,
-        current_user,
-        folder.id,
-        Permission.WRITE,
+    actor = Actor.from_user(current_user)
+    folder = presigned_access.require_folder_for_write(
+        uow, actor=actor, folder_id=payload.folder_id
     )
-    bucket, key = object_paths.build_bucket_and_key_for_destination(
-        uow.session, folder=folder, filename=payload.filename
+    bucket, key = presigned_access.bucket_and_key_for_destination(
+        uow, folder=folder, filename=payload.filename
     )
     user_metadata = normalize_user_metadata(payload.meta)
     signed = object_signing.sign_put_url(
@@ -99,10 +94,9 @@ async def presign_delete(
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> PresignUploadResponse:
-    file = file_access.get_file_for_user(
-        uow.session, payload.file_id, current_user, Permission.DELETE
-    )
-    bucket, key = object_paths.build_bucket_and_key_for_file(uow.session, file)
+    actor = Actor.from_user(current_user)
+    file = presigned_access.get_file_for_delete(uow, actor=actor, file_id=payload.file_id)
+    bucket, key = presigned_access.bucket_and_key_for_file(uow, file)
     signed = object_signing.sign_delete_url(
         bucket=bucket,
         key=key,
@@ -124,10 +118,9 @@ async def presign_download(
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> PresignUploadResponse:
-    file = file_access.get_file_for_user(
-        uow.session, payload.file_id, current_user, Permission.READ
-    )
-    bucket, key = object_paths.build_bucket_and_key_for_file(uow.session, file)
+    actor = Actor.from_user(current_user)
+    file = presigned_access.get_file_for_read(uow, actor=actor, file_id=payload.file_id)
+    bucket, key = presigned_access.bucket_and_key_for_file(uow, file)
     blob = file.blob
     if blob is not None:
         object_mutations.touch_blob_access(uow, blob)
@@ -152,22 +145,20 @@ async def presign_copy(
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> PresignUploadResponse:
-    source_file = file_access.get_file_for_user(
-        uow.session, payload.source_file_id, current_user, Permission.READ
+    actor = Actor.from_user(current_user)
+    source_file = presigned_access.get_file_for_read(
+        uow, actor=actor, file_id=payload.source_file_id
     )
-    dest_folder = folder_access.require_folder(
-        uow.session, payload.destination_folder_id
-    )
-    folder_access.require_folder_permission_strict(
-        uow.session, current_user, dest_folder.id, Permission.WRITE
+    dest_folder = presigned_access.require_folder_for_write(
+        uow, actor=actor, folder_id=payload.destination_folder_id
     )
 
     dest_filename = payload.name or source_file.name
-    source_bucket, source_key = object_paths.build_bucket_and_key_for_file(
-        uow.session, source_file
+    source_bucket, source_key = presigned_access.bucket_and_key_for_file(
+        uow, source_file
     )
-    dest_bucket, dest_key = object_paths.build_bucket_and_key_for_destination(
-        uow.session, folder=dest_folder, filename=dest_filename
+    dest_bucket, dest_key = presigned_access.bucket_and_key_for_destination(
+        uow, folder=dest_folder, filename=dest_filename
     )
 
     if source_bucket == dest_bucket and source_key == dest_key:

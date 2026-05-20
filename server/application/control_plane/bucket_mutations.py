@@ -7,7 +7,7 @@ from infra.db.stores.bucket_reads import BucketProbeResult
 from infra.db.stores.placement import clear_bucket_usage_cache
 from application.uow import UnitOfWork
 from domain.exceptions import ConflictError
-from infra.db.models import Bucket
+from ports.entities import Bucket
 from utils.logging import get_logger
 from utils.timing import elapsed_ms, latency_metadata, timer_start
 

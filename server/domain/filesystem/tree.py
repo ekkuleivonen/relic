@@ -52,3 +52,18 @@ def descendant_folder_ids(
         visible.add(folder_id)
         queue.extend(children_by_parent.get(folder_id, []))
     return visible
+
+
+def collect_descendant_ids(
+    root_id: uuid.UUID,
+    children_by_parent: Mapping[uuid.UUID | None, list[uuid.UUID]],
+    *,
+    include_root: bool,
+) -> list[uuid.UUID]:
+    folder_ids = [root_id] if include_root else []
+    queue = list(children_by_parent.get(root_id, []))
+    while queue:
+        folder_id = queue.pop(0)
+        folder_ids.append(folder_id)
+        queue.extend(children_by_parent.get(folder_id, []))
+    return folder_ids

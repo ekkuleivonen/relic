@@ -31,6 +31,7 @@ from typing import Any
 
 import settings as S
 from botocore.exceptions import BotoCoreError, ClientError
+from infra import metrics
 from infra.db.models import Blob, Bucket, File
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -195,8 +196,10 @@ def probe_all_buckets(
             }
             if result.reachable:
                 ok += 1
+                metrics.observe_bucket_probe(status="succeeded")
             else:
                 failed += 1
+                metrics.observe_bucket_probe(status="failed")
                 uow.audit.emit(
                     job="bucket_probe",
                     operation="bucket.probe_failed",
@@ -208,6 +211,7 @@ def probe_all_buckets(
                 )
         except Exception as exc:
             failed += 1
+            metrics.observe_bucket_probe(status="failed")
             uow.audit.emit(
                 job="bucket_probe",
                 operation="bucket.probe_failed",

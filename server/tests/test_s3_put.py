@@ -155,6 +155,53 @@ def test_choose_bucket_falls_back_when_preferred_is_full(db_session):
     assert chosen.id == fallback.id
 
 
+def test_choose_bucket_skips_unreachable_buckets(db_session):
+    unreachable = add_bucket(db_session, name="unprobed")
+    reachable = add_bucket(db_session, name="reachable")
+    mark_healthy(reachable, db_session=db_session)
+    db_session.commit()
+
+    chosen = choose_bucket(db_session, size_bytes=1)
+
+    assert chosen.id == reachable.id
+    assert chosen.id != unreachable.id
+
+
+def test_choose_bucket_raises_when_no_reachable_buckets(db_session):
+    add_bucket(db_session, name="unprobed")
+    db_session.commit()
+
+    with pytest.raises(ConflictError, match="No reachable buckets"):
+        choose_bucket(db_session, size_bytes=1)
+
+
+def test_choose_bucket_allows_unreachable_when_disabled(db_session, monkeypatch):
+    import settings as S
+
+    monkeypatch.setattr(S, "PLACEMENT_REQUIRE_REACHABLE_BUCKET", False)
+    bucket = add_bucket(db_session, name="bootstrap")
+    db_session.commit()
+
+    chosen = choose_bucket(db_session, size_bytes=1)
+
+    assert chosen.id == bucket.id
+
+
+def test_choose_bucket_skips_unreachable_preferred_bucket(db_session):
+    preferred = add_bucket(db_session, name="preferred")
+    fallback = add_bucket(db_session, name="fallback")
+    mark_healthy(fallback, 100, db_session=db_session)
+    db_session.commit()
+
+    chosen = choose_bucket(
+        db_session,
+        size_bytes=1,
+        preferred_bucket_id=preferred.id,
+    )
+
+    assert chosen.id == fallback.id
+
+
 def test_put_object_uploads_new_blob_and_creates_file(
     db_session, bucket_folder, monkeypatch, storage_registry
 ):

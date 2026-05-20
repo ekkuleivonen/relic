@@ -5,18 +5,22 @@ from dataclasses import dataclass
 from typing import BinaryIO
 
 import settings as S
+from constants import FILE_INFO_PREFIX_BYTES
 from constants import S3_MULTIPART_MAX_PART_NUMBER, S3_MULTIPART_MIN_PART_NUMBER
 from enums import Permission
+from domain.files.meta import normalize_ingest_meta
 from domain.exceptions import BadRequestError, ResourceNotFound
-from infra.db.models import MultipartUpload, MultipartUploadPart, User
+from infra.db.models import Blob, File, MultipartUpload, MultipartUploadPart, User
 from ports.repositories.multipart import MultipartStore
 from ports.storage_registry import StorageRegistry
+from ports.storage_policy import enforce_max_object_bytes, enforce_multipart
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 from utils.logging import get_logger
 
 from infra.db.stores import folder_access
 from infra.gateway import blob_storage
+from infra.gateway import object_blobs
 from infra.gateway import object_paths
 from infra.gateway import object_writes
 from infra.db.stores.placement import choose_bucket, effective_preferred_bucket_id
@@ -57,6 +61,7 @@ class MultipartPartListPage:
 def create_multipart_upload(
     db: Session,
     *,
+    storage: StorageRegistry,
     multipart_store: MultipartStore,
     bucket_name: str,
     key: str,
@@ -80,6 +85,7 @@ def create_multipart_upload(
         size_bytes=0,
         preferred_bucket_id=effective_preferred_bucket_id(db, folder),
     )
+    enforce_multipart(caps=storage.for_bucket(storage_bucket).capabilities)
     upload = MultipartUpload(
         bucket_name=bucket_name,
         object_key=object_paths.normalize_key(key),
@@ -112,7 +118,14 @@ def upload_part(
         bucket_name=bucket_name,
         key=key,
         current_user=current_user,
+        with_parts=True,
     )
+    projected_total = size_bytes + sum(
+        part.size_bytes
+        for part in upload.parts
+        if part.part_number != part_number
+    )
+    enforce_max_object_bytes(size_bytes=projected_total)
     storage_bucket = upload.storage_bucket
     bucket_key = build_part_bucket_key(upload.id, part_number)
     etag = content_md5.hex()
@@ -170,50 +183,45 @@ def complete_multipart_upload(
     if not requested_parts:
         raise BadRequestError("CompleteMultipartUpload requires at least one part")
 
-    by_part_number = {part.part_number: part for part in upload.parts}
-    assembled = tempfile.SpooledTemporaryFile(max_size=S.UPLOAD_SPOOL_MAX_MEMORY_BYTES)
-    digest = hashlib.sha256()
-    total_size = 0
-    ordered_parts: list[MultipartUploadPart] = []
-
-    for requested in requested_parts:
-        validate_part_number(requested.part_number)
-        part = by_part_number.get(requested.part_number)
-        if part is None:
-            raise BadRequestError(f"Part {requested.part_number} has not been uploaded")
-        if requested.etag is not None and normalize_etag(requested.etag) != part.etag:
-            raise BadRequestError(f"ETag mismatch for part {requested.part_number}")
-        ordered_parts.append(part)
-
-    for part in ordered_parts:
-        boto_response = blob_storage.fetch_blob_bytes(
-            storage=storage,
-            bucket=upload.storage_bucket,
-            bucket_key=part.bucket_key,
-        )
-        stream = boto_response["Body"]
-        while True:
-            chunk = stream.read(64 * 1024)
-            if not chunk:
-                break
-            digest.update(chunk)
-            assembled.write(chunk)
-            total_size += len(chunk)
-    assembled.seek(0)
+    ordered_parts = _validate_complete_parts(upload, requested_parts)
     completed_etag = build_complete_multipart_etag(ordered_parts)
+    adapter = storage.for_bucket(upload.storage_bucket)
 
-    put_result = object_writes.put_object(
-        db,
-        storage=storage,
-        bucket_name=upload.bucket_name,
-        key=upload.object_key,
-        body=assembled,
-        content_hash=digest.digest(),
-        size_bytes=total_size,
-        ingest_meta=upload.meta,
-        current_user=current_user,
-        allow_overwrite=True,
-    )
+    if adapter.capabilities.server_side_copy:
+        digest, total_size, prefix = _hash_parts(
+            storage=storage,
+            upload=upload,
+            ordered_parts=ordered_parts,
+        )
+        put_etag = _put_composed_object(
+            db,
+            storage=storage,
+            upload=upload,
+            ordered_parts=ordered_parts,
+            digest=digest,
+            size_bytes=total_size,
+            prefix=prefix,
+            current_user=current_user,
+        )
+    else:
+        assembled, digest, total_size = _assemble_parts(
+            storage=storage,
+            upload=upload,
+            ordered_parts=ordered_parts,
+        )
+        put_result = object_writes.put_object(
+            db,
+            storage=storage,
+            bucket_name=upload.bucket_name,
+            key=upload.object_key,
+            body=assembled,
+            content_hash=digest,
+            size_bytes=total_size,
+            ingest_meta=upload.meta,
+            current_user=current_user,
+            allow_overwrite=True,
+        )
+        put_etag = put_result.etag
 
     for part in upload.parts:
         try:
@@ -229,8 +237,144 @@ def complete_multipart_upload(
     return CompleteMultipartResult(
         bucket=bucket_name,
         key=key,
-        etag=completed_etag or put_result.etag,
+        etag=completed_etag or put_etag,
     )
+
+
+def _validate_complete_parts(
+    upload: MultipartUpload,
+    requested_parts: list[CompleteMultipartPart],
+) -> list[MultipartUploadPart]:
+    by_part_number = {part.part_number: part for part in upload.parts}
+    ordered_parts: list[MultipartUploadPart] = []
+    for requested in requested_parts:
+        validate_part_number(requested.part_number)
+        part = by_part_number.get(requested.part_number)
+        if part is None:
+            raise BadRequestError(f"Part {requested.part_number} has not been uploaded")
+        if requested.etag is not None and normalize_etag(requested.etag) != part.etag:
+            raise BadRequestError(f"ETag mismatch for part {requested.part_number}")
+        ordered_parts.append(part)
+    return ordered_parts
+
+
+def _hash_parts(
+    *,
+    storage: StorageRegistry,
+    upload: MultipartUpload,
+    ordered_parts: list[MultipartUploadPart],
+) -> tuple[bytes, int, bytes]:
+    digest = hashlib.sha256()
+    total_size = 0
+    prefix = bytearray()
+    for part in ordered_parts:
+        boto_response = blob_storage.fetch_blob_bytes(
+            storage=storage,
+            bucket=upload.storage_bucket,
+            bucket_key=part.bucket_key,
+        )
+        stream = boto_response["Body"]
+        while True:
+            chunk = stream.read(64 * 1024)
+            if not chunk:
+                break
+            total_size += len(chunk)
+            enforce_max_object_bytes(size_bytes=total_size)
+            digest.update(chunk)
+            if len(prefix) < FILE_INFO_PREFIX_BYTES:
+                remaining = FILE_INFO_PREFIX_BYTES - len(prefix)
+                prefix.extend(chunk[:remaining])
+    return digest.digest(), total_size, bytes(prefix)
+
+
+def _assemble_parts(
+    *,
+    storage: StorageRegistry,
+    upload: MultipartUpload,
+    ordered_parts: list[MultipartUploadPart],
+):
+    assembled = tempfile.SpooledTemporaryFile(max_size=S.UPLOAD_SPOOL_MAX_MEMORY_BYTES)
+    digest = hashlib.sha256()
+    total_size = 0
+    for part in ordered_parts:
+        boto_response = blob_storage.fetch_blob_bytes(
+            storage=storage,
+            bucket=upload.storage_bucket,
+            bucket_key=part.bucket_key,
+        )
+        stream = boto_response["Body"]
+        while True:
+            chunk = stream.read(64 * 1024)
+            if not chunk:
+                break
+            total_size += len(chunk)
+            enforce_max_object_bytes(size_bytes=total_size)
+            digest.update(chunk)
+            assembled.write(chunk)
+    assembled.seek(0)
+    return assembled, digest.digest(), total_size
+
+
+def _put_composed_object(
+    db: Session,
+    *,
+    storage: StorageRegistry,
+    upload: MultipartUpload,
+    ordered_parts: list[MultipartUploadPart],
+    digest: bytes,
+    size_bytes: int,
+    prefix: bytes,
+    current_user: User,
+) -> str:
+    folder, file_name = object_paths.resolve_object_path(
+        db,
+        bucket_name=upload.bucket_name,
+        key=upload.object_key,
+        current_user=current_user,
+    )
+    existing_file = db.scalar(
+        select(File).where(File.folder_id == folder.id, File.name == file_name)
+    )
+    previous_blob_id = existing_file.blob_id if existing_file is not None else None
+    blob = db.scalar(select(Blob).where(Blob.content_hash == digest, Blob.refcount > 0))
+    if blob:
+        if existing_file is None or existing_file.blob_id != blob.id:
+            blob.refcount += 1
+        etag = digest.hex()
+    else:
+        created_blob = object_blobs.create_composed_blob(
+            db,
+            storage=storage,
+            bucket=upload.storage_bucket,
+            digest=digest,
+            size_bytes=size_bytes,
+            filename=file_name,
+            source_keys=[part.bucket_key for part in ordered_parts],
+            prefix=prefix,
+        )
+        blob = created_blob.blob
+        etag = digest.hex()
+
+    if existing_file is None:
+        file = File(
+            folder_id=folder.id,
+            blob_id=blob.id,
+            actor_id=current_user.id,
+            name=file_name,
+            meta=normalize_ingest_meta(upload.meta),
+        )
+        db.add(file)
+    else:
+        old_blob = db.get(Blob, previous_blob_id)
+        existing_file.blob_id = blob.id
+        existing_file.actor_id = current_user.id
+        existing_file.meta = normalize_ingest_meta(upload.meta)
+        if old_blob is not None and old_blob.id != blob.id:
+            old_blob.refcount -= 1
+            if old_blob.refcount < 0:
+                old_blob.refcount = 0
+    db.flush()
+    return etag
 
 
 def abort_multipart_upload(

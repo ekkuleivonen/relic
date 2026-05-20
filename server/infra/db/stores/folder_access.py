@@ -2,7 +2,11 @@ import uuid
 
 from constants import FOLDER_ACCESS_ALL_PERMISSIONS
 from domain.exceptions import PermissionDenied, ResourceNotFound
-from domain.filesystem.tree import ancestor_folder_ids
+from domain.filesystem.tree import (
+    ancestor_folder_ids,
+    collect_descendant_ids,
+    index_children,
+)
 from domain.permissions.effective import compute_effective_permissions
 from domain.permissions.grants import validate_folder_permissions
 from domain.permissions.visibility import visible_folder_ids as compute_visible_folder_ids
@@ -14,7 +18,8 @@ from infra.cache.folder_access import (
     get_cached_effective_permissions,
     set_cached_effective_permissions,
 )
-from infra.cache.hotpath import engine_cache_key, get_or_set_request, request_cache
+from infra.cache.hotpath import get_or_set_request, request_cache
+from infra.cache.scope import deployment_scope
 from infra.db.models import Folder, FolderAccess, User
 from infra.db.stores.audit_events import create_audit_event
 from infra.db.stores.folder_access_types import FolderAccessRow, FolderTreeRow
@@ -53,7 +58,6 @@ def grant_folder_access(
     folder_id: uuid.UUID,
     permissions: int,
     event_context: EventContext | None = None,
-    commit: bool = False,
 ) -> FolderAccessRow:
     """Insert or update an access grant. Idempotent on (actor_id, folder_id)."""
     validate_folder_permissions(permissions)
@@ -95,11 +99,7 @@ def grant_folder_access(
                 "folder_path": folder_path,
             },
         )
-    if commit:
-        db.commit()
     db.refresh(access)
-    if commit:
-        clear_hotpath_cache(db)
 
     log.info(
         "folder_access_grant",
@@ -120,7 +120,6 @@ def revoke_folder_access(
     access_id: uuid.UUID,
     *,
     event_context: EventContext | None = None,
-    commit: bool = False,
 ) -> None:
     access = db.get(FolderAccess, access_id)
     if not access:
@@ -141,9 +140,6 @@ def revoke_folder_access(
             request_id=event_context.request_id,
             metadata=metadata,
         )
-    if commit:
-        db.commit()
-        clear_hotpath_cache(db)
     log.info(
         "folder_access_revoke",
         access_id=str(access_id),
@@ -226,14 +222,24 @@ def filter_visible_tree(
         raise ResourceNotFound("Root folder not found")
 
     permissions_by_folder = effective_permissions_by_folder(db, user)
-    paths = compute_folder_paths(
-        db,
-        {
-            folder_id
-            for folder_id, _ in db.execute(select(Folder.id, Folder.parent_id)).all()
-        },
+    tree_rows = cached_folder_tree_rows(db)
+    children_by_id = index_children(tree_rows)
+    subtree_ids = set(
+        collect_descendant_ids(root.id, children_by_id, include_root=True)
     )
-    folders = list(db.scalars(select(Folder).order_by(Folder.name)).all())
+    parent_by_folder = {row.id: row.parent_id for row in tree_rows}
+    needed_ids = _folders_needed_for_visible_tree(
+        root_id=root.id,
+        subtree_ids=subtree_ids,
+        visible_ids=visible_ids,
+        parent_by_folder=parent_by_folder,
+    )
+    paths = compute_folder_paths(db, needed_ids)
+    folders = list(
+        db.scalars(
+            select(Folder).where(Folder.id.in_(needed_ids)).order_by(Folder.name)
+        ).all()
+    )
     children_by_parent: dict[uuid.UUID | None, list[Folder]] = {}
     for folder in folders:
         folder.path = paths[folder.id]
@@ -245,6 +251,24 @@ def filter_visible_tree(
         root, children_by_parent, visible_ids, permissions_by_folder
     )
     return root
+
+
+def _folders_needed_for_visible_tree(
+    *,
+    root_id: uuid.UUID,
+    subtree_ids: set[uuid.UUID],
+    visible_ids: set[uuid.UUID],
+    parent_by_folder: dict[uuid.UUID, uuid.UUID | None],
+) -> set[uuid.UUID]:
+    needed = {root_id}
+    for visible_id in visible_ids & subtree_ids:
+        cursor: uuid.UUID | None = visible_id
+        while cursor is not None and cursor in subtree_ids and cursor not in needed:
+            needed.add(cursor)
+            if cursor == root_id:
+                break
+            cursor = parent_by_folder.get(cursor)
+    return needed
 
 
 def effective_permissions_by_folder(
@@ -259,7 +283,7 @@ def effective_permissions_by_folder(
     if use_cache and request_key in cache:
         return cache[request_key]
 
-    process_key = (engine_cache_key(db), user.id, user_role)
+    process_key = (deployment_scope(), user.id, user_role)
     cached = get_cached_effective_permissions(process_key) if use_cache else None
     if use_cache and cached is not None:
         cache[request_key] = cached
