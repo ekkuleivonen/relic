@@ -88,8 +88,41 @@ def _seed_processor_with_events(session_factory, *, count: int):
         return processor.id, [event.id for event in events]
 
 
-def test_dispatch_pending_enqueues_one_job_per_processor(session_factory, monkeypatch):
+def test_dispatch_pending_fans_out_for_distinct_subjects(session_factory, monkeypatch):
     processor_id, event_ids = _seed_processor_with_events(session_factory, count=3)
+
+    monkeypatch.setattr(dispatcher_module, "get_sessionmaker", lambda: session_factory)
+
+    redis = FakeArqRedis()
+    enqueued = asyncio.run(dispatcher_module.dispatch_pending(redis))
+
+    assert enqueued == 3
+    assert {job.kwargs["_job_id"] for job in redis.enqueued} == {
+        f"{processor_id}:0:{event_id}" for event_id in event_ids
+    }
+    assert redis.enqueued[0].args == (str(processor_id), "0", str(event_ids[0]))
+
+
+def test_dispatch_pending_serializes_same_subject(session_factory, monkeypatch):
+    file_id = uuid.uuid4()
+    with session_factory() as db:
+        processor = ProcessorFactory.build(
+            name="file_info", subscribed_event_types=["file.created"]
+        )
+        db.add(processor)
+        db.flush()
+        events = [
+            create_file_event(
+                db,
+                event_type="file.created",
+                file_id=file_id,
+                payload={},
+            )
+            for _ in range(3)
+        ]
+        db.commit()
+        processor_id = processor.id
+        event_ids = [event.id for event in events]
 
     monkeypatch.setattr(dispatcher_module, "get_sessionmaker", lambda: session_factory)
 
@@ -100,7 +133,6 @@ def test_dispatch_pending_enqueues_one_job_per_processor(session_factory, monkey
     assert {job.kwargs["_job_id"] for job in redis.enqueued} == {
         f"{processor_id}:0:{event_ids[0]}"
     }
-    assert redis.enqueued[0].args == (str(processor_id), "0", str(event_ids[0]))
 
 
 def test_dispatch_pending_dedups_via_job_id(session_factory, monkeypatch):
@@ -112,7 +144,7 @@ def test_dispatch_pending_dedups_via_job_id(session_factory, monkeypatch):
     asyncio.run(dispatcher_module.dispatch_pending(redis))
     asyncio.run(dispatcher_module.dispatch_pending(redis))
 
-    assert len(redis.enqueued) == 1  # second tick is a no-op due to dedup
+    assert len(redis.enqueued) == 2  # second tick is a no-op due to dedup
 
 
 def test_dispatch_pending_uses_generation_in_job_id_after_rewind(

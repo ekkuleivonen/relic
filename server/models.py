@@ -525,3 +525,59 @@ class Processor(Base, TimestampMixin):
     last_failed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     last_error_class: Mapped[str | None] = mapped_column(String(255))
     last_error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class ProcessorEventRun(Base, TimestampMixin):
+    """Per-processor event execution state.
+
+    Processor rows hold configuration and a contiguous watermark. This table is
+    the idempotency/claim surface that lets processors run many events in
+    parallel while still deduping each `(processor, generation, event)` tuple.
+    """
+
+    __tablename__ = "processor_event_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued','succeeded','failed')",
+            name="ck_processor_event_runs_status",
+        ),
+        UniqueConstraint(
+            "processor_id",
+            "dispatch_generation",
+            "event_id",
+            name="uq_processor_event_runs_processor_generation_event",
+        ),
+        Index("ix_processor_event_runs_processor_status", "processor_id", "status"),
+        Index(
+            "ix_processor_event_runs_processor_generation_status",
+            "processor_id",
+            "dispatch_generation",
+            "status",
+        ),
+        Index(
+            "ix_processor_event_runs_processor_generation_subject",
+            "processor_id",
+            "dispatch_generation",
+            "ordering_key",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    processor_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("processors.id", ondelete="CASCADE"), nullable=False
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("file_events.id", ondelete="CASCADE"), nullable=False
+    )
+    dispatch_generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_offset: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), nullable=False
+    )
+    event_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    ordering_key: Mapped[str | None] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="queued", server_default="queued"
+    )
+
+    processor: Mapped[Processor] = relationship()
+    event: Mapped[FileEvent] = relationship()

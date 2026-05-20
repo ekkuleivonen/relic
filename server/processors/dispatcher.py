@@ -28,6 +28,7 @@ from utils.logging import get_logger
 import settings as S
 
 log = get_logger(__name__)
+_dispatch_lock = asyncio.Lock()
 
 
 async def main() -> None:
@@ -116,15 +117,16 @@ async def _safety_tick(redis: ArqRedis, stop: asyncio.Event) -> None:
 
 async def dispatch_pending(redis: ArqRedis) -> int:
     """Fetch pending jobs from the DB and enqueue them. Returns count enqueued."""
-    sm = get_sessionmaker()
+    async with _dispatch_lock:
+        sm = get_sessionmaker()
 
-    def fetch() -> list[processor_service.PendingDispatchJob]:
-        with sm() as db:
-            return processor_service.collect_pending_jobs(
-                db, batch_size=S.DISPATCHER_BATCH_SIZE
-            )
+        def fetch() -> list[processor_service.PendingDispatchJob]:
+            with sm() as db:
+                return processor_service.collect_pending_jobs(
+                    db, batch_size=S.DISPATCHER_BATCH_SIZE
+                )
 
-    jobs = await asyncio.to_thread(fetch)
+        jobs = await asyncio.to_thread(fetch)
     if not jobs:
         return 0
 

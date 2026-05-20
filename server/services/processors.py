@@ -11,8 +11,8 @@ This module owns:
     cursor and write a corresponding `audit_events` row.
 
 See `ROADMAP.md` for the architectural contract: processors must be idempotent
-over `event_id`, per-processor concurrency is 1 (enforced by `SELECT ... FOR
-UPDATE` on the processor row), and the cursor only advances on success.
+over `event_id`, ordering semantics control concurrency, and the cursor is a
+contiguous success watermark.
 """
 
 import datetime as dt
@@ -21,7 +21,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Callable
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -37,8 +37,9 @@ from models import (
     FileEvent,
     Folder,
     Processor,
+    ProcessorEventRun,
 )
-from processors.base import BaseProcessor
+from processors.base import BaseProcessor, OrderingSemantics
 from processors.registry import (
     get_processor_kind,
     list_processor_definitions as list_registered_processor_definitions,
@@ -54,6 +55,10 @@ from services.filesystem import collect_descendant_folder_ids
 from utils.logging import get_logger
 
 log = get_logger(__name__)
+
+PROCESSOR_RUN_QUEUED = "queued"
+PROCESSOR_RUN_SUCCEEDED = "succeeded"
+PROCESSOR_RUN_FAILED = "failed"
 
 @dataclass(frozen=True)
 class ProcessorWithLag:
@@ -406,11 +411,17 @@ def get_processor_with_lag(db: Session, processor_id: uuid.UUID) -> ProcessorWit
 def _pending_count(db: Session, processor: Processor) -> int:
     if not processor.subscribed_event_types:
         return 0
-    stmt = _matching_events_stmt(db, processor).with_only_columns(func.count())
-    return int(
-        db.scalar(stmt)
-        or 0
-    )
+    ordering = _processor_ordering(processor)
+    stmt = _matching_events_stmt(db, processor)
+    if ordering is not OrderingSemantics.GLOBAL:
+        stmt = stmt.where(
+            ~_processor_run_exists_stmt(
+                processor=processor,
+                dispatch_generation=processor.dispatch_generation,
+                status=PROCESSOR_RUN_SUCCEEDED,
+            )
+        )
+    return int(db.scalar(stmt.with_only_columns(func.count())) or 0)
 
 
 def _eligible_head_offset(db: Session, processor: Processor) -> int:
@@ -434,14 +445,10 @@ def collect_pending_jobs(
 ) -> list[PendingDispatchJob]:
     """One pass over enabled processors.
 
-    Returns at most one event per processor: the oldest event past the cursor
-    whose ``event_type`` is in the processor's subscription. Unsubscribed
-    events are invisible to the cursor — the worker only sees events it would
-    actually handle. This keeps lag metrics meaningful and avoids wasted
-    worker round-trips for events the processor would skip anyway.
-
-    ``batch_size`` is currently a soft cap on the number of jobs returned per
-    tick (≤ one per enabled processor), kept for future fan-out batches.
+    Ordering semantics determine how many events one processor can expose per
+    tick: ``GLOBAL`` keeps the old single-cursor behavior, ``PER_SUBJECT`` fans
+    out across files/folders while keeping each subject serial, and ``NONE``
+    fans out up to the processor kind's declared concurrency.
     """
     if batch_size < 1:
         raise BadRequestError("batch_size must be >= 1")
@@ -457,15 +464,56 @@ def collect_pending_jobs(
     for processor in processors:
         if not processor.subscribed_event_types:
             continue
-        row = db.execute(
-            _matching_events_stmt(db, processor)
-            .with_only_columns(FileEvent.id, FileEvent.offset, FileEvent.event_type)
-            .order_by(FileEvent.offset.asc())
-            .limit(1)
-        ).one_or_none()
-        if row is None:
-            continue
-        event_id, event_offset, event_type = row
+        remaining = batch_size - len(jobs)
+        if remaining <= 0:
+            break
+        jobs.extend(
+            _collect_processor_jobs(
+                db,
+                processor=processor,
+                limit=remaining,
+            )
+        )
+        if len(jobs) >= batch_size:
+            break
+    db.commit()
+    return jobs
+
+
+def _collect_processor_jobs(
+    db: Session,
+    *,
+    processor: Processor,
+    limit: int,
+) -> list[PendingDispatchJob]:
+    ordering = _processor_ordering(processor)
+    concurrency = 1 if ordering is OrderingSemantics.GLOBAL else _processor_concurrency(processor)
+    limit = min(limit, concurrency)
+    if limit < 1:
+        return []
+
+    queued = _queued_processor_jobs(db, processor=processor, limit=limit)
+    if len(queued) >= limit:
+        return queued
+
+    selected: list[PendingDispatchJob] = list(queued)
+    remaining = limit - len(selected)
+    active_ordering_keys = _active_ordering_keys(db, processor=processor)
+
+    candidate_rows = db.execute(
+        _matching_events_stmt(db, processor)
+        .where(
+            ~_processor_run_exists_stmt(
+                processor=processor,
+                dispatch_generation=processor.dispatch_generation,
+            )
+        )
+        .with_only_columns(FileEvent.id, FileEvent.offset, FileEvent.event_type)
+        .order_by(FileEvent.offset.asc())
+        .limit(max(remaining * 20, remaining))
+    ).all()
+
+    for event_id, event_offset, event_type in candidate_rows:
         if processor.last_failed_event_id == event_id:
             log.info(
                 "processor_dispatch_suppressed_failed_event",
@@ -475,7 +523,38 @@ def collect_pending_jobs(
                 offset=int(event_offset),
             )
             continue
-        jobs.append(
+
+        ordering_key = _ordering_key_for_event(
+            ordering=ordering,
+            event_id=event_id,
+            file_id=None,
+            folder_id=None,
+        )
+        if ordering is OrderingSemantics.PER_SUBJECT:
+            event = db.get(FileEvent, event_id)
+            ordering_key = _ordering_key_for_event(
+                ordering=ordering,
+                event_id=event_id,
+                file_id=event.file_id if event else None,
+                folder_id=event.folder_id if event else None,
+            )
+            if ordering_key in active_ordering_keys:
+                continue
+            active_ordering_keys.add(ordering_key)
+        elif ordering is OrderingSemantics.GLOBAL and active_ordering_keys:
+            continue
+
+        run = ProcessorEventRun(
+            processor_id=processor.id,
+            event_id=event_id,
+            dispatch_generation=processor.dispatch_generation,
+            event_offset=int(event_offset),
+            event_type=event_type,
+            ordering_key=ordering_key,
+            status=PROCESSOR_RUN_QUEUED,
+        )
+        db.add(run)
+        selected.append(
             PendingDispatchJob(
                 processor_id=processor.id,
                 dispatch_generation=int(processor.dispatch_generation),
@@ -484,9 +563,159 @@ def collect_pending_jobs(
                 event_type=event_type,
             )
         )
-        if len(jobs) >= batch_size:
+        if len(selected) >= limit:
             break
-    return jobs
+
+    return selected
+
+
+def _queued_processor_jobs(
+    db: Session,
+    *,
+    processor: Processor,
+    limit: int,
+) -> list[PendingDispatchJob]:
+    rows = db.scalars(
+        select(ProcessorEventRun)
+        .where(
+            ProcessorEventRun.processor_id == processor.id,
+            ProcessorEventRun.dispatch_generation == processor.dispatch_generation,
+            ProcessorEventRun.status == PROCESSOR_RUN_QUEUED,
+        )
+        .order_by(ProcessorEventRun.event_offset.asc())
+        .limit(limit)
+    )
+    return [
+        PendingDispatchJob(
+            processor_id=processor.id,
+            dispatch_generation=int(run.dispatch_generation),
+            event_id=run.event_id,
+            event_offset=int(run.event_offset),
+            event_type=run.event_type,
+        )
+        for run in rows
+    ]
+
+
+def _active_ordering_keys(db: Session, *, processor: Processor) -> set[str]:
+    rows = db.scalars(
+        select(ProcessorEventRun.ordering_key).where(
+            ProcessorEventRun.processor_id == processor.id,
+            ProcessorEventRun.dispatch_generation == processor.dispatch_generation,
+            ProcessorEventRun.status == PROCESSOR_RUN_QUEUED,
+            ProcessorEventRun.ordering_key.is_not(None),
+        )
+    )
+    return {key for key in rows if key is not None}
+
+
+def _processor_ordering(processor: Processor) -> OrderingSemantics:
+    return get_processor_kind(processor.kind).ordering
+
+
+def _processor_concurrency(processor: Processor) -> int:
+    processor_kind = get_processor_kind(processor.kind)
+    return max(1, min(processor_kind.default_concurrency, processor_kind.max_concurrency))
+
+
+def _ordering_key_for_event(
+    *,
+    ordering: OrderingSemantics,
+    event_id: uuid.UUID,
+    file_id: uuid.UUID | None,
+    folder_id: uuid.UUID | None,
+) -> str | None:
+    if ordering is OrderingSemantics.NONE:
+        return None
+    if ordering is OrderingSemantics.GLOBAL:
+        return "global"
+    if file_id is not None:
+        return f"file:{file_id}"
+    if folder_id is not None:
+        return f"folder:{folder_id}"
+    return f"event:{event_id}"
+
+
+def _load_processor_for_execution(
+    db: Session,
+    *,
+    processor_id: uuid.UUID,
+    dispatch_generation: int,
+) -> Processor | None:
+    processor = db.get(Processor, processor_id)
+    if processor is None:
+        return None
+    if (
+        processor.dispatch_generation == dispatch_generation
+        and _processor_ordering(processor) is OrderingSemantics.GLOBAL
+    ):
+        return db.scalar(
+            select(Processor).where(Processor.id == processor_id).with_for_update()
+        )
+    return processor
+
+
+def _get_or_create_event_run(
+    db: Session,
+    *,
+    processor: Processor,
+    event: FileEvent,
+    dispatch_generation: int,
+) -> ProcessorEventRun:
+    run = db.scalar(
+        select(ProcessorEventRun)
+        .where(
+            ProcessorEventRun.processor_id == processor.id,
+            ProcessorEventRun.dispatch_generation == dispatch_generation,
+            ProcessorEventRun.event_id == event.id,
+        )
+        .with_for_update()
+    )
+    if run is not None:
+        return run
+
+    run = ProcessorEventRun(
+        processor_id=processor.id,
+        event_id=event.id,
+        dispatch_generation=dispatch_generation,
+        event_offset=int(event.offset),
+        event_type=event.event_type,
+        ordering_key=_ordering_key_for_event(
+            ordering=_processor_ordering(processor),
+            event_id=event.id,
+            file_id=event.file_id,
+            folder_id=event.folder_id,
+        ),
+        status=PROCESSOR_RUN_QUEUED,
+    )
+    db.add(run)
+    db.flush()
+    return run
+
+
+def _advance_success_watermark(db: Session, processor: Processor) -> None:
+    """Advance to the highest contiguous succeeded matching event offset."""
+    current = int(processor.last_committed_offset)
+    rows = db.execute(
+        _matching_events_stmt(db, processor)
+        .with_only_columns(FileEvent.id, FileEvent.offset)
+        .order_by(FileEvent.offset.asc())
+    ).all()
+    for event_id, event_offset in rows:
+        if int(event_offset) <= current:
+            continue
+        succeeded = db.scalar(
+            select(ProcessorEventRun.id).where(
+                ProcessorEventRun.processor_id == processor.id,
+                ProcessorEventRun.dispatch_generation == processor.dispatch_generation,
+                ProcessorEventRun.event_id == event_id,
+                ProcessorEventRun.status == PROCESSOR_RUN_SUCCEEDED,
+            )
+        )
+        if succeeded is None:
+            break
+        current = int(event_offset)
+    processor.last_committed_offset = current
 
 
 # ---------------------------------------------------------------------------
@@ -504,16 +733,14 @@ def execute_processor_event(
 ) -> ExecutionResult:
     """Run the processor handler, emit the outcome event, and advance the cursor.
 
-    One transaction holds a row lock on the processor for the whole handler run.
-    This enforces per-processor concurrency=1 and commits DB side effects,
-    outcome event, and cursor advance together on success. Cursor stays put on
-    failure (head-of-line blocking, by design — admin can rewind or skip via
-    the API).
+    The per-event run row is locked for idempotency. Processor rows are only
+    locked for ``GLOBAL`` ordering; ``NONE`` and ``PER_SUBJECT`` processors can
+    execute several claimed events concurrently.
     """
     started_at = time.perf_counter()
     with sm() as db:
-        processor = db.scalar(
-            select(Processor).where(Processor.id == processor_id).with_for_update()
+        processor = _load_processor_for_execution(
+            db, processor_id=processor_id, dispatch_generation=dispatch_generation
         )
         if processor is None:
             log.warning(
@@ -522,6 +749,24 @@ def execute_processor_event(
                 event_id=str(event_id),
             )
             return _result("skipped_missing_processor", None, started_at)
+        event = db.get(FileEvent, event_id)
+        if event is None:
+            log.warning(
+                "processor_event_missing",
+                processor_id=str(processor_id),
+                event_id=str(event_id),
+            )
+            return _result("skipped_missing_event", None, started_at)
+        run = _get_or_create_event_run(
+            db,
+            processor=processor,
+            event=event,
+            dispatch_generation=dispatch_generation,
+        )
+        if run.status == PROCESSOR_RUN_SUCCEEDED:
+            return _result("skipped_already_processed", None, started_at)
+        if run.status == PROCESSOR_RUN_FAILED:
+            return _result("skipped_failed_event", None, started_at)
         if not processor.enabled:
             log.info(
                 "processor_skipped_disabled",
@@ -539,16 +784,9 @@ def execute_processor_event(
             )
             return _result("skipped_stale_generation", None, started_at)
 
-        event = db.get(FileEvent, event_id)
-        if event is None:
-            log.warning(
-                "processor_event_missing",
-                processor_id=str(processor_id),
-                event_id=str(event_id),
-            )
-            return _result("skipped_missing_event", None, started_at)
-
         if event.offset <= processor.last_committed_offset:
+            run.status = PROCESSOR_RUN_SUCCEEDED
+            db.commit()
             return _result("skipped_already_processed", None, started_at)
 
         # Subscription is enforced by the dispatcher (collect_pending_jobs).
@@ -614,12 +852,15 @@ def execute_processor_event(
                 folder_id=event.folder_id,
                 payload=payload_base,
             )
-            processor.last_committed_offset = event.offset
+            run.status = PROCESSOR_RUN_SUCCEEDED
+            db.flush()
+            _advance_success_watermark(db, processor)
             processor.last_committed_at = now()
             _clear_failure_state(processor)
             db.commit()
-            return _result("ok", event.offset, started_at)
+            return _result("ok", processor.last_committed_offset, started_at)
 
+        run.status = PROCESSOR_RUN_FAILED
         processor.last_failed_event_id = event.id
         processor.last_failed_at = now()
         processor.last_error_class = error_class
@@ -738,7 +979,33 @@ def skip_stuck_event(
         raise BadRequestError("Only the next event after the cursor can be skipped")
 
     previous = processor.last_committed_offset
-    processor.last_committed_offset = event.offset
+    run = db.scalar(
+        select(ProcessorEventRun).where(
+            ProcessorEventRun.processor_id == processor.id,
+            ProcessorEventRun.dispatch_generation == processor.dispatch_generation,
+            ProcessorEventRun.event_id == event.id,
+        )
+    )
+    if run is None:
+        run = ProcessorEventRun(
+            processor_id=processor.id,
+            event_id=event.id,
+            dispatch_generation=processor.dispatch_generation,
+            event_offset=int(event.offset),
+            event_type=event.event_type,
+            ordering_key=_ordering_key_for_event(
+                ordering=_processor_ordering(processor),
+                event_id=event.id,
+                file_id=event.file_id,
+                folder_id=event.folder_id,
+            ),
+            status=PROCESSOR_RUN_SUCCEEDED,
+        )
+        db.add(run)
+    else:
+        run.status = PROCESSOR_RUN_SUCCEEDED
+    db.flush()
+    _advance_success_watermark(db, processor)
     processor.last_committed_at = dt.datetime.now(dt.UTC)
     _clear_failure_state(processor)
     db.flush()
@@ -798,6 +1065,23 @@ def _matching_events_stmt(db: Session, processor: Processor):
     if folder_ids is not None:
         stmt = stmt.where(FileEvent.folder_id.in_(folder_ids))
     return stmt
+
+
+def _processor_run_exists_stmt(
+    *,
+    processor: Processor,
+    dispatch_generation: int | None = None,
+    status: str | None = None,
+):
+    conditions = [
+        ProcessorEventRun.processor_id == processor.id,
+        ProcessorEventRun.event_id == FileEvent.id,
+    ]
+    if dispatch_generation is not None:
+        conditions.append(ProcessorEventRun.dispatch_generation == dispatch_generation)
+    if status is not None:
+        conditions.append(ProcessorEventRun.status == status)
+    return exists().where(*conditions)
 
 
 def _event_matches_folder_scopes(
