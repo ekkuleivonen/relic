@@ -1,11 +1,11 @@
-"""Search + facets endpoints over the canonical FileMeta schema."""
+"""Search + facets endpoints over consumer-owned file metadata."""
 
 import pytest
 from api.app import app
-from database import get_db
+from infra.db.engine import get_db
 from enums import Permission, UserRole
 from fastapi.testclient import TestClient
-from models import (
+from infra.db.models import (
     Base,
     Blob,
     File,
@@ -13,24 +13,12 @@ from models import (
     FolderAccess,
     User,
 )
-from services.auth import create_session_token
+from infra.db.stores.auth import create_session_token
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from tests.factories.models import BucketFactory, UserFactory
+from tests.factories.models import StorageBackendFactory, UserFactory
 
-
-@pytest.fixture()
-def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with SessionLocal() as session:
-        yield session
 
 
 @pytest.fixture()
@@ -79,7 +67,7 @@ def admin_client(db_session, admin):
 
 @pytest.fixture()
 def bucket(db_session):
-    bucket = BucketFactory.build(name="hot")
+    bucket = StorageBackendFactory.build(name="hot")
     db_session.add(bucket)
     db_session.commit()
     return bucket
@@ -143,7 +131,7 @@ def make_blob(
     extension: str = "",
 ) -> Blob:
     blob = Blob(
-        bucket_id=bucket.id,
+        storage_backend_id=bucket.id,
         bucket_key=f"objects/{content_hash}",
         content_hash=content_hash.to_bytes(32, "big"),
         size_bytes=size_bytes,
@@ -165,20 +153,9 @@ def make_file(
     name: str,
     mimetype: str = "application/octet-stream",
     size: int | None = None,
-    tags: list[str] | None = None,
-    keywords: list[str] | None = None,
-    summary: str | None = None,
-    kvs: dict | None = None,
+    meta: dict | None = None,
 ) -> File:
-    user_meta: dict = {}
-    if tags is not None:
-        user_meta["tags"] = tags
-    if keywords is not None:
-        user_meta["keywords"] = keywords
-    if summary is not None:
-        user_meta["summary"] = summary
-    if kvs is not None:
-        user_meta["kvs"] = kvs
+    user_meta: dict = dict(meta or {})
     if size is not None:
         blob.size_bytes = size
     blob.mimetype = mimetype
@@ -220,7 +197,38 @@ def test_search_returns_only_visible_files(
     assert body["items"][0]["name"] == "cat.jpg"
 
 
-def test_search_q_matches_name_summary_and_keywords(
+def test_search_paginates_with_stable_total(
+    client, db_session, user, bucket, photos_folder
+):
+    grant(db_session, user, photos_folder, int(Permission.READ))
+    for index in range(12):
+        blob = make_blob(db_session, bucket=bucket, content_hash=100 + index)
+        make_file(
+            db_session,
+            folder=photos_folder,
+            blob=blob,
+            user=user,
+            name=f"item-{index:02d}.bin",
+        )
+
+    response = client.get(
+        "/api/files/search",
+        params={"sort": "name", "order": "asc", "limit": 5, "offset": 5},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 12
+    assert [item["name"] for item in body["items"]] == [
+        "item-05.bin",
+        "item-06.bin",
+        "item-07.bin",
+        "item-08.bin",
+        "item-09.bin",
+    ]
+
+
+def test_search_q_matches_name_and_meta_values(
     client, db_session, user, bucket, photos_folder
 ):
     grant(db_session, user, photos_folder, int(Permission.READ))
@@ -240,7 +248,7 @@ def test_search_q_matches_name_summary_and_keywords(
         blob=blob_b,
         user=user,
         name="report.pdf",
-        summary="Quarterly invoice summary",
+        meta={"note": "Quarterly invoice summary"},
     )
     make_file(
         db_session,
@@ -248,7 +256,7 @@ def test_search_q_matches_name_summary_and_keywords(
         blob=blob_c,
         user=user,
         name="random.pdf",
-        keywords=["INVOICE", "billing"],
+        meta={"labels": ["INVOICE", "billing"]},
     )
 
     response = client.get("/api/files/search?q=invoice")
@@ -285,7 +293,7 @@ def test_search_q_requires_all_terms(client, db_session, user, bucket, photos_fo
     assert body["items"][0]["name"] == "quarterly-invoice.pdf"
 
 
-def test_search_tag_any_of(client, db_session, user, bucket, photos_folder):
+def test_search_meta_eq_on_array_values(client, db_session, user, bucket, photos_folder):
     grant(db_session, user, photos_folder, int(Permission.READ))
     blob_a = make_blob(db_session, bucket=bucket, content_hash=30)
     blob_b = make_blob(db_session, bucket=bucket, content_hash=31)
@@ -296,7 +304,7 @@ def test_search_tag_any_of(client, db_session, user, bucket, photos_folder):
         blob=blob_a,
         user=user,
         name="a.jpg",
-        tags=["photo", "large"],
+        meta={"tags": ["photo", "large"]},
     )
     make_file(
         db_session,
@@ -304,7 +312,7 @@ def test_search_tag_any_of(client, db_session, user, bucket, photos_folder):
         blob=blob_b,
         user=user,
         name="b.jpg",
-        tags=["screenshot"],
+        meta={"tags": ["screenshot"]},
     )
     make_file(
         db_session,
@@ -312,42 +320,14 @@ def test_search_tag_any_of(client, db_session, user, bucket, photos_folder):
         blob=blob_c,
         user=user,
         name="c.pdf",
-        tags=["document"],
+        meta={"tags": ["document"]},
     )
 
-    response = client.get("/api/files/search?tag=photo&tag=screenshot")
+    response = client.get("/api/files/search?meta=tags:eq:photo")
 
     body = response.json()
     names = sorted(item["name"] for item in body["items"])
-    assert names == ["a.jpg", "b.jpg"]
-
-
-def test_search_tag_require_all(client, db_session, user, bucket, photos_folder):
-    grant(db_session, user, photos_folder, int(Permission.READ))
-    blob_a = make_blob(db_session, bucket=bucket, content_hash=40)
-    blob_b = make_blob(db_session, bucket=bucket, content_hash=41)
-    make_file(
-        db_session,
-        folder=photos_folder,
-        blob=blob_a,
-        user=user,
-        name="a.jpg",
-        tags=["photo", "large"],
-    )
-    make_file(
-        db_session,
-        folder=photos_folder,
-        blob=blob_b,
-        user=user,
-        name="b.jpg",
-        tags=["photo"],
-    )
-
-    response = client.get("/api/files/search?tag=photo&tag=large&require_all_tags=true")
-
-    body = response.json()
-    assert body["total"] == 1
-    assert body["items"][0]["name"] == "a.jpg"
+    assert names == ["a.jpg"]
 
 
 def test_search_mimetype_and_extension_filters(
@@ -426,7 +406,7 @@ def test_search_size_range(client, db_session, user, bucket, photos_folder):
     assert [item["name"] for item in body["items"]] == ["medium.bin"]
 
 
-def test_search_kvs_range(client, db_session, user, bucket, photos_folder):
+def test_search_meta_range(client, db_session, user, bucket, photos_folder):
     grant(db_session, user, photos_folder, int(Permission.READ))
     blob_a = make_blob(db_session, bucket=bucket, content_hash=70)
     blob_b = make_blob(db_session, bucket=bucket, content_hash=71)
@@ -437,7 +417,7 @@ def test_search_kvs_range(client, db_session, user, bucket, photos_folder):
         blob=blob_a,
         user=user,
         name="a.csv",
-        kvs={"row_count": 50},
+        meta={"row_count": 50},
     )
     make_file(
         db_session,
@@ -445,7 +425,7 @@ def test_search_kvs_range(client, db_session, user, bucket, photos_folder):
         blob=blob_b,
         user=user,
         name="b.csv",
-        kvs={"row_count": 5_000},
+        meta={"row_count": 5_000},
     )
     make_file(
         db_session,
@@ -453,17 +433,17 @@ def test_search_kvs_range(client, db_session, user, bucket, photos_folder):
         blob=blob_c,
         user=user,
         name="c.csv",
-        kvs={"row_count": 50_000},
+        meta={"row_count": 50_000},
     )
 
     response = client.get(
-        "/api/files/search?kv=row_count:gte:1000&kv=row_count:lte:10000"
+        "/api/files/search?meta=row_count:gte:1000&meta=row_count:lte:10000"
     )
     body = response.json()
     assert [item["name"] for item in body["items"]] == ["b.csv"]
 
 
-def test_search_kvs_eq_handles_strings(client, db_session, user, bucket, photos_folder):
+def test_search_meta_eq_handles_strings(client, db_session, user, bucket, photos_folder):
     grant(db_session, user, photos_folder, int(Permission.READ))
     blob_a = make_blob(db_session, bucket=bucket, content_hash=80)
     blob_b = make_blob(db_session, bucket=bucket, content_hash=81)
@@ -473,7 +453,7 @@ def test_search_kvs_eq_handles_strings(client, db_session, user, bucket, photos_
         blob=blob_a,
         user=user,
         name="a.flac",
-        kvs={"codec": "flac"},
+        meta={"codec": "flac"},
     )
     make_file(
         db_session,
@@ -481,16 +461,16 @@ def test_search_kvs_eq_handles_strings(client, db_session, user, bucket, photos_
         blob=blob_b,
         user=user,
         name="b.mp3",
-        kvs={"codec": "mp3"},
+        meta={"codec": "mp3"},
     )
 
-    response = client.get("/api/files/search?kv=codec:eq:flac")
+    response = client.get("/api/files/search?meta=codec:eq:flac")
     body = response.json()
     assert [item["name"] for item in body["items"]] == ["a.flac"]
 
 
-def test_search_kvs_invalid_op_returns_400(client):
-    response = client.get("/api/files/search?kv=row_count:contains:bad")
+def test_search_meta_invalid_op_returns_400(client):
+    response = client.get("/api/files/search?meta=row_count:contains:bad")
     assert response.status_code == 400
 
 
@@ -574,7 +554,7 @@ def test_facets_basic_counts(client, db_session, user, bucket, photos_folder):
         user=user,
         name="a.jpg",
         mimetype="image/jpeg",
-        tags=["photo", "large"],
+        meta={"tags": ["photo", "large"], "department": "sales"},
     )
     make_file(
         db_session,
@@ -583,7 +563,7 @@ def test_facets_basic_counts(client, db_session, user, bucket, photos_folder):
         user=user,
         name="b.jpg",
         mimetype="image/jpeg",
-        tags=["photo"],
+        meta={"tags": ["photo"], "department": "sales"},
     )
     make_file(
         db_session,
@@ -592,22 +572,22 @@ def test_facets_basic_counts(client, db_session, user, bucket, photos_folder):
         user=user,
         name="c.pdf",
         mimetype="application/pdf",
-        tags=["document"],
+        meta={"tags": ["document"], "department": "legal"},
     )
 
     response = client.get("/api/files/facets")
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["total"] == 3
-    tag_counts = {item["value"]: item["count"] for item in body["tags"]}
-    assert tag_counts == {"photo": 2, "document": 1, "large": 1}
+    meta_key_counts = {item["value"]: item["count"] for item in body["meta_keys"]}
+    assert meta_key_counts == {"tags": 3, "department": 3}
     mime_counts = {item["value"]: item["count"] for item in body["mimetypes"]}
     assert mime_counts == {"image/jpeg": 2, "application/pdf": 1}
     ext_counts = {item["value"]: item["count"] for item in body["extensions"]}
     assert ext_counts == {"jpg": 2, "pdf": 1}
 
 
-def test_facets_keep_other_tag_values_visible(
+def test_facets_meta_keys_ignore_active_meta_filter(
     client, db_session, user, bucket, photos_folder
 ):
     grant(db_session, user, photos_folder, int(Permission.READ))
@@ -619,7 +599,7 @@ def test_facets_keep_other_tag_values_visible(
         blob=blob_a,
         user=user,
         name="a.jpg",
-        tags=["photo"],
+        meta={"tags": ["photo"], "department": "sales"},
     )
     make_file(
         db_session,
@@ -627,17 +607,17 @@ def test_facets_keep_other_tag_values_visible(
         blob=blob_b,
         user=user,
         name="b.pdf",
-        tags=["document"],
+        meta={"tags": ["document"], "department": "legal"},
     )
 
-    response = client.get("/api/files/facets?tag=photo")
+    response = client.get("/api/files/facets?meta=tags:eq:photo")
     body = response.json()
     assert body["total"] == 1
-    tag_counts = {item["value"]: item["count"] for item in body["tags"]}
-    assert tag_counts == {"photo": 1, "document": 1}
+    meta_key_counts = {item["value"]: item["count"] for item in body["meta_keys"]}
+    assert meta_key_counts == {"tags": 2, "department": 2}
 
 
-def test_facets_expose_kvs_keys_in_dataset(
+def test_facets_expose_meta_keys_in_dataset(
     client, db_session, user, bucket, photos_folder
 ):
     grant(db_session, user, photos_folder, int(Permission.READ))
@@ -650,7 +630,7 @@ def test_facets_expose_kvs_keys_in_dataset(
         blob=blob_a,
         user=user,
         name="a.csv",
-        kvs={"row_count": 100, "column_count": 5},
+        meta={"row_count": 100, "column_count": 5},
     )
     make_file(
         db_session,
@@ -658,7 +638,7 @@ def test_facets_expose_kvs_keys_in_dataset(
         blob=blob_b,
         user=user,
         name="b.csv",
-        kvs={"row_count": 200},
+        meta={"row_count": 200},
     )
     make_file(
         db_session,
@@ -666,16 +646,16 @@ def test_facets_expose_kvs_keys_in_dataset(
         blob=blob_c,
         user=user,
         name="c.mp4",
-        kvs={"duration_seconds": 600},
+        meta={"duration_seconds": 600},
     )
 
     response = client.get("/api/files/facets")
     body = response.json()
-    counts = {item["value"]: item["count"] for item in body["kvs_keys"]}
+    counts = {item["value"]: item["count"] for item in body["meta_keys"]}
     assert counts == {"row_count": 2, "column_count": 1, "duration_seconds": 1}
 
 
-def test_facets_kvs_keys_ignore_active_kvs_filter(
+def test_facets_meta_keys_ignore_active_meta_filter_axis(
     client, db_session, user, bucket, photos_folder
 ):
     grant(db_session, user, photos_folder, int(Permission.READ))
@@ -687,7 +667,7 @@ def test_facets_kvs_keys_ignore_active_kvs_filter(
         blob=blob_a,
         user=user,
         name="a.csv",
-        kvs={"row_count": 100},
+        meta={"row_count": 100},
     )
     make_file(
         db_session,
@@ -695,12 +675,12 @@ def test_facets_kvs_keys_ignore_active_kvs_filter(
         blob=blob_b,
         user=user,
         name="b.mp4",
-        kvs={"duration_seconds": 600},
+        meta={"duration_seconds": 600},
     )
 
-    response = client.get("/api/files/facets?kv=row_count:gte:50")
+    response = client.get("/api/files/facets?meta=row_count:gte:50")
     body = response.json()
-    counts = {item["value"]: item["count"] for item in body["kvs_keys"]}
+    counts = {item["value"]: item["count"] for item in body["meta_keys"]}
     assert counts == {"row_count": 1, "duration_seconds": 1}
     assert body["total"] == 1
 

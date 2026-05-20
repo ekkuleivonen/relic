@@ -2,10 +2,10 @@ import uuid
 
 import pytest
 from api.app import app
-from database import get_db
+from infra.db.engine import get_db
 from enums import Permission, UserRole
 from fastapi.testclient import TestClient
-from models import (
+from infra.db.models import (
     Base,
     Blob,
     File,
@@ -13,29 +13,17 @@ from models import (
     FolderAccess,
     User,
 )
-from services.auth import create_session_token
+from infra.db.stores.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from tests.factories.models import (
     BlobFactory,
-    BucketFactory,
+    StorageBackendFactory,
     FolderFactory,
     UserFactory,
 )
 
-
-@pytest.fixture()
-def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with SessionLocal() as session:
-        yield session
 
 
 @pytest.fixture()
@@ -136,10 +124,10 @@ def add_file(
 
 @pytest.fixture()
 def blob(db_session):
-    bucket = BucketFactory.build()
+    bucket = StorageBackendFactory.build()
     db_session.add(bucket)
     db_session.flush()
-    blob = BlobFactory.build(bucket_id=bucket.id, refcount=0)
+    blob = BlobFactory.build(storage_backend_id=bucket.id, refcount=0)
     db_session.add(blob)
     db_session.commit()
     return blob
@@ -396,80 +384,80 @@ def test_move_conflicts_on_name_collision_at_destination(
 
 
 # ---------------------------------------------------------------------------
-# PREFERRED BUCKET (admin PATCH preferred_bucket_id)
+# PREFERRED BUCKET (admin PATCH preferred_storage_backend_id)
 # ---------------------------------------------------------------------------
 
 
-def test_non_admin_cannot_patch_preferred_bucket(
+def test_non_admin_cannot_patch_preferred_storage_backend(
     client, db_session, user, root_folder
 ):
     grant(db_session, user, root_folder, int(Permission.READ | Permission.WRITE))
     photos = add_folder(db_session, root_folder, "photos")
-    bucket = BucketFactory.build()
+    bucket = StorageBackendFactory.build()
     db_session.add(bucket)
     db_session.commit()
 
     response = client.patch(
         f"/api/folders/{photos.id}",
-        json={"preferred_bucket_id": str(bucket.id)},
+        json={"preferred_storage_backend_id": str(bucket.id)},
     )
 
     assert response.status_code == 403
 
 
-def test_admin_can_set_folder_preferred_bucket(
+def test_admin_can_set_folder_preferred_storage_backend(
     admin_client, db_session, root_folder
 ):
     photos = add_folder(db_session, root_folder, "photos")
-    bucket = BucketFactory.build()
+    bucket = StorageBackendFactory.build()
     db_session.add(bucket)
     db_session.commit()
 
     response = admin_client.patch(
         f"/api/folders/{photos.id}",
-        json={"preferred_bucket_id": str(bucket.id)},
+        json={"preferred_storage_backend_id": str(bucket.id)},
     )
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["preferred_bucket_id"] == str(bucket.id)
-    assert body["effective_preferred_bucket_id"] == str(bucket.id)
+    assert body["preferred_storage_backend_id"] == str(bucket.id)
+    assert body["effective_preferred_storage_backend_id"] == str(bucket.id)
     db_session.refresh(photos)
-    assert photos.preferred_bucket_id == bucket.id
+    assert photos.preferred_storage_backend_id == bucket.id
 
 
-def test_admin_can_clear_preferred_bucket_to_inherit(
+def test_admin_can_clear_preferred_storage_backend_to_inherit(
     admin_client, db_session, root_folder
 ):
-    bucket = BucketFactory.build()
+    bucket = StorageBackendFactory.build()
     db_session.add(bucket)
     db_session.commit()
-    root_folder.preferred_bucket_id = bucket.id
+    root_folder.preferred_storage_backend_id = bucket.id
     photos = add_folder(db_session, root_folder, "photos")
-    photos.preferred_bucket_id = bucket.id
+    photos.preferred_storage_backend_id = bucket.id
     db_session.commit()
 
     response = admin_client.patch(
         f"/api/folders/{photos.id}",
-        json={"preferred_bucket_id": None},
+        json={"preferred_storage_backend_id": None},
     )
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["preferred_bucket_id"] is None
-    assert body["effective_preferred_bucket_id"] == str(bucket.id)
+    assert body["preferred_storage_backend_id"] is None
+    assert body["effective_preferred_storage_backend_id"] == str(bucket.id)
     db_session.refresh(photos)
-    assert photos.preferred_bucket_id is None
+    assert photos.preferred_storage_backend_id is None
 
 
-def test_admin_patch_unknown_preferred_bucket_returns_400(
+def test_admin_patch_unknown_preferred_storage_backend_returns_400(
     admin_client, db_session, root_folder
 ):
     photos = add_folder(db_session, root_folder, "photos")
 
     response = admin_client.patch(
         f"/api/folders/{photos.id}",
-        json={"preferred_bucket_id": str(uuid.uuid4())},
+        json={"preferred_storage_backend_id": str(uuid.uuid4())},
     )
 
     assert response.status_code == 400
@@ -535,6 +523,36 @@ def test_delete_non_empty_folder_without_recursive_returns_409(
     response = client.delete(f"/api/folders/{photos.id}")
 
     assert response.status_code == 409
+
+
+def test_delete_recursive_emits_folder_deleted_for_each_folder(
+    client, db_session, user, root_folder, blob
+):
+    grant(
+        db_session,
+        user,
+        root_folder,
+        int(Permission.READ | Permission.WRITE | Permission.DELETE),
+    )
+    photos = add_folder(db_session, root_folder, "photos")
+    raw = add_folder(db_session, photos, "raw")
+    add_file(db_session, photos, "image.jpg", blob, user)
+    add_file(db_session, raw, "raw.nef", blob, user)
+    blob.refcount = 2
+    db_session.commit()
+
+    response = client.delete(f"/api/folders/{photos.id}?recursive=true")
+
+    assert response.status_code == 204
+
+    events = client.get("/api/filesystem-events?types=folder.deleted").json()
+    assert len(events["items"]) == 2
+    deleted_folder_ids = {
+        item["payload"]["deleted_folder_id"] for item in events["items"]
+    }
+    assert deleted_folder_ids == {str(raw.id), str(photos.id)}
+    visibility_folder_ids = {item["folder_id"] for item in events["items"]}
+    assert visibility_folder_ids == {str(root_folder.id)}
 
 
 def test_delete_recursive_cascades_and_decrements_blob_refcount(
@@ -697,10 +715,10 @@ def test_duplicate_conflicts_on_existing_name_at_destination(
 
 
 def _add_blob(db_session, *, size_bytes: int) -> Blob:
-    bucket = BucketFactory.build()
+    bucket = StorageBackendFactory.build()
     db_session.add(bucket)
     db_session.flush()
-    blob = BlobFactory.build(bucket_id=bucket.id, size_bytes=size_bytes, refcount=0)
+    blob = BlobFactory.build(storage_backend_id=bucket.id, size_bytes=size_bytes, refcount=0)
     db_session.add(blob)
     db_session.commit()
     return blob

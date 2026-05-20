@@ -2,9 +2,8 @@
 
 Relic is a storage control plane for organizing files across S3-compatible
 object stores. It presents a permissioned virtual filesystem to users, stores
-file bytes in registered bucket backends, extracts searchable metadata in the
-background, and gives admins tools to manage users, access, storage tiers, and
-bucket health.
+file bytes in registered bucket backends, and gives admins tools to manage
+users, access, storage tiers, and bucket health.
 
 At a high level, Relic separates logical files from physical blobs:
 
@@ -13,9 +12,8 @@ At a high level, Relic separates logical files from physical blobs:
   manage users and SigV4 access keys.
 - The backend deduplicates identical content by hash, tracks blob reference
   counts, and places bytes into tiered storage backends.
-- Background **processors** enrich files with searchable metadata (today: the
-  `meta_extract` processor kind, with more kinds planned), and a separate
-  **maintenance** path runs cleanup, bucket probing, and lifecycle migration.
+- A **maintenance** worker path runs cleanup, bucket probing, and lifecycle
+  migration.
 
 ## Current Features
 
@@ -45,26 +43,11 @@ At a high level, Relic separates logical files from physical blobs:
 - Canonical file metadata schema with size, extension, MIME type, original
   filename, tags, keywords, summary, and scalar key/value metadata.
 
-### Metadata Extraction
+### Blob metadata at ingest
 
-Uploaded and copied files are queued for asynchronous metadata extraction via
-the `meta_extract` processor kind. It currently detects or enriches
-metadata for:
-
-- Images.
-- CSV files.
-- JSON and JSONL files.
-- PDFs.
-- Parquet files.
-- Audio files.
-- Video files.
-- Office documents.
-- HTML and XHTML.
-- Archives.
-- Plain text and other readable text formats.
-
-Processor output is merged with upload-time metadata while preserving
-user-provided values where they overlap.
+MIME type and extension are detected from file bytes at upload time
+(`domain/blobs/sniff.py`). Consumer-owned JSON metadata lives on `File.meta`
+and is searchable via the control-plane search API.
 
 ### Storage
 
@@ -87,157 +70,38 @@ user-provided values where they overlap.
 - Admin screens for users, folder grants, buckets, and access keys.
 - SigV4 access keys for S3-style API access.
 
-### Event Log and Processors
+### Audit log
 
-Relic runs its background work on three concurrency tiers, separated by
-audience and write path:
+Unified `audit_events` records actor-driven admin actions and storage
+maintenance outcomes (blob purges, migrations, bucket probes, retention
+trims). The admin audit log UI filters by operation, status, request ID,
+actor, and time range.
 
-- **Hot path** — the synchronous S3 gateway and JSON API. Mutates canonical
-  tables, emits events in the same transaction, returns. Does not own any
-  async work; it only produces the triggers other tiers consume.
-- **Warm path** (`relic:processing` queue) — runs event-driven processor
-  kinds. The seeded `meta_extract` processor enriches `File.meta`
-  today; future kinds (preview, thumbnail, external sinks) land as
-  siblings.
-- **Cold path** (`relic:maintenance` queue) — runs scheduled batches such as
-  purge dereferenced blobs, bucket probes, blob rebalance, and event
-  retention trim. Invisible to external consumers.
-
-The two queues are separate worker pools so a slow rebalance can never block
-fast metadata extraction.
-
-#### Event tables
-
-- `audit_events` (live) — actor-driven log for identity, access, bucket,
-  folder admin changes, and processor cursor changes (`processor.created`,
-  `processor.updated`, `processor.deleted`, `processor.enabled`,
-  `processor.disabled`, `processor.cursor.rewound`,
-  `processor.cursor.skipped`). Written in the same DB transaction as the
-  canonical mutation. Envelope is intentionally narrow:
-  `(id, created_at, updated_at, operation, status, actor_id,
-  request_id, meta)` — resource ids that an event refers to live inside
-  `meta`. The admin audit log UI filters by operation, status, request ID,
-  actor, and time range with per-row metadata detail.
-- `file_events` (live) — durable content activity log and the warm-path
-  outbox. Carries `file.*`, `folder.*`, and `processor.<kind>.*`
-  events. File and folder mutations write this table in the same
-  transaction as the canonical change; the per-row monotonic `offset` is the
-  replay primitive. Admins can browse the full log on the File Events page.
-- `processors` (live) — registry holding identity, config, enabled state,
-  and the `last_committed_offset` cursor for every warm-path subscriber
-  (internal processor kinds today, external sinks planned). The Processors admin
-  page surfaces cursor lag, lets admins pause/resume runs, and exposes
-  auditable rewind and skip-stuck-event actions.
-- `maintenance_events` (live) — internal-only log of cold-path resource
-  outcomes such as blob purges, migrations, bucket probes, and event
-  retention trims. Never delivered to external sinks. The Maintenance Events
-  admin page filters by job, action, status, batch ID, bucket ID, blob ID,
-  and time range.
-
-`maintenance_events` rows are emitted by `worker_maintenance` jobs. They are
-resource-level outcomes, not batch summaries; `batch_id` groups every row
-from one cron firing. The table envelope is `(id, created_at, job, action,
-status, batch_id, bucket_id, blob_id, duration_ms, meta)`. `bucket_id` is a
-nullable FK with `ON DELETE SET NULL`; `blob_id` is deliberately not a
-foreign key because purge events often describe blob rows that no longer
-exist. Current actions are:
-
-- `purge_dereferenced_blobs`: `blob.purged`, `blob.purge_failed`.
-- `rebalance_blob_storage`: `blob.migrated`, `blob.migration_skipped`,
-  `blob.migration_failed`.
-- `bucket_probe`: `bucket.probe_ok`, `bucket.probe_failed`.
-- `trim_audit_events`: `audit.trimmed`.
-- `trim_file_events`: `file_event.trimmed`.
-- `trim_maintenance_events`: `maintenance_event.trimmed`.
-
-High-volume object reads (`GET`, `HEAD`, signed-URL fetches) deliberately do
-not write event rows; their performance lives in Prometheus aggregates only.
-
-Retention across all event tables is controlled by `EVENT_RETENTION_DAYS`.
-The maintenance worker trims rows older than that age during its regular
-cron tick. The trim refuses to delete `file_events` rows past
-`min(processors.last_committed_offset)` across enabled processors, so a
-paused or rewound processor can never lose events out from under it.
-`processors` is registry data and is not subject to retention.
-
-#### Warm-path dispatcher
-
-Warm processors do not subscribe to API hooks; they subscribe to
-`file_events` through their own cursor on the `processors` table. The
-dispatcher is pull-based:
-
-1. Listens on the Postgres `file_event_emitted` channel via `LISTEN/NOTIFY`
-   for wake-up, plus a safety-net tick every `DISPATCHER_SAFETY_INTERVAL_SECONDS`.
-2. For each enabled processor, selects the oldest `file_events` row past
-   `last_committed_offset` whose `event_type` is in
-   `subscribed_event_types`. Unsubscribed events never reach a worker.
-3. Enqueues one warm-queue job with `_job_id = f"{processor_id}:{event_id}"`,
-   relying on arq's built-in dedup so a re-tick is safe.
-4. Does not advance the cursor on enqueue. The worker advances it only
-   after the processor run returns successfully, inside the same DB transaction as
-   any canonical mutation the processor made.
-
-The contract every warm processor inherits:
-
-- **Cursor-on-success.** A failing event halts its processor's cursor until
-  an admin intervenes. The escape hatch is a `processor.cursor.skipped`
-  audit row written when an admin advances the cursor past a poison-pill
-  event. Every skip is auditable; there is no silent forward-jump.
-- **Head-of-line blocking is accepted.** The trade-off for a simple,
-  durable, replayable cursor model.
-- **Idempotency over `event_id`.** Handlers must produce the same observable
-  result on a second run for the same event ID. `meta_extract` overwrites
-  `File.meta` deterministically; external sinks must use a downstream
-  idempotency key.
-- **Per-processor concurrency = 1.** Enforced by `LIMIT 1` per processor in
-  the dispatcher, by `_job_id` dedup in arq, and by `SELECT ... FOR UPDATE`
-  on the processor row inside the worker. The processing worker also pins
-  `max_jobs = 1` as defense-in-depth. Parallelism comes from running more
-  worker pods, not more concurrent jobs per worker.
-- **Processor outcome events.** Workers emit
-  `processor.<kind>.completed` or `processor.<kind>.failed` to
-  `file_events` so external consumers can react to "metadata is now ready"
-  the same way internal subscribers do.
-
-#### Processor Kinds
-
-A processor kind is the Python implementation for one `processors.kind`. Today
-the first-party kinds are:
-
-- `meta_extract` — reads bytes from object storage (capped per toolchain via
-  `*_META_EXTRACT_MAX_BYTES`), runs the matching toolchain (image, PDF,
-  CSV, JSON, parquet, audio, video, office-doc, archive, HTML, text), and
-  writes the result to `File.meta`.
-- `webhook_event_dispatch` — signs and POSTs selected `file_events` rows to a
-  configured HTTP endpoint with an idempotency key derived from the processor
-  row and event ID.
-
-New processor kinds plug in by adding a package under
-`server/processors/kinds/<kind>/` with a `BaseProcessor` subclass in
-`__init__.py` and any helper/toolchain modules beside it. First-party kinds are
-upserted from `server/seed.py`; admin-managed processor rows (future external
-sinks) are created from the API.
+Retention is controlled by `EVENT_RETENTION_DAYS`; the maintenance worker
+trims old rows on its cron tick.
 
 ### Operational Visibility
 
-- Admin views for audit events, file events, maintenance events, and
-  processors are live.
-- Processor admin includes enabled state, cursor lag, pause/resume, rewind,
-  and skip-stuck-event actions, with cursor changes written to `audit_events`.
-
-Prometheus-compatible `/metrics` is not implemented yet; it remains tracked in
-`ROADMAP.md` alongside lower-level gateway, API, processor, and maintenance
-metrics.
+- Admin view for audit events is live.
+- Prometheus-compatible `GET /metrics` on the API process (not under `/api`).
+  Low-cardinality counters and histograms in `server/infra/metrics.py`:
+  - `relic_api_requests_total` / `relic_api_duration_seconds` — HTTP API
+    traffic by method, route template, and status class (`2xx`, `4xx`, …).
+  - `relic_gateway_requests_total` / `relic_gateway_duration_seconds` — S3
+    gateway traffic under `/s3` by operation (e.g. `put_object`, `get_object`).
+  - `relic_maintenance_jobs_total` / `relic_maintenance_duration_seconds` —
+    maintenance worker jobs by name and outcome.
+  - `relic_maintenance_queue_depth` — pending jobs on the maintenance ARQ queue.
+  - `relic_storage_backend_probe_total` — bucket probe successes and failures.
+  Standard `prometheus-client` process metrics are included in the scrape body.
 
 ### Health and Readiness
 
 - `/healthz` reports basic API process liveness.
-- `/readyz` checks database connectivity, Redis queue connectivity, processor
-  registry access, object-store probe state, and configuration warnings.
-- Readiness includes queue depth and oldest pending job age for the
-  `relic:processing` and `relic:maintenance` queues.
-- Object-store readiness uses the latest bucket probe state; the probe worker
-  remains responsible for doing remote PUT/HEAD/GET/DELETE checks.
+- `/readyz` checks database connectivity, Redis queue connectivity,
+  object-store probe state, and configuration warnings.
+- Object-store readiness uses the latest bucket probe state; the maintenance
+  worker runs remote PUT/HEAD/GET/DELETE checks.
 
 ### API and S3 Gateway
 
@@ -280,31 +144,28 @@ Relic is split into a React client, a FastAPI server, and ARQ workers:
 
 - `client/` is a Vite, React, TypeScript, Tailwind, and shadcn/ui app.
 - `server/api/` contains the HTTP API and S3 gateway routes.
-- `server/services/` contains the filesystem, object, bucket, search, access,
-  placement, audit event, file event, processor, and maintenance logic.
-- `server/processors/` contains the warm-path runtime, while
-  `server/processors/kinds/` contains first-party processor implementations
-  such as `meta_extract` and its toolchains. The arq workers and pull-based
-  dispatcher consume `file_events` and feed the warm queue.
+- `server/application/` contains use cases (control plane, gateway, maintenance).
+- `server/domain/` contains pure business rules (naming, meta, paths, sniffing).
+- `server/ports/` defines store and adapter interfaces.
+- `server/infra/` contains SQLAlchemy stores, object storage adapters, auth, cache, and maintenance.
+- `server/composition.py` wires the Unit of Work from settings.
 - PostgreSQL stores users, folders, files, blobs, access grants, access keys,
-  bucket registrations, durable event tables, and the processor registry. The
-  dispatcher uses Postgres `LISTEN/NOTIFY` on `file_event_emitted` to wake up
-  promptly when new events land.
-- Redis backs ARQ processor and maintenance jobs. The warm `relic:processing`
-  queue and cold `relic:maintenance` queue run as separate worker pools so a
-  slow rebalance batch never delays metadata extraction.
+  bucket registrations, and audit events. SQLite is used in tests.
+- Redis backs ARQ maintenance jobs on the `relic:maintenance` queue.
 - Garage is used by the local Docker setup as two S3-compatible object stores,
   one hot and one cold.
 
 ## Local Development
+
+The Docker Compose stack below is **local development only**. Production runs
+the three application images on Kubernetes — see
+[Production Deployment (Kubernetes)](#production-deployment-kubernetes).
 
 The repository includes a Docker Compose stack for the full local product:
 
 - PostgreSQL.
 - Redis.
 - API server.
-- Processing worker for metadata extraction.
-- Dispatcher that converts new `file_events` rows into warm-queue jobs.
 - Maintenance worker for storage cleanup, bucket probes, and lifecycle jobs.
 - React client served by nginx.
 - Two Garage object-store instances.
@@ -337,6 +198,275 @@ Password: relic-admin
 
 These defaults are for local development only. Override secrets and seed values
 with environment variables before using non-local data.
+
+## Production Deployment (Kubernetes)
+
+This section is for the infra team deploying Relic into an existing cluster.
+Postgres, Redis, and S3-compatible object storage (Garage, MinIO, AWS S3, etc.)
+are **external** — Relic only ships three application workloads plus a
+one-off migration job.
+
+### Container images
+
+CI builds and pushes multi-platform (`linux/amd64`, `linux/arm64`) images on
+every push to `main` and on version tags (`v*`):
+
+| Image | Context | Default command |
+|-------|---------|-----------------|
+| `ghcr.io/<owner>/<repo>/server` | `server/` | `uvicorn api.app:app --host 0.0.0.0 --port 8000` |
+| `ghcr.io/<owner>/<repo>/client` | `client/` | nginx on port 80 |
+
+The **server image** serves both the API Deployment and the maintenance worker.
+Only the container command differs.
+
+Registry authentication uses the GitHub Actions `GITHUB_TOKEN` with `packages:
+write`. For a private registry outside GHCR, mirror these images or retarget the
+workflow. Clusters pulling from GHCR need a pull secret if the package is
+private (`kubectl create secret docker-registry …`).
+
+### Workloads
+
+| Workload | Type | Replicas | Notes |
+|----------|------|----------|-------|
+| **api** | Deployment | ≥ 1 | HTTP on port **8000** |
+| **worker-maintenance** | Deployment | **1** | Do not scale — cron enqueues jobs every minute; multiple replicas duplicate work |
+| **client** | Deployment | ≥ 1 | Static SPA + nginx reverse proxy on port **80** |
+| **migrate** | Job (one-off) | — | Run before first deploy and on every upgrade |
+
+#### API container
+
+- **Image:** server image (default CMD).
+- **Port:** 8000.
+- **Probes:**
+  - Liveness: `GET /healthz` — process is up.
+  - Readiness: `GET /readyz` — DB, Redis, registered storage-backend probe state, optional worker heartbeat. Returns **503** until storage backends are probed (maintenance worker must be running; first probe within ~1 minute of deploy).
+- **Metrics:** `GET /metrics` (Prometheus text format, **not** under `/api`). Scrape port 8000 from the pod or via your ingress policy.
+
+#### Maintenance worker container
+
+- **Image:** server image.
+- **Command:** `arq workers.maintenance.WorkerSettings`
+- **Port:** none exposed.
+- **Cron:** enqueues seven jobs every minute (blob purge, storage-backend probes, tier demotion/promotion, audit/filesystem event retention trim, stale multipart abort).
+- **Heartbeat:** writes `relic:heartbeat:maintenance` in Redis. Set `MAINTENANCE_HEARTBEAT_REQUIRED=true` on the API so `/readyz` fails when the worker is absent or stale.
+
+#### Client container
+
+- **Image:** client image.
+- **Port:** 80.
+- **Routing:** the bundled `nginx.conf` serves the SPA and reverse-proxies:
+  - `/api/` → `http://api:8000/api/`
+  - `/s3/` → `http://api:8000/s3/` (buffering disabled for large uploads)
+- The upstream hostname is hardcoded as **`api`**. Name the Kubernetes Service
+  for the API workload `api`, or replace `nginx.conf` via ConfigMap.
+- Alternative: skip client-side proxying and terminate `/api` + `/s3` on a
+  shared Ingress, serving the SPA from `/` only. The SPA defaults to
+  `VITE_API_BASE_URL=/api` (same-origin); no build-time env is required when
+  API and UI share an origin.
+
+#### Migration job
+
+Run before the first deploy and before restarting the API on every schema
+upgrade:
+
+```text
+python seed.py
+```
+
+This runs `alembic upgrade head` then idempotent seeding (root folder, optional
+seed folder, admin user if missing). Safe to re-run — it does not rotate an
+existing admin password.
+
+Wire the same env vars and secrets as the API/worker. The job needs Postgres
+connectivity only (no Redis required for migrations).
+
+See [docs/database-migrations.md](docs/database-migrations.md) for squashed-history
+cutover, production sequencing, and local Alembic workflows.
+
+### External dependencies
+
+Relic expects these services to already exist in the cluster or network:
+
+| Dependency | Used by | Purpose |
+|------------|---------|---------|
+| **PostgreSQL** | API, worker, migrate job | All relational state |
+| **Redis** | API, worker | ARQ maintenance queue, tiered cache, worker heartbeats |
+| **S3-compatible storage** | API, worker | Blob bytes — **registered at runtime** via admin UI, not configured purely by env |
+
+Storage backends (bucket endpoint, credentials, tier) are created in the Relic
+admin UI after deploy. Until at least one backend is registered and probed,
+`/readyz` object-store check passes vacuously (zero backends = healthy). Plan to
+register backends immediately after first deploy.
+
+If using Relic's **embedded filesystem storage backend** (local disk instead of
+remote S3), mount a PVC at `STORAGE_FILESYSTEM_BASE_PATH` on API and worker
+pods. Both must share the same path if tiering moves blobs between backends on
+disk.
+
+### Networking summary
+
+| Path | Handler | Auth |
+|------|---------|------|
+| `/api/*` | FastAPI JSON control plane | Session cookie or bearer access key |
+| `/s3/*` | S3-compatible gateway | SigV4 (access key or presigned URL) |
+| `/healthz` | Liveness | None |
+| `/readyz` | Readiness | None |
+| `/metrics` | Prometheus | None — restrict at network layer |
+| `/docs`, `/redoc` | OpenAPI | None — disable or restrict in prod if desired |
+
+Set `SESSION_COOKIE_SECURE=true` when the UI is served over HTTPS.
+
+Set `S3_CORS_ALLOWED_ORIGINS` to the browser origin if uploads/downloads go
+directly to `/s3` cross-origin (comma-separated list). Empty disables S3 CORS
+middleware.
+
+### Environment variables
+
+All configuration is via environment variables (see `server/settings.py`). Grouped
+by concern:
+
+#### Required secrets (production)
+
+Generate unique values — defaults are dev-only and `/readyz` reports warnings
+but does not fail on them.
+
+| Variable | Purpose |
+|----------|---------|
+| `ENCRYPTION_SECRET` | Fernet key for encrypted storage-backend credentials and access-key secrets at rest |
+| `SESSION_SECRET` | HMAC key for session cookies — use a **separate** value from `ENCRYPTION_SECRET` |
+| `RELIC_SIGNING_KEYS` | JSON map of `{ "key_id": "secret" }` for presigned S3 URLs |
+| `RELIC_SIGNING_CURRENT_KEY_ID` | Active key id; must exist in `RELIC_SIGNING_KEYS` |
+| `POSTGRES_PASSWORD` or `DATABASE_URL` | Database credentials |
+| `REDIS_PASSWORD` | Redis AUTH |
+
+Optional convenience: set `DATABASE_URL` (`postgresql+psycopg://…`) instead of
+individual `POSTGRES_*` fields.
+
+#### Database
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `POSTGRES_HOST` | `localhost` | |
+| `POSTGRES_PORT` | `5432` | |
+| `POSTGRES_DB` | `relic` | |
+| `POSTGRES_USER` | `relic` | |
+| `POSTGRES_PASSWORD` | `relic` | |
+| `DATABASE_URL` | — | Overrides `POSTGRES_*` when set |
+
+#### Redis
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `REDIS_HOST` | `localhost` | |
+| `REDIS_PORT` | `6379` | |
+| `REDIS_PASSWORD` | `replace_me` | |
+| `MAINTENANCE_QUEUE_NAME` | `relic:maintenance` | ARQ queue name |
+
+Redis keys are prefixed `relic:` (cache generations, heartbeats, etc.). API
+replicas require a **shared** Redis instance for cache invalidation coherence.
+
+#### Sessions and seed data
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `SESSION_COOKIE_NAME` | `relic_session` | |
+| `SESSION_MAX_AGE_SECONDS` | `604800` (7 days) | |
+| `SESSION_COOKIE_SECURE` | `false` | Set `true` behind TLS |
+| `RELIC_ADMIN_NAME` | `Relic Admin` | Used only when seeding a new admin |
+| `RELIC_ADMIN_EMAIL` | `admin@relic.local` | |
+| `RELIC_ADMIN_PASSWORD` | `relic-admin` | Only applied on **first** admin creation |
+| `RELIC_SEED_FOLDER_NAME` | `Uploads` | Optional top-level folder; empty skips |
+
+#### S3 gateway
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `RELIC_SIGNING_TTL_SECONDS` | `300` | Presigned URL lifetime |
+| `RELIC_SIGNING_REGION` | `relic` | Native SigV4 clients must use this region |
+| `RELIC_SIGNING_KEY_ID` | `relic-dev` | Fallback when `RELIC_SIGNING_KEYS` unset |
+| `RELIC_SIGNING_SECRET` | derived | Fallback when `RELIC_SIGNING_KEYS` unset |
+| `S3_CORS_ALLOWED_ORIGINS` | empty | Comma-separated browser origins |
+| `MAX_OBJECT_BYTES` | `5368709120` (5 GiB) | Upload size cap |
+| `UPLOAD_SPOOL_MAX_MEMORY_BYTES` | `8388608` | In-memory spool before disk |
+| `S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS` | `24` | Stale multipart cleanup |
+
+#### Worker and maintenance
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `MAINTENANCE_HEARTBEAT_REQUIRED` | `false` | Set **`true`** in production |
+| `MAINTENANCE_HEARTBEAT_TTL_SECONDS` | `180` | |
+| `MAINTENANCE_HEARTBEAT_STALE_SECONDS` | `120` | |
+| `EVENT_RETENTION_DAYS` | `90` | Audit + filesystem event trim |
+| `PROBES_RETENTION_DAYS` | `14` | Storage-backend probe history |
+| `STORAGE_MAINTENANCE_PURGE_BATCH` | `80` | Dereferenced blob purge batch |
+| `STORAGE_DEMOTION_PRESSURE_RATIO` | `0.85` | Tier demotion threshold |
+| `STORAGE_PROMOTION_HEADROOM_RATIO` | `0.70` | Tier promotion threshold |
+| `STORAGE_PROMOTION_RECENCY_DAYS` | `7` | |
+| `STORAGE_MIGRATION_MIN_RESIDENCY_HOURS` | `6` | Anti-ping-pong after migration |
+| `STORAGE_WRITE_HEADROOM_RATIO` | `0.95` | Placement headroom on upload |
+| `STORAGE_DEMOTE_BATCH` | `24` | |
+| `STORAGE_PROMOTE_BATCH` | `24` | |
+| `PLACEMENT_REQUIRE_REACHABLE_STORAGE_BACKEND` | `true` | Skip unprobed backends for new writes |
+| `PROBE_RANKING_WINDOW` | `3` | Probe samples for hotness ranking |
+
+#### Caching and logging
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `FOLDER_METADATA_CACHE_TTL_SECONDS` | `120` | |
+| `S3_LIST_OBJECTS_CACHE_TTL_SECONDS` | `15` | |
+| `S3_ACCESS_KEY_CACHE_TTL_SECONDS` | `120` | |
+| `S3_ACCESS_KEY_LAST_USED_DEBOUNCE_SECONDS` | `60` | |
+| `ACCESS_TOUCH_DEBOUNCE_MINUTES` | `5` | Blob `accessed_at` debounce |
+| `LOG_LEVEL` | `INFO` | JSON logs to stdout |
+| `STORAGE_FILESYSTEM_BASE_PATH` | — | Root for embedded filesystem backends |
+
+Server and worker Deployments should receive the **same** env var set (except
+nothing worker-specific today — share a ConfigMap/Secret).
+
+### Deploy and upgrade order
+
+**First deploy**
+
+1. Run **migrate** Job (`python seed.py`).
+2. Start **worker-maintenance** (single replica).
+3. Start **api**.
+4. Start **client** (or your Ingress equivalent).
+5. Log in as admin; register storage backends in the admin UI.
+6. Wait for maintenance probe tick; confirm `/readyz` is 200.
+7. Change the seeded admin password if this is a fresh install.
+
+**Upgrades**
+
+1. Backup Postgres.
+2. Run **migrate** Job with the new server image tag.
+3. Roll **worker-maintenance**, then **api**, then **client**.
+
+### Scaling notes
+
+- **API:** horizontal scaling is supported. All replicas share Postgres + Redis.
+  Redis outage degrades cross-replica cache invalidation (permissions/listings may
+  lag until TTL expiry).
+- **Worker:** keep at **one** replica.
+- **Client:** stateless; scale freely.
+
+### Observability
+
+- Logs: structured JSON on stdout (`structlog`). No separate log shipper in-repo.
+- Metrics: scrape `http://<api-pod>:8000/metrics`. Key series include
+  `relic_api_requests_total`, `relic_gateway_requests_total`,
+  `relic_maintenance_jobs_total`, `relic_maintenance_queue_depth`,
+  `relic_storage_backend_probe_total`.
+- Readiness JSON includes per-check detail (DB, Redis queue depth, unhealthy
+  storage backends, worker heartbeat age, configuration warnings).
+
+### Integrator note (filesystem events)
+
+Downstream services poll `GET /api/filesystem-events` with bearer access keys
+granted **READ** on watched folders. Metadata enrichment uses
+`PATCH /api/files/{id}/meta` (**ENRICH** permission). Delivery is pull-only (seq
+cursor); see `events.md` for event types, retention, and ACL rules.
 
 ## Useful Commands
 
@@ -380,25 +510,11 @@ cd server
 uv run uvicorn api.app:app --reload
 ```
 
-Run the processing worker manually:
-
-```bash
-cd server
-uv run arq processors.worker_processing.WorkerSettings
-```
-
 Run the maintenance worker manually:
 
 ```bash
 cd server
-uv run arq processors.worker_maintenance.WorkerSettings
-```
-
-Run the dispatcher manually:
-
-```bash
-cd server
-uv run python -m processors.dispatcher
+uv run arq workers.maintenance.WorkerSettings
 ```
 
 Run the live S3 gateway compatibility smoke harness:
@@ -419,45 +535,20 @@ through a native boto3 client. Use `--api-url`, `--email`, `--password`,
 
 ## Configuration
 
-Important environment variables include:
+Environment variables are documented in the
+[Production Deployment (Kubernetes)](#production-deployment-kubernetes) section
+(`server/settings.py` is the source of truth). For local development, see
+`docker-compose.yaml` and the variables listed there.
 
-- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`,
-  `POSTGRES_PASSWORD`.
-- `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`.
-- `ENCRYPTION_SECRET` for encrypted bucket credentials.
-- `SESSION_SECRET`, `SESSION_COOKIE_NAME`, `SESSION_MAX_AGE_SECONDS`, and
-  `SESSION_COOKIE_SECURE`.
-- `RELIC_ADMIN_NAME`, `RELIC_ADMIN_EMAIL`, and `RELIC_ADMIN_PASSWORD` for seed
-  data.
-- `RELIC_SIGNING_TTL_SECONDS`, `RELIC_SIGNING_REGION`,
-  `RELIC_SIGNING_KEY_ID`, `RELIC_SIGNING_SECRET`, `RELIC_SIGNING_KEYS`, and
-  `RELIC_SIGNING_CURRENT_KEY_ID` for S3 gateway signing. Native S3 clients must
-  sign with the same `RELIC_SIGNING_REGION`.
-- `meta_extract` per-toolchain byte caps such as `IMAGE_META_EXTRACT_MAX_BYTES`,
-  `PDF_META_EXTRACT_MAX_BYTES`, `TEXT_META_EXTRACT_MAX_BYTES`, and related
-  per-format limits. Files larger than the cap are parsed from the truncated
-  prefix.
-- `PROCESSING_QUEUE_NAME` and `MAINTENANCE_QUEUE_NAME` for the two ARQ worker
-  queues.
-- `DISPATCHER_BATCH_SIZE`, `DISPATCHER_SAFETY_INTERVAL_SECONDS`, and
-  `DISPATCHER_LISTEN_BACKOFF_SECONDS` to tune the warm-path dispatcher.
-- `EVENT_RETENTION_DAYS` — single retention knob applied to every event table
-  (`audit_events`, `file_events`, and `maintenance_events`). Per-table
-  retention can be split out later if it becomes necessary.
-- Storage maintenance knobs such as `STORAGE_MAINTENANCE_PURGE_BATCH`,
-  `STORAGE_MAINTENANCE_MIGRATE_BATCH`, and
-  `STORAGE_MAINTENANCE_BUCKET_PRESSURE_RATIO`.
+Key groups: Postgres (`POSTGRES_*` or `DATABASE_URL`), Redis (`REDIS_*`),
+encryption/session secrets, S3 signing keys (`RELIC_SIGNING_*`), maintenance
+tuning, and retention (`EVENT_RETENTION_DAYS`).
 
 ## Product Status
 
 Relic is an early product with substantial core behavior in place. The web
-app, JSON API, object gateway, content-hash deduplication, tiered storage
-placement, `audit_events`, `file_events`, the `processors` registry, the
-`maintenance_events` cold-path log, the `LISTEN/NOTIFY` warm-path
-dispatcher, the seeded `meta_extract` processor, `webhook_event_dispatch`,
-and production health / readiness endpoints are all live and developed
-against. Still tracked in `ROADMAP.md`: additional external activity sinks
-(SQS, Kafka, object-store), native-client S3 compatibility work,
-Prometheus metrics endpoint,
-import-from-bucket flows, quotas, retention, versioning, and richer admin
-file/blob inspection beyond the current placeholder UI pages.
+app, JSON API, object gateway, native SigV4 clients, content-hash
+deduplication, tiered storage placement, unified `audit_events`, Prometheus
+`/metrics`, and production health / readiness endpoints are live. Planned work
+includes external activity sinks, import-from-bucket flows, quotas, extended
+retention controls, versioning, and richer admin file/blob inspection.

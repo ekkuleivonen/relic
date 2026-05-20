@@ -22,7 +22,7 @@ export const PERMISSION_OPTIONS: ReadonlyArray<{
     bit: Permission.ENRICH,
     letter: "E",
     label: "Enrich",
-    description: "Update file metadata (used by processors).",
+    description: "Update file metadata and tags.",
   },
 ]
 

@@ -4,20 +4,30 @@ import uuid
 from fastapi import APIRouter, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.dependencies import AdminUser
+from api.dependencies import AdminUser, UnitOfWorkDep
 from api.users import UserRead
-from database import DbSession
-from services import access_keys as access_key_service
-from services.access_keys import AccessKeyRow, CreatedAccessKey
-from services.event_context import context_from_headers
+from application.context import context_from_headers
+from application.control_plane.access_keys_queries import (
+    get_access_key_by_key_id as get_access_key_by_key_id_use_case,
+    list_access_keys as list_access_keys_use_case,
+)
+from application.control_plane.access_key_mutations import (
+    create_access_key as create_access_key_use_case,
+    delete_access_key as delete_access_key_use_case,
+    revoke_access_key as revoke_access_key_use_case,
+)
+from infra.db.stores.access_keys import AccessKeyRow, CreatedAccessKey
 
 router = APIRouter()
 
 """
-S3 access keys. Each key belongs to a user and inherits that user's
-folder permissions for SigV4-authenticated requests at the S3 gateway.
+Relic access keys for programmatic API access.
 
-Secret is shown ONCE at creation, then only the hash is stored.
+Each key belongs to a user and inherits that user's folder permissions for:
+- JSON control plane routes (`/api/*`) via `Authorization: Bearer <key_id>:<secret>`
+- S3 gateway routes (`/s3/*`) via SigV4 request signing
+
+Secret is shown ONCE at creation, then only the encrypted value is stored.
 """
 
 
@@ -74,18 +84,21 @@ class AccessKeyCreated(AccessKeyRead):
 
 
 @router.get("/")
-async def list_access_keys(db: DbSession) -> list[AccessKeyRead]:
+async def list_access_keys(uow: UnitOfWorkDep) -> list[AccessKeyRead]:
     """
     GET /access-keys -> list keys.
     Self sees own keys; admin sees all.
     Never returns the secret, only key_id, name, last_used_at, revoked_at.
     """
-    return [AccessKeyRead.from_row(row) for row in access_key_service.list_access_keys(db)]
+    return [AccessKeyRead.from_row(row) for row in list_access_keys_use_case(uow)]
 
 
 @router.post("/")
 async def create_access_key(
-    payload: AccessKeyCreate, request: Request, db: DbSession, current_user: AdminUser
+    payload: AccessKeyCreate,
+    request: Request,
+    uow: UnitOfWorkDep,
+    current_user: AdminUser,
 ) -> AccessKeyCreated:
     """
     POST /access-keys -> mint a new access key.
@@ -93,8 +106,8 @@ async def create_access_key(
     Returns: { id, key_id, secret_access_key, name, ... }
     The secret is in the response body and CANNOT be retrieved later.
     """
-    created = access_key_service.create_access_key(
-        db,
+    created = create_access_key_use_case(
+        uow,
         actor_id=payload.actor_id,
         name=payload.name,
         event_context=context_from_headers(
@@ -106,24 +119,27 @@ async def create_access_key(
 
 
 @router.get("/{key_id}")
-async def get_access_key(key_id: str, db: DbSession) -> AccessKeyRead:
+async def get_access_key(key_id: str, uow: UnitOfWorkDep) -> AccessKeyRead:
     """
     GET /access-keys/{id} -> metadata for one key.
     Self for own; admin for any. Secret never included.
     """
-    return AccessKeyRead.from_row(access_key_service.get_access_key_by_key_id(db, key_id))
+    return AccessKeyRead.from_row(get_access_key_by_key_id_use_case(uow, key_id))
 
 
 @router.post("/{key_id}/revoke")
 async def revoke_access_key(
-    key_id: str, request: Request, db: DbSession, current_user: AdminUser
+    key_id: str,
+    request: Request,
+    uow: UnitOfWorkDep,
+    current_user: AdminUser,
 ) -> AccessKeyRead:
     """
     POST /access-keys/{id}/revoke -> set revoked_at to now.
     Idempotent. Revoked keys are kept for audit; use DELETE to remove.
     """
-    row = access_key_service.revoke_access_key(
-        db,
+    row = revoke_access_key_use_case(
+        uow,
         key_id,
         event_context=context_from_headers(
             request.headers,
@@ -135,14 +151,17 @@ async def revoke_access_key(
 
 @router.delete("/{key_id}")
 async def delete_access_key(
-    key_id: str, request: Request, db: DbSession, current_user: AdminUser
+    key_id: str,
+    request: Request,
+    uow: UnitOfWorkDep,
+    current_user: AdminUser,
 ) -> Response:
     """
     DELETE /access-keys/{id} -> hard delete the key row.
     Self for own; admin for any.
     """
-    access_key_service.delete_access_key(
-        db,
+    delete_access_key_use_case(
+        uow,
         key_id,
         event_context=context_from_headers(
             request.headers,

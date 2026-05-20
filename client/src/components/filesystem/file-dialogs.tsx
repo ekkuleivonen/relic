@@ -28,7 +28,7 @@ import {
   useMoveFile,
   useRenameFile,
 } from "@/hooks/use-files"
-import { PERM, can } from "@/lib/permissions"
+import { canAcceptFiles } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import type { FileSystemFile, FolderTreeNode } from "@/types/filesystem"
 
@@ -314,12 +314,7 @@ function collectWritableFolders(
 ): FolderTreeNode[] {
   const out: FolderTreeNode[] = []
   const walk = (node: FolderTreeNode) => {
-    const isRoot = node.parent_id === null
-    if (
-      !isRoot &&
-      node.id !== excludeId &&
-      can(node.effective_permissions, PERM.WRITE)
-    ) {
+    if (node.id !== excludeId && canAcceptFiles(node)) {
       out.push(node)
     }
     for (const child of node.children) walk(child)

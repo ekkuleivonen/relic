@@ -1,39 +1,39 @@
 import datetime as dt
-import uuid
 
 import factory
-from enums import EventStatus, Permission, UserRole
-from models import (
+from enums import EventStatus, Permission, StorageBackendKind, UserRole
+from infra.db.models import (
     AccessKey,
+    AuditEvent,
     Blob,
-    Bucket,
-    BucketProbe,
+    StorageBackend,
+    StorageBackendProbe,
     Folder,
     FolderAccess,
-    AuditEvent,
     User,
 )
 from utils.passwords import hash_password
 
 
-class BucketFactory(factory.Factory):
+class StorageBackendFactory(factory.Factory):
     class Meta:
-        model = Bucket
+        model = StorageBackend
 
     name = factory.Sequence(lambda n: f"garage-{n}")
     endpoint = "http://garage-hot:3900"
     region = "garage"
-    bucket = "blobs"
+    namespace = "blobs"
     key_id = factory.Sequence(lambda n: f"GK{n:024d}")
     secret_access_key = factory.Sequence(lambda n: f"secret-{n}")
     max_size_bytes = 1_000_000_000
+    kind = StorageBackendKind.S3
 
 
-class BucketProbeFactory(factory.Factory):
+class StorageBackendProbeFactory(factory.Factory):
     class Meta:
-        model = BucketProbe
+        model = StorageBackendProbe
 
-    bucket_id = None
+    storage_backend_id = None
     observed_at = factory.LazyFunction(lambda: dt.datetime.now(dt.UTC))
     success = True
     put_ms = 10
@@ -46,7 +46,7 @@ class BlobFactory(factory.Factory):
     class Meta:
         model = Blob
 
-    bucket_id = None
+    storage_backend_id = None
     bucket_key = factory.Sequence(lambda n: f"objects/{n}")
     content_hash = factory.Sequence(lambda n: n.to_bytes(32, "big"))
     size_bytes = 1
@@ -83,7 +83,7 @@ class FolderFactory(factory.Factory):
 
     name = factory.Sequence(lambda n: f"folder-{n}")
     parent_id = None
-    preferred_bucket_id = None
+    preferred_storage_backend_id = None
 
 
 class FolderAccessFactory(factory.Factory):
@@ -105,7 +105,7 @@ class AuditEventFactory(factory.Factory):
     request_id = None
     job = None
     batch_id = None
-    bucket_id = None
+    storage_backend_id = None
     blob_id = None
     duration_ms = None
     meta = factory.LazyFunction(dict)

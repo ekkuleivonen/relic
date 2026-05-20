@@ -3,28 +3,16 @@ import xml.etree.ElementTree as ET
 
 import pytest
 from api.app import app
-from database import get_db
+from infra.db.engine import get_db
 from enums import Permission
 from fastapi.testclient import TestClient
-from models import Base, Blob, File, Folder, FolderAccess
-from services import s3_signing
+from infra.db.models import Base, Blob, File, Folder, FolderAccess
+from application.gateway import object_signing
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from tests.factories.models import BucketFactory, UserFactory
+from tests.factories.models import StorageBackendFactory, UserFactory
 
-
-@pytest.fixture()
-def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with SessionLocal() as session:
-        yield session
 
 
 @pytest.fixture()
@@ -77,15 +65,15 @@ def grant(db_session, user, folder: Folder, permissions: int = int(Permission.RE
 
 
 def add_file(db_session, folder: Folder, user, filename: str, body: bytes) -> File:
-    physical_bucket = db_session.query(BucketFactory._meta.model).first()
+    physical_bucket = db_session.query(StorageBackendFactory._meta.model).first()
     if physical_bucket is None:
-        physical_bucket = BucketFactory.build(name="hot")
+        physical_bucket = StorageBackendFactory.build(name="hot")
         db_session.add(physical_bucket)
         db_session.flush()
 
     digest = hashlib.sha256(body).digest()
     blob = Blob(
-        bucket_id=physical_bucket.id,
+        storage_backend_id=physical_bucket.id,
         bucket_key=f"objects/{digest.hex()}",
         content_hash=digest,
         size_bytes=len(body),
@@ -106,7 +94,7 @@ def add_file(db_session, folder: Folder, user, filename: str, body: bytes) -> Fi
 
 
 def signed_service_get(user, query_params: dict[str, str] | None = None):
-    return s3_signing.sign_service_url(
+    return object_signing.sign_service_url(
         method="GET",
         headers={},
         user_id=user.id,
@@ -121,7 +109,7 @@ def signed_bucket_request(
     bucket: str,
     query_params: dict[str, str] | None = None,
 ):
-    return s3_signing.sign_bucket_url(
+    return object_signing.sign_bucket_url(
         method=method,
         bucket=bucket,
         headers={},
@@ -217,6 +205,28 @@ def test_list_objects_v2_supports_prefix_and_delimiter(
     assert response.status_code == 200, response.text
     assert xml_texts(response, "Key") == ["2026/cat.jpg"]
     assert common_prefix_texts(response) == ["2026/raw/"]
+
+
+def test_list_objects_v2_only_lists_objects_in_the_requested_bucket(
+    client, db_session, user, root_folder
+):
+    photos = add_folder(db_session, "photos", root_folder)
+    archives = add_folder(db_session, "archives", root_folder)
+    grant(db_session, user, photos)
+    grant(db_session, user, archives)
+    add_file(db_session, photos, user, "visible.txt", b"visible")
+    add_file(db_session, archives, user, "hidden.txt", b"hidden")
+    signed = signed_bucket_request(
+        "GET",
+        user,
+        "photos",
+        {"list-type": "2"},
+    )
+
+    response = client.get(signed.url, headers=signed.headers)
+
+    assert response.status_code == 200, response.text
+    assert xml_texts(response, "Key") == ["visible.txt"]
 
 
 def test_list_objects_v2_paginates_with_continuation_token(

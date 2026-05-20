@@ -11,8 +11,8 @@ export type FolderTreeNode = {
   parent_id: string | null
   path: string
   effective_permissions: number
-  preferred_bucket_id?: string | null
-  effective_preferred_bucket_id?: string | null
+  preferred_storage_backend_id?: string | null
+  effective_preferred_storage_backend_id?: string | null
   children: FolderTreeNode[]
 }
 
@@ -22,8 +22,8 @@ export type Folder = {
   name: string
   path: string
   effective_permissions: number
-  preferred_bucket_id?: string | null
-  effective_preferred_bucket_id?: string | null
+  preferred_storage_backend_id?: string | null
+  effective_preferred_storage_backend_id?: string | null
 }
 
 /** Opaque consumer-owned metadata; shape is not enforced by Relic. */
@@ -49,6 +49,27 @@ export type PaginatedFilesResponse = {
   total: number
   limit: number
   offset: number
+}
+
+export type BulkFileMutationError = {
+  file_id: string
+  code: string
+  message: string
+}
+
+export type BulkDeleteFilesResponse = {
+  deleted_ids: string[]
+  errors: BulkFileMutationError[]
+}
+
+export type BulkMoveFilesResponse = {
+  moved_ids: string[]
+  errors: BulkFileMutationError[]
+}
+
+export type BulkPatchFileMetaResponse = {
+  patched_ids: string[]
+  errors: BulkFileMutationError[]
 }
 
 export type FileSystemEntry =
@@ -102,23 +123,3 @@ export type FolderContentsRow =
       file: FileSystemFile
     }
 
-export function metaStringList(meta: FileMeta, key: string): string[] {
-  const value = meta[key]
-  if (!Array.isArray(value)) {
-    return []
-  }
-  return value.filter((item): item is string => typeof item === "string")
-}
-
-export function metaString(meta: FileMeta, key: string): string | null {
-  const value = meta[key]
-  return typeof value === "string" && value.trim() ? value : null
-}
-
-export function metaKvs(meta: FileMeta): Record<string, string | number | boolean | null> {
-  const value = meta.kvs
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {}
-  }
-  return value as Record<string, string | number | boolean | null>
-}

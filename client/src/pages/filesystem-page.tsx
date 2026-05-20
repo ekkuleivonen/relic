@@ -4,16 +4,19 @@ import {
   Database,
   FileQuestion,
   Folder,
+  FolderPlus,
   Home,
   RefreshCw,
 } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router"
 
+import { BulkFileActionsBar } from "@/components/filesystem/bulk-file-actions-bar"
 import { FileActionsProvider } from "@/components/filesystem/file-actions-provider"
 import { FolderActionsProvider } from "@/components/filesystem/folder-actions-provider"
 import { FolderEntriesTable } from "@/components/filesystem/folder-entries-table"
 import { OffsetPaginationBar } from "@/components/pagination-offset"
 import { FolderHeaderActions } from "@/components/filesystem/folder-header-actions"
+import { UploadFilesDialog } from "@/components/filesystem/upload-files-dialog"
 import { FileTree } from "@/components/filesystem/file-tree"
 import { SidebarFooter } from "@/components/layout/sidebar-footer"
 import { SidebarHeader } from "@/components/layout/sidebar-header"
@@ -38,11 +41,12 @@ import {
   useFolderStats,
   useFolderTree,
 } from "@/hooks/use-filesystem"
+import { useFolderActions } from "@/hooks/use-folder-actions"
 import { useUpdateFolder } from "@/hooks/use-folders"
-import { useNativeFileDrop } from "@/hooks/use-native-file-drop"
+import { useUploadWithMetaDialog } from "@/hooks/use-upload-with-meta-dialog"
 import { extractApiError } from "@/lib/api"
 import { formatBytes } from "@/lib/format"
-import { PERM, can } from "@/lib/permissions"
+import { PERM, can, canAcceptFiles, isRootFolder } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import type {
   FileSystemEntry,
@@ -66,6 +70,7 @@ export function FilesystemPage() {
 function FilesystemPageInner() {
   const params = useParams()
   const navigate = useNavigate()
+  const actions = useFolderActions()
   const routeFolderId = params.folderId
   const folderTree = useFolderTree()
   const selectedFolder = React.useMemo(
@@ -80,11 +85,18 @@ function FilesystemPageInner() {
     key: "name",
     dir: "asc",
   })
+  const [selectedFileIds, setSelectedFileIds] = React.useState<Set<string>>(
+    () => new Set()
+  )
+  const selectionEnabled =
+    selectedFolder !== undefined &&
+    can(selectedFolder.effective_permissions, PERM.DELETE)
 
   /* Pagination offset is driven by folder/sort and server totals; syncing via effects is intentional. */
   /* eslint-disable react-hooks/set-state-in-effect -- see comment above */
   React.useEffect(() => {
     setFileOffset(0)
+    setSelectedFileIds(new Set())
   }, [selectedFolder?.id, sort.key, sort.dir])
 
   const folderFiles = useFolderFiles(selectedFolder?.id, {
@@ -118,13 +130,50 @@ function FilesystemPageInner() {
   }, [folderFiles.data, selectedFolder])
   const folderChildCount = selectedFolder?.children.length ?? 0
   const filesTotal = folderFiles.data?.total ?? 0
-  const mainNativeDrop = useNativeFileDrop({
+  const canEnrichSelected = Boolean(
+    selectedFolder && can(selectedFolder.effective_permissions, PERM.ENRICH)
+  )
+  const mainUpload = useUploadWithMetaDialog({
     folderId: selectedFolder?.id ?? "",
-    disabled:
-      !selectedFolder || !can(selectedFolder.effective_permissions, PERM.WRITE),
+    canSetMeta: canEnrichSelected,
+    disabled: !selectedFolder || !canAcceptFiles(selectedFolder),
   })
 
   const dnd = useFolderDnd({ tree: folderTree.data })
+
+  React.useEffect(() => {
+    if (folderTree.isLoading || folderTree.data === undefined || routeFolderId) {
+      return
+    }
+    if (localStorage.getItem(FILESYSTEM_ONBOARDING_KEY)) {
+      return
+    }
+
+    const root = folderTree.data
+    if (!isRootFolder(root)) {
+      return
+    }
+
+    if (root.children.length === 1) {
+      localStorage.setItem(FILESYSTEM_ONBOARDING_KEY, "1")
+      navigate(buildFolderRoute(root.children[0]), { replace: true })
+      return
+    }
+
+    if (
+      root.children.length === 0 &&
+      can(root.effective_permissions, PERM.WRITE)
+    ) {
+      localStorage.setItem(FILESYSTEM_ONBOARDING_KEY, "1")
+      actions.openCreate(root)
+    }
+  }, [
+    actions,
+    folderTree.data,
+    folderTree.isLoading,
+    navigate,
+    routeFolderId,
+  ])
 
   function handleAfterDeleteSelected() {
     if (!selectedFolder || selectedFolder.parent_id === null) {
@@ -173,13 +222,14 @@ function FilesystemPageInner() {
           </aside>
 
           <main
-            {...mainNativeDrop.handlers}
+            {...mainUpload.dropHandlers}
             className={cn(
               "min-h-0 min-w-0 overflow-y-auto p-4 lg:p-8 transition-colors",
-              mainNativeDrop.isOver &&
+              mainUpload.isOver &&
                 "ring-2 ring-inset ring-primary/40 bg-primary/5"
             )}
           >
+              <UploadFilesDialog {...mainUpload.uploadDialogProps} />
               <div className="mx-auto max-w-6xl space-y-6">
                 <div className="space-y-3">
                   <FilesystemBreadcrumbs
@@ -245,6 +295,40 @@ function FilesystemPageInner() {
                       onFilesOffsetChange: setFileOffset,
                       sort,
                       onSortChange: setSort,
+                      selectedFileIds,
+                      selectionEnabled,
+                      onToggleFileSelection: (fileId) => {
+                        setSelectedFileIds((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(fileId)) {
+                            next.delete(fileId)
+                          } else {
+                            next.add(fileId)
+                          }
+                          return next
+                        })
+                      },
+                      onToggleAllFiles: (fileIds, selected) => {
+                        setSelectedFileIds((prev) => {
+                          const next = new Set(prev)
+                          for (const fileId of fileIds) {
+                            if (selected) {
+                              next.add(fileId)
+                            } else {
+                              next.delete(fileId)
+                            }
+                          }
+                          return next
+                        })
+                      },
+                      onClearSelection: () => setSelectedFileIds(new Set()),
+                      currentFolder: selectedFolder,
+                      onCreateFolder:
+                        selectedFolder &&
+                        isRootFolder(selectedFolder) &&
+                        can(selectedFolder.effective_permissions, PERM.WRITE)
+                          ? () => actions.openCreate(selectedFolder)
+                          : undefined,
                     })}
                   </CardContent>
                 </Card>
@@ -361,6 +445,13 @@ type ContentStateProps = {
   onFilesOffsetChange: (offset: number) => void
   sort: FolderContentsSortState
   onSortChange: (next: FolderContentsSortState) => void
+  selectedFileIds: Set<string>
+  selectionEnabled: boolean
+  onToggleFileSelection: (fileId: string) => void
+  onToggleAllFiles: (fileIds: string[], selected: boolean) => void
+  onClearSelection: () => void
+  currentFolder: FolderTreeNode | undefined
+  onCreateFolder?: () => void
 }
 
 function renderContentState({
@@ -376,6 +467,13 @@ function renderContentState({
   onFilesOffsetChange,
   sort,
   onSortChange,
+  selectedFileIds,
+  selectionEnabled,
+  onToggleFileSelection,
+  onToggleAllFiles,
+  onClearSelection,
+  currentFolder,
+  onCreateFolder,
 }: ContentStateProps) {
   if (isFolderMissing) {
     return (
@@ -402,6 +500,25 @@ function renderContentState({
   }
 
   if (folderChildCount === 0 && filesTotal === 0) {
+    const isRoot = currentFolder !== undefined && isRootFolder(currentFolder)
+    if (isRoot) {
+      return (
+        <EmptyState
+          icon={FolderPlus}
+          title="Create your first folder"
+          message="Files live in subfolders. The root folder is only for organizing the tree."
+          action={
+            onCreateFolder ? (
+              <Button type="button" size="sm" onClick={onCreateFolder}>
+                <FolderPlus />
+                New folder
+              </Button>
+            ) : undefined
+          }
+        />
+      )
+    }
+
     return (
       <EmptyState
         icon={Database}
@@ -413,10 +530,21 @@ function renderContentState({
 
   return (
     <>
+      {selectionEnabled && currentFolder ? (
+        <BulkFileActionsBar
+          selectedFileIds={[...selectedFileIds]}
+          currentFolder={currentFolder}
+          onClearSelection={onClearSelection}
+        />
+      ) : null}
       <FolderEntriesTable
         entries={entries}
         sort={sort}
         onSortChange={onSortChange}
+        selectedFileIds={selectedFileIds}
+        onToggleFileSelection={onToggleFileSelection}
+        onToggleAllFiles={onToggleAllFiles}
+        selectionEnabled={selectionEnabled}
       />
       {filesPage && filesPage.total > filesPage.limit ? (
         <OffsetPaginationBar
@@ -497,15 +625,10 @@ function FolderRecursiveSummary({
   if (!stats || stats.file_count === 0) {
     return null
   }
-  const coveragePct =
-    stats.enrichment_coverage !== null
-      ? Math.round(stats.enrichment_coverage * 100)
-      : null
   return (
     <span title="Totals across this folder and all subfolders">
       {" · "}
       {formatBytes(stats.logical_size_bytes)}
-      {coveragePct !== null ? ` · ${coveragePct}% enriched` : ""}
     </span>
   )
 }
@@ -535,19 +658,24 @@ function EmptyState({
   icon: Icon,
   title,
   message,
+  action,
 }: {
   icon: React.ElementType
   title: string
   message: string
+  action?: React.ReactNode
 }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-md border border-dashed px-4 py-12 text-center">
       <Icon className="size-8 text-muted-foreground" />
       <div className="mt-3 text-sm font-medium">{title}</div>
       <p className="mt-1 max-w-sm text-xs text-muted-foreground">{message}</p>
+      {action ? <div className="mt-4">{action}</div> : null}
     </div>
   )
 }
+
+const FILESYSTEM_ONBOARDING_KEY = "relic:filesystem-onboarding-v1"
 
 function TreeSkeleton() {
   return (

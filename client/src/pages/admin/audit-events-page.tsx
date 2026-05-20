@@ -1,169 +1,133 @@
 import * as React from "react"
-import { CalendarIcon, RefreshCw, Search, Trash2, X } from "lucide-react"
+import { RefreshCw, X } from "lucide-react"
 
+import { AuditEventDetailDrawer } from "@/components/audit-events/audit-event-detail-drawer"
 import { AuditEventsTable } from "@/components/audit-events/audit-events-table"
 import { OffsetPaginationBar } from "@/components/pagination-offset"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
+  DateFilterPicker,
+  toEndOfDayIso,
+  toStartOfDayIso,
+} from "@/components/filters/date-filter-picker"
+import { FilterFieldLabel } from "@/components/filters/filter-field-label"
+import { StringOptionCombobox } from "@/components/filters/string-option-combobox"
 import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   AUDIT_EVENTS_PAGE_SIZE,
   useAuditEvents,
-  useClearAuditEvents,
 } from "@/hooks/use-audit-events"
+import { useDebouncedValue } from "@/hooks/use-debounced-value"
 import { extractApiError } from "@/lib/api"
-import { cn } from "@/lib/utils"
-import type { AuditEventsQuery, AuditEventStatus } from "@/types/audit-events"
+import type {
+  AuditEventRecord,
+  AuditEventsQuery,
+  AuditEventStatus,
+} from "@/types/audit-events"
+import {
+  AUDIT_JOB_OPTIONS,
+  AUDIT_OPERATION_OPTIONS,
+  AUDIT_STATUS_OPTIONS,
+} from "@/types/audit-events"
 
-const STATUS_ALL = "all"
-const OPERATION_ALL = "all"
-const JOB_ALL = "all"
-
-const JOB_OPTIONS = [
-  "purge_dereferenced_blobs",
-  "demote_pressured_buckets",
-  "promote_recently_accessed",
-  "bucket_probe",
-  "trim_bucket_probes",
-  "trim_audit_events",
-  "abort_incomplete_multipart_uploads",
-] as const
-
-const OPERATION_OPTIONS = [
-  "access_key.created",
-  "access_key.deleted",
-  "access_key.revoked",
-  "audit_event.trimmed",
-  "auth.login.failed",
-  "auth.login.succeeded",
-  "auth.logout",
-  "blob.demoted",
-  "blob.demotion_skipped",
-  "blob.promoted",
-  "blob.purged",
-  "blob.purge_failed",
-  "bucket.created",
-  "bucket.deleted",
-  "bucket.probe_failed",
-  "bucket.updated",
-  "bucket_probe.trimmed",
-  "folder.access.granted",
-  "folder.access.revoked",
-  "folder.access.updated",
-  "multipart_upload.aborted",
-  "user.created",
-  "user.deleted",
-  "user.updated",
-] as const
-
-type AuditEventFiltersDraft = {
-  operation: string
-  job: string
-  status: string
-  actor_id: string
-  request_id: string
-  batch_id: string
-  bucket_id: string
-  blob_id: string
-  created_after: Date | undefined
-  created_before: Date | undefined
-}
+const TEXT_FILTER_DEBOUNCE_MS = 400
 
 export function AuditEventsPage() {
-  const [filters, setFilters] = React.useState<AuditEventsQuery>({
-    limit: AUDIT_EVENTS_PAGE_SIZE,
-    offset: 0,
-  })
-  const [clearDialogOpen, setClearDialogOpen] = React.useState(false)
-  const [draft, setDraft] = React.useState<AuditEventFiltersDraft>({
-    operation: OPERATION_ALL,
-    job: JOB_ALL,
-    status: STATUS_ALL,
-    actor_id: "",
-    request_id: "",
-    batch_id: "",
-    bucket_id: "",
-    blob_id: "",
-    created_after: undefined,
-    created_before: undefined,
-  })
-  const auditEventsQuery = useAuditEvents(filters)
-  const clearAuditEventsMutation = useClearAuditEvents()
+  const [operation, setOperation] = React.useState<string | undefined>()
+  const [status, setStatus] = React.useState<AuditEventStatus | undefined>()
+  const [job, setJob] = React.useState<string | undefined>()
+  const [requestIdInput, setRequestIdInput] = React.useState("")
+  const [actorIdInput, setActorIdInput] = React.useState("")
+  const [batchIdInput, setBatchIdInput] = React.useState("")
+  const [storageBackendIdInput, setStorageBackendIdInput] = React.useState("")
+  const [blobIdInput, setBlobIdInput] = React.useState("")
+  const [createdAfter, setCreatedAfter] = React.useState<Date | undefined>()
+  const [createdBefore, setCreatedBefore] = React.useState<Date | undefined>()
+  const [offset, setOffset] = React.useState(0)
+  const [selectedEvent, setSelectedEvent] =
+    React.useState<AuditEventRecord | null>(null)
 
-  function applyFilters(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setFilters({
-      operation:
-        draft.operation === OPERATION_ALL ? undefined : draft.operation,
-      job: draft.job === JOB_ALL ? undefined : draft.job,
-      status:
-        draft.status === STATUS_ALL
-          ? undefined
-          : (draft.status as AuditEventStatus),
-      actor_id: draft.actor_id,
-      request_id: draft.request_id,
-      batch_id: draft.batch_id,
-      bucket_id: draft.bucket_id,
-      blob_id: draft.blob_id,
-      created_after: toStartOfDayIso(draft.created_after),
-      created_before: toEndOfDayIso(draft.created_before),
+  const debouncedRequestId = useDebouncedValue(
+    requestIdInput,
+    TEXT_FILTER_DEBOUNCE_MS
+  )
+  const debouncedActorId = useDebouncedValue(actorIdInput, TEXT_FILTER_DEBOUNCE_MS)
+  const debouncedBatchId = useDebouncedValue(batchIdInput, TEXT_FILTER_DEBOUNCE_MS)
+  const debouncedStorageBackendId = useDebouncedValue(
+    storageBackendIdInput,
+    TEXT_FILTER_DEBOUNCE_MS
+  )
+  const debouncedBlobId = useDebouncedValue(blobIdInput, TEXT_FILTER_DEBOUNCE_MS)
+
+  const filterParams = React.useMemo<Omit<AuditEventsQuery, "limit" | "offset">>(
+    () => ({
+      operation,
+      status,
+      job,
+      request_id: trimOrUndefined(debouncedRequestId),
+      actor_id: trimOrUndefined(debouncedActorId),
+      batch_id: trimOrUndefined(debouncedBatchId),
+      storage_backend_id: trimOrUndefined(debouncedStorageBackendId),
+      blob_id: trimOrUndefined(debouncedBlobId),
+      created_after: toStartOfDayIso(createdAfter),
+      created_before: toEndOfDayIso(createdBefore),
+    }),
+    [
+      operation,
+      status,
+      job,
+      debouncedRequestId,
+      debouncedActorId,
+      debouncedBatchId,
+      debouncedStorageBackendId,
+      debouncedBlobId,
+      createdAfter,
+      createdBefore,
+    ]
+  )
+
+  React.useEffect(() => {
+    setOffset(0)
+    setSelectedEvent(null)
+  }, [filterParams])
+
+  const filters = React.useMemo<AuditEventsQuery>(
+    () => ({
+      ...filterParams,
       limit: AUDIT_EVENTS_PAGE_SIZE,
-      offset: 0,
-    })
-  }
+      offset,
+    }),
+    [filterParams, offset]
+  )
 
-  function clearFilters() {
-    setDraft({
-      operation: OPERATION_ALL,
-      job: JOB_ALL,
-      status: STATUS_ALL,
-      actor_id: "",
-      request_id: "",
-      batch_id: "",
-      bucket_id: "",
-      blob_id: "",
-      created_after: undefined,
-      created_before: undefined,
-    })
-    setFilters({ limit: AUDIT_EVENTS_PAGE_SIZE, offset: 0 })
-  }
+  const auditEventsQuery = useAuditEvents(filters)
 
-  function setOffset(offset: number) {
-    setFilters((current) => ({ ...current, offset }))
-  }
+  const hasActiveFilters =
+    operation !== undefined ||
+    status !== undefined ||
+    job !== undefined ||
+    requestIdInput !== "" ||
+    actorIdInput !== "" ||
+    batchIdInput !== "" ||
+    storageBackendIdInput !== "" ||
+    blobIdInput !== "" ||
+    createdAfter !== undefined ||
+    createdBefore !== undefined
 
-  async function clearAuditLog() {
-    try {
-      await clearAuditEventsMutation.mutateAsync()
-      setFilters({ limit: AUDIT_EVENTS_PAGE_SIZE, offset: 0 })
-      setClearDialogOpen(false)
-    } catch {
-      // Error toast is handled by the mutation hook.
-    }
+  function resetFilters() {
+    setOperation(undefined)
+    setStatus(undefined)
+    setJob(undefined)
+    setRequestIdInput("")
+    setActorIdInput("")
+    setBatchIdInput("")
+    setStorageBackendIdInput("")
+    setBlobIdInput("")
+    setCreatedAfter(undefined)
+    setCreatedBefore(undefined)
+    setOffset(0)
+    setSelectedEvent(null)
   }
 
   return (
@@ -172,55 +136,15 @@ export function AuditEventsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Audit Log</h1>
           <p className="text-sm text-muted-foreground">
-            Explore durable audit events for identity, access, bucket, folder
-            changes, and storage maintenance.
+            Explore durable audit events for identity, access, storage backend,
+            folder changes, and storage maintenance.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <AlertDialog
-            open={clearDialogOpen}
-            onOpenChange={setClearDialogOpen}
-          >
-            <AlertDialogTrigger asChild>
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={clearAuditEventsMutation.isPending}
-              >
-                <Trash2 />
-                Clear Audit Log
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Clear the audit log?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This permanently deletes every audit event. New audit events
-                  will continue to be recorded after the table is cleared.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel
-                  disabled={clearAuditEventsMutation.isPending}
-                >
-                  Cancel
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  variant="destructive"
-                  disabled={clearAuditEventsMutation.isPending}
-                  onClick={(event) => {
-                    event.preventDefault()
-                    void clearAuditLog()
-                  }}
-                >
-                  {clearAuditEventsMutation.isPending ? "Clearing..." : "Clear"}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
           <Button
             type="button"
             variant="outline"
+            size="sm"
             onClick={() => void auditEventsQuery.refetch()}
             disabled={auditEventsQuery.isFetching}
           >
@@ -234,149 +158,175 @@ export function AuditEventsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Filters</CardTitle>
+          <CardTitle className="text-base">Filters</CardTitle>
         </CardHeader>
-        <CardContent>
-          <form className="grid gap-3 lg:grid-cols-5" onSubmit={applyFilters}>
-            <Select
-              value={draft.operation}
-              onValueChange={(operation) =>
-                setDraft((current) => ({ ...current, operation }))
-              }
-            >
-              <SelectTrigger className="h-9 w-full">
-                <SelectValue placeholder="Operation" />
-              </SelectTrigger>
-              <SelectContent className="max-h-80">
-                <SelectItem value={OPERATION_ALL}>Any operation</SelectItem>
-                {OPERATION_OPTIONS.map((operation) => (
-                  <SelectItem key={operation} value={operation}>
-                    {operation}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={draft.status}
-              onValueChange={(status) =>
-                setDraft((current) => ({ ...current, status }))
-              }
-            >
-              <SelectTrigger className="h-9 w-full">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={STATUS_ALL}>Any status</SelectItem>
-                <SelectItem value="succeeded">Succeeded</SelectItem>
-                <SelectItem value="failed">Failed</SelectItem>
-                <SelectItem value="skipped">Skipped</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select
-              value={draft.job}
-              onValueChange={(job) =>
-                setDraft((current) => ({ ...current, job }))
-              }
-            >
-              <SelectTrigger className="h-9 w-full">
-                <SelectValue placeholder="Job" />
-              </SelectTrigger>
-              <SelectContent className="max-h-80">
-                <SelectItem value={JOB_ALL}>Any job</SelectItem>
-                {JOB_OPTIONS.map((job) => (
-                  <SelectItem key={job} value={job}>
-                    {job}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Input
-              placeholder="Request ID"
-              value={draft.request_id}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  request_id: event.target.value,
-                }))
-              }
-            />
-            <Input
-              placeholder="Actor ID"
-              value={draft.actor_id}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  actor_id: event.target.value,
-                }))
-              }
-            />
-            <Input
-              placeholder="Batch ID"
-              value={draft.batch_id}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  batch_id: event.target.value,
-                }))
-              }
-            />
-            <Input
-              placeholder="Bucket ID"
-              value={draft.bucket_id}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  bucket_id: event.target.value,
-                }))
-              }
-            />
-            <Input
-              placeholder="Blob ID"
-              value={draft.blob_id}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  blob_id: event.target.value,
-                }))
-              }
-            />
-            <div className="flex gap-2">
-              <Button type="submit" className="flex-1">
-                <Search />
-                Apply
-              </Button>
-              <Button type="button" variant="outline" onClick={clearFilters}>
-                <X />
-                Clear
-              </Button>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-2">
+              <FilterFieldLabel
+                label="Operation"
+                tooltip="Filter by audit operation name, such as auth.login.succeeded or blob.promoted."
+              />
+              <StringOptionCombobox
+                options={AUDIT_OPERATION_OPTIONS}
+                value={operation}
+                onChange={setOperation}
+                placeholder="Any operation"
+                clearLabel="Any operation"
+                searchPlaceholder="Search operations..."
+                mono
+              />
             </div>
-            <DateFilterPicker
-              label="Created after"
-              value={draft.created_after}
-              onChange={(date) =>
-                setDraft((current) => ({
-                  ...current,
-                  created_after: date,
-                }))
-              }
-            />
-            <DateFilterPicker
-              label="Created before"
-              value={draft.created_before}
-              onChange={(date) =>
-                setDraft((current) => ({
-                  ...current,
-                  created_before: date,
-                }))
-              }
-            />
-          </form>
+            <div className="grid gap-2">
+              <FilterFieldLabel
+                label="Status"
+                tooltip="Outcome of the audited action or maintenance run."
+              />
+              <StringOptionCombobox
+                options={AUDIT_STATUS_OPTIONS}
+                value={status}
+                onChange={(value) =>
+                  setStatus(value as AuditEventStatus | undefined)
+                }
+                placeholder="Any status"
+                clearLabel="Any status"
+                searchPlaceholder="Search status..."
+              />
+            </div>
+            <div className="grid gap-2">
+              <FilterFieldLabel
+                label="Job"
+                tooltip="Maintenance or background worker job that emitted the event."
+              />
+              <StringOptionCombobox
+                options={AUDIT_JOB_OPTIONS}
+                value={job}
+                onChange={setJob}
+                placeholder="Any job"
+                clearLabel="Any job"
+                searchPlaceholder="Search jobs..."
+                mono
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-2">
+              <FilterFieldLabel
+                label="Created after"
+                tooltip="Include events on or after the start of this day."
+              />
+              <DateFilterPicker
+                label="Pick a start date"
+                value={createdAfter}
+                onChange={setCreatedAfter}
+              />
+            </div>
+            <div className="grid gap-2">
+              <FilterFieldLabel
+                label="Created before"
+                tooltip="Include events on or before the end of this day."
+              />
+              <DateFilterPicker
+                label="Pick an end date"
+                value={createdBefore}
+                onChange={setCreatedBefore}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-2">
+              <FilterFieldLabel
+                htmlFor="request-id"
+                label="Request ID"
+                tooltip="Correlate with X-Request-ID from an API call."
+              />
+              <Input
+                id="request-id"
+                className="h-9 font-mono text-xs"
+                placeholder="Optional"
+                value={requestIdInput}
+                onChange={(event) => setRequestIdInput(event.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <FilterFieldLabel
+                htmlFor="batch-id"
+                label="Batch ID"
+                tooltip="Group identifier for batched maintenance work."
+              />
+              <Input
+                id="batch-id"
+                className="h-9 font-mono text-xs"
+                placeholder="Optional"
+                value={batchIdInput}
+                onChange={(event) => setBatchIdInput(event.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <FilterFieldLabel
+                htmlFor="actor-id"
+                label="Actor ID"
+                tooltip="User UUID for human-initiated actions."
+              />
+              <Input
+                id="actor-id"
+                className="h-9 font-mono text-xs"
+                placeholder="Optional"
+                value={actorIdInput}
+                onChange={(event) => setActorIdInput(event.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <FilterFieldLabel
+                htmlFor="storage-backend-id"
+                label="Storage backend ID"
+                tooltip="Filter events tied to a specific storage backend."
+              />
+              <Input
+                id="storage-backend-id"
+                className="h-9 font-mono text-xs"
+                placeholder="Optional"
+                value={storageBackendIdInput}
+                onChange={(event) =>
+                  setStorageBackendIdInput(event.target.value)
+                }
+              />
+            </div>
+            <div className="grid gap-2">
+              <FilterFieldLabel
+                htmlFor="blob-id"
+                label="Blob ID"
+                tooltip="Filter events tied to a specific blob."
+              />
+              <Input
+                id="blob-id"
+                className="h-9 font-mono text-xs"
+                placeholder="Optional"
+                value={blobIdInput}
+                onChange={(event) => setBlobIdInput(event.target.value)}
+              />
+            </div>
+          </div>
+
+          {hasActiveFilters && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={resetFilters}
+            >
+              <X className="size-4" />
+              Reset filters
+            </Button>
+          )}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className="gap-2 sm:flex sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>Audit Events</CardTitle>
+          <CardTitle className="text-base">Audit Events</CardTitle>
           {auditEventsQuery.data && (
             <div className="text-xs text-muted-foreground">
               {auditEventsQuery.data.total.toLocaleString()}{" "}
@@ -397,6 +347,8 @@ export function AuditEventsPage() {
               <AuditEventsTable
                 auditEvents={auditEventsQuery.data?.items ?? []}
                 isLoading={auditEventsQuery.isLoading}
+                selectedEventId={selectedEvent?.id}
+                onSelectEvent={setSelectedEvent}
               />
               {auditEventsQuery.data && (
                 <OffsetPaginationBar
@@ -410,61 +362,17 @@ export function AuditEventsPage() {
           )}
         </CardContent>
       </Card>
+
+      <AuditEventDetailDrawer
+        event={selectedEvent}
+        open={selectedEvent !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedEvent(null)
+          }
+        }}
+      />
     </div>
-  )
-}
-
-function DateFilterPicker({
-  label,
-  value,
-  onChange,
-}: {
-  label: string
-  value: Date | undefined
-  onChange: (date: Date | undefined) => void
-}) {
-  const [open, setOpen] = React.useState(false)
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          className={cn(
-            "h-9 w-full justify-start text-left font-normal",
-            !value && "text-muted-foreground"
-          )}
-          aria-label={label}
-        >
-          <CalendarIcon />
-          {value ? formatFilterDate(value) : label}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-0">
-        <Calendar
-          mode="single"
-          selected={value}
-          onSelect={(date) => {
-            onChange(date)
-            setOpen(false)
-          }}
-          captionLayout="dropdown"
-        />
-        <div className="border-t p-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="w-full"
-            disabled={!value}
-            onClick={() => onChange(undefined)}
-          >
-            Clear date
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
   )
 }
 
@@ -489,22 +397,7 @@ function ErrorState({
   )
 }
 
-function formatFilterDate(value: Date) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-  }).format(value)
-}
-
-function toStartOfDayIso(value: Date | undefined) {
-  if (!value) return undefined
-  const date = new Date(value)
-  date.setHours(0, 0, 0, 0)
-  return date.toISOString()
-}
-
-function toEndOfDayIso(value: Date | undefined) {
-  if (!value) return undefined
-  const date = new Date(value)
-  date.setHours(23, 59, 59, 999)
-  return date.toISOString()
+function trimOrUndefined(value: string) {
+  const trimmed = value.trim()
+  return trimmed || undefined
 }

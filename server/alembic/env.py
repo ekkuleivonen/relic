@@ -5,8 +5,8 @@ from alembic import context
 from alembic.operations.ops import MigrationScript
 from sqlalchemy import engine_from_config, pool
 
-from database import get_database_url
-from models import Base
+from infra.db.engine import get_database_url
+from infra.db.models import Base
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_database_url())
@@ -70,7 +70,26 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _configure_context(connection, **kwargs):
+    render_as_batch = connection.dialect.name == "sqlite"
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_object,
+        process_revision_directives=process_revision_directives,
+        render_as_batch=render_as_batch,
+        **kwargs,
+    )
+
+
 def run_migrations_online() -> None:
+    connection = config.attributes.get("connection")
+    if connection is not None:
+        _configure_context(connection)
+        with context.begin_transaction():
+            context.run_migrations()
+        return
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -78,12 +97,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            include_object=include_object,
-            process_revision_directives=process_revision_directives,
-        )
+        _configure_context(connection)
 
         with context.begin_transaction():
             context.run_migrations()

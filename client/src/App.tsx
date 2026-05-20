@@ -3,9 +3,10 @@ import { Navigate, Route, Routes } from "react-router"
 import { AdminLayout } from "@/components/layout/admin-layout"
 import { RequireSession } from "@/components/layout/route-guards"
 import { AccessKeysPage } from "@/pages/admin/access-keys-page"
-import { BucketsPage } from "@/pages/admin/buckets-page"
+import { StorageBackendsPage } from "@/pages/admin/storage-backends-page"
 import { FolderAccessPage } from "@/pages/admin/folder-access-page"
 import { AuditEventsPage } from "@/pages/admin/audit-events-page"
+import { FilesystemEventsPage } from "@/pages/admin/filesystem-events-page"
 import { UsersPage } from "@/pages/admin/users-page"
 import { FileDetailPage } from "@/pages/file-detail-page"
 import { FilesystemPage } from "@/pages/filesystem-page"
@@ -18,12 +19,13 @@ export function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<RequireSession requireAdmin />}>
         <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<Navigate to="/admin/buckets" replace />} />
-          <Route path="buckets" element={<BucketsPage />} />
+          <Route index element={<Navigate to="/admin/storage-backends" replace />} />
+          <Route path="storage-backends" element={<StorageBackendsPage />} />
           <Route path="users" element={<UsersPage />} />
           <Route path="access-keys" element={<AccessKeysPage />} />
           <Route path="folders" element={<FolderAccessPage />} />
           <Route path="audit-events" element={<AuditEventsPage />} />
+          <Route path="filesystem-events" element={<FilesystemEventsPage />} />
         </Route>
       </Route>
       <Route element={<RequireSession />}>

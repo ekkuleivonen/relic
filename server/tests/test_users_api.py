@@ -1,28 +1,16 @@
 import pytest
 from api.app import app
-from database import get_db
+from infra.db.engine import get_db
 from enums import UserRole
 from fastapi.testclient import TestClient
-from models import Base, File, Folder, User
-from services.auth import create_session_token
+from infra.db.models import Base, File, Folder, User
+from infra.db.stores.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from tests.factories.models import BlobFactory, BucketFactory
+from tests.factories.models import BlobFactory, StorageBackendFactory
 from utils.passwords import hash_password
 
-
-@pytest.fixture()
-def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with SessionLocal() as session:
-        yield session
 
 
 @pytest.fixture()
@@ -157,10 +145,10 @@ def test_delete_user_with_uploaded_files_returns_conflict(client, db_session):
         name="photos",
         parent_id=root.id,
     )
-    bucket = BucketFactory.build()
+    bucket = StorageBackendFactory.build()
     db_session.add_all([folder, bucket])
     db_session.flush()
-    blob = BlobFactory.build(bucket_id=bucket.id)
+    blob = BlobFactory.build(storage_backend_id=bucket.id)
     db_session.add(blob)
     db_session.flush()
     db_session.add(

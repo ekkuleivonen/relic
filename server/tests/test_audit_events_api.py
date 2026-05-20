@@ -3,29 +3,17 @@ import uuid
 
 import pytest
 from api.app import app
-from database import get_db
+from infra.db.engine import get_db
 from enums import UserRole
 from fastapi.testclient import TestClient
-from models import AuditEvent, Base
-from services.audit_events import create_audit_event, trim_audit_events_older_than
-from services.auth import create_session_token
+from infra.db.models import AuditEvent, Base
+from infra.db.stores.audit_events import create_audit_event, trim_audit_events_older_than
+from infra.db.stores.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from tests.factories.models import AuditEventFactory, UserFactory
 
-
-@pytest.fixture()
-def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with SessionLocal() as session:
-        yield session
 
 
 @pytest.fixture()
@@ -55,8 +43,8 @@ def client(db_session, admin):
 def test_list_audit_events_returns_recent_events_first(client, db_session):
     batch_id = uuid.uuid4()
     older = AuditEventFactory.build(
-        job="bucket_probe",
-        operation="bucket.probe_ok",
+        job="storage_backend_probe",
+        operation="storage_backend.probe_ok",
         batch_id=batch_id,
         meta={"put_ms": 1},
         created_at=dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1),
@@ -83,7 +71,7 @@ def test_list_audit_events_returns_recent_events_first(client, db_session):
     assert body["offset"] == 0
     assert [item["operation"] for item in body["items"]] == [
         "blob.purged",
-        "bucket.probe_ok",
+        "storage_backend.probe_ok",
     ]
     assert body["items"][0]["metadata"] == {"freed_bytes": 100}
 
@@ -92,13 +80,13 @@ def test_list_audit_events_filters_and_paginates(client, db_session):
     db_session.add_all(
         [
             AuditEventFactory.build(
-                job="bucket_probe",
-                operation="bucket.probe_ok",
+                job="storage_backend_probe",
+                operation="storage_backend.probe_ok",
                 status="succeeded",
             ),
             AuditEventFactory.build(
-                job="bucket_probe",
-                operation="bucket.probe_failed",
+                job="storage_backend_probe",
+                operation="storage_backend.probe_failed",
                 status="failed",
             ),
             AuditEventFactory.build(
@@ -112,14 +100,14 @@ def test_list_audit_events_filters_and_paginates(client, db_session):
 
     response = client.get(
         "/api/audit-events/",
-        params={"job": "bucket_probe", "status": "failed", "limit": 1},
+        params={"job": "storage_backend_probe", "status": "failed", "limit": 1},
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 1
     assert len(body["items"]) == 1
-    assert body["items"][0]["operation"] == "bucket.probe_failed"
+    assert body["items"][0]["operation"] == "storage_backend.probe_failed"
 
 
 def test_list_audit_events_rejects_invalid_status(client):
@@ -130,27 +118,6 @@ def test_list_audit_events_rejects_invalid_status(client):
         response.json()["detail"]
         == "status must be one of ['failed', 'skipped', 'succeeded']"
     )
-
-
-def test_clear_audit_events_requires_admin(db_session):
-    user = UserFactory.build(role=UserRole.USER)
-    db_session.add(user)
-    db_session.add(AuditEventFactory.build())
-    db_session.commit()
-
-    def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
-    try:
-        with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(user))
-            response = test_client.delete("/api/audit-events/")
-    finally:
-        app.dependency_overrides.clear()
-
-    assert response.status_code == 403
-    assert len(db_session.scalars(select(AuditEvent)).all()) == 1
 
 
 def test_create_audit_event_writes_event(db_session):

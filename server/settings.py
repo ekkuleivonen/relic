@@ -27,7 +27,7 @@ configure_logging(
 )
 
 # =============================================================================
-# Postgres
+# Database
 # =============================================================================
 
 POSTGRES_HOST: str = env.str("POSTGRES_HOST", default="localhost")
@@ -35,6 +35,14 @@ POSTGRES_PORT: int = env.int("POSTGRES_PORT", default=5432)
 POSTGRES_DB: str = env.str("POSTGRES_DB", default="relic")
 POSTGRES_USER: str = env.str("POSTGRES_USER", default="relic")
 POSTGRES_PASSWORD: str = env.str("POSTGRES_PASSWORD", default="relic")
+
+# Optional override; when set, used instead of POSTGRES_* fields above.
+DATABASE_URL: str | None = env.str("DATABASE_URL", default=None)
+
+# Local filesystem object storage root for embedded / hot-NVMe mode.
+STORAGE_FILESYSTEM_BASE_PATH: str | None = env.str(
+    "STORAGE_FILESYSTEM_BASE_PATH", default=None
+)
 
 # =============================================================================
 # Encryption
@@ -52,6 +60,7 @@ ENCRYPTION_SECRET: str = env.str(
 RELIC_ADMIN_NAME: str = env.str("RELIC_ADMIN_NAME", default="Relic Admin")
 RELIC_ADMIN_EMAIL: str = env.str("RELIC_ADMIN_EMAIL", default="admin@relic.local")
 RELIC_ADMIN_PASSWORD: str = env.str("RELIC_ADMIN_PASSWORD", default="relic-admin")
+RELIC_SEED_FOLDER_NAME: str = env.str("RELIC_SEED_FOLDER_NAME", default="Uploads")
 
 # =============================================================================
 # Sessions
@@ -93,12 +102,16 @@ UPLOAD_SPOOL_MAX_MEMORY_BYTES: int = env.int(
     "UPLOAD_SPOOL_MAX_MEMORY_BYTES",
     default=8 * 1024 * 1024,
 )
+MAX_OBJECT_BYTES: int = env.int(
+    "MAX_OBJECT_BYTES",
+    default=5 * 1024 * 1024 * 1024,
+)
 S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS: int = env.int(
     "S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS",
     default=24,
 )
-S3_HOTPATH_METADATA_CACHE_TTL_SECONDS: int = env.int(
-    "S3_HOTPATH_METADATA_CACHE_TTL_SECONDS",
+FOLDER_METADATA_CACHE_TTL_SECONDS: int = env.int(
+    "FOLDER_METADATA_CACHE_TTL_SECONDS",
     default=120,
 )
 S3_LIST_OBJECTS_CACHE_TTL_SECONDS: int = env.int(
@@ -125,6 +138,18 @@ MAINTENANCE_QUEUE_NAME: str = env.str(
     "MAINTENANCE_QUEUE_NAME",
     default="relic:maintenance",
 )
+MAINTENANCE_HEARTBEAT_TTL_SECONDS: int = env.int(
+    "MAINTENANCE_HEARTBEAT_TTL_SECONDS",
+    default=180,
+)
+MAINTENANCE_HEARTBEAT_STALE_SECONDS: int = env.int(
+    "MAINTENANCE_HEARTBEAT_STALE_SECONDS",
+    default=120,
+)
+MAINTENANCE_HEARTBEAT_REQUIRED: bool = env.bool(
+    "MAINTENANCE_HEARTBEAT_REQUIRED",
+    default=False,
+)
 
 # Storage maintenance (arq cron + jobs; see workers/maintenance.py)
 EVENT_RETENTION_DAYS: int = env.int("EVENT_RETENTION_DAYS", default=90)
@@ -150,7 +175,7 @@ STORAGE_MAINTENANCE_PURGE_BATCH: int = env.int(
 # after a successful migration so we never bounce the same blob twice in a
 # tick window.
 #
-# STORAGE_WRITE_HEADROOM_RATIO is enforced at upload time (placement.choose_bucket)
+# STORAGE_WRITE_HEADROOM_RATIO is enforced at upload time (placement.choose_storage_backend)
 # to leave breathing room for the demote cron - never fill a bucket all the way
 # from the user write path.
 
@@ -178,9 +203,14 @@ STORAGE_DEMOTE_BATCH: int = env.int("STORAGE_DEMOTE_BATCH", default=24)
 STORAGE_PROMOTE_BATCH: int = env.int("STORAGE_PROMOTE_BATCH", default=24)
 
 # Hotness ranking averages over the last N successful probes per bucket so a
-# single noisy sample can't reorder buckets.
+# single noisy sample can't reorder storage_backends.
 PROBE_RANKING_WINDOW: int = env.int("PROBE_RANKING_WINDOW", default=3)
-# How long we keep historical bucket_probes rows (trimmed by maintenance cron).
+# When true, choose_storage_backend skips buckets with no recent successful probe.
+PLACEMENT_REQUIRE_REACHABLE_STORAGE_BACKEND: bool = env.bool(
+    "PLACEMENT_REQUIRE_REACHABLE_STORAGE_BACKEND",
+    default=True,
+)
+# How long we keep historical storage_backend_probes rows (trimmed by maintenance cron).
 PROBES_RETENTION_DAYS: int = env.int("PROBES_RETENTION_DAYS", default=14)
 
 # accessed_at update debounce: only bump on read if the previous bump was

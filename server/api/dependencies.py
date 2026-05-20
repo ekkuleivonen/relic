@@ -1,19 +1,45 @@
+from collections.abc import Generator
 from typing import Annotated
 
 import settings as S
-from database import DbSession
+from application.uow import UnitOfWork
+from composition import build_uow
+from infra.db.engine import DbSession
 from enums import UserRole
-from fastapi import Cookie, Depends, HTTPException, status
-from models import User
-from services import auth as auth_service
+from fastapi import Cookie, Depends, Header, HTTPException, status
+from application.control_plane import session_auth
+from ports.entities import User
+
+
+def get_uow(db: DbSession) -> Generator[UnitOfWork, None, None]:
+    uow = build_uow(db)
+    try:
+        yield uow
+        uow.commit()
+    except Exception:
+        uow.rollback()
+        raise
+    finally:
+        uow.close()
 
 
 def require_user(
-    db: DbSession,
+    uow: Annotated[UnitOfWork, Depends(get_uow)],
     session_token: Annotated[str | None, Cookie(alias=S.SESSION_COOKIE_NAME)] = None,
+    authorization: Annotated[str | None, Header()] = None,
+    x_request_id: Annotated[str | None, Header(alias="X-Request-ID")] = None,
+    x_correlation_id: Annotated[str | None, Header(alias="X-Correlation-ID")] = None,
 ) -> User:
-    user = auth_service.get_session_user(db, session_token)
+    request_id = x_request_id or x_correlation_id
+    user, audited_failure = session_auth.get_authenticated_user(
+        uow,
+        session_token=session_token,
+        authorization=authorization,
+        request_id=request_id,
+    )
     if not user:
+        if audited_failure:
+            uow.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
@@ -34,3 +60,4 @@ def require_admin(current_user: Annotated[User, Depends(require_user)]) -> User:
 
 CurrentUser = Annotated[User, Depends(require_user)]
 AdminUser = Annotated[User, Depends(require_admin)]
+UnitOfWorkDep = Annotated[UnitOfWork, Depends(get_uow)]

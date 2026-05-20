@@ -1,6 +1,7 @@
 import datetime as dt
 import hashlib
 import io
+import re
 
 import pytest
 import settings as S
@@ -8,30 +9,19 @@ from api.app import app
 from botocore.auth import S3SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
-from database import get_db
+from infra.db.engine import get_db
 from enums import Permission
 from fastapi.testclient import TestClient
-from models import Base, Blob, File, Folder, FolderAccess
-from services import s3_signing
-from services.auth import create_session_token
-from services.storage_maintenance import purge_dereferenced_blobs_batch
+from infra.db.models import Base, Blob, File, Folder, FolderAccess
+from application.gateway import object_signing
+from infra.db.stores.auth import create_session_token
+from application.uow_runner import run_with_uow
+from infra.maintenance.storage import purge_dereferenced_blobs_batch
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-from tests.factories.models import AccessKeyFactory, BucketFactory, UserFactory
+from tests.factories.models import AccessKeyFactory, StorageBackendFactory, UserFactory
 
-
-@pytest.fixture()
-def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with SessionLocal() as session:
-        yield session
 
 
 @pytest.fixture()
@@ -91,12 +81,12 @@ def archives_folder(db_session, root_folder):
 
 @pytest.fixture()
 def physical_bucket(db_session):
-    from tests.factories.models import BucketProbeFactory
+    from tests.factories.models import StorageBackendProbeFactory
 
-    bucket = BucketFactory.build(name="hot")
+    bucket = StorageBackendFactory.build(name="hot")
     db_session.add(bucket)
     db_session.flush()
-    db_session.add(BucketProbeFactory.build(bucket_id=bucket.id))
+    db_session.add(StorageBackendProbeFactory.build(storage_backend_id=bucket.id))
     db_session.commit()
     return bucket
 
@@ -149,11 +139,13 @@ class FakeStreamingBody:
         return self._buffer.read(size)
 
 
-class FakeBucketStore:
+class FakeStorageBackendStore:
     """In-memory fake of a bucket; supports put/get/delete."""
 
     def __init__(self):
         self.objects: dict[str, bytes] = {}
+        self.compose_calls: list[tuple[str, str, list[str]]] = []
+        self._uploads: dict[str, tuple[str, str, dict[int, str]]] = {}
 
     def make_client(self):
         store = self
@@ -165,27 +157,65 @@ class FakeBucketStore:
                     Body = Body.read()
                 store.objects[(Bucket, Key)] = Body
 
+            def head_object(self, Bucket, Key):
+                data = store.objects[(Bucket, Key)]
+                return {"ContentLength": len(data)}
+
             def get_object(self, Bucket, Key, Range=None):
                 data = store.objects[(Bucket, Key)]
                 if Range:
-                    return {
-                        "Body": FakeStreamingBody(data),
-                        "ContentLength": len(data),
-                        "ContentRange": f"bytes 0-{len(data) - 1}/{len(data)}",
-                    }
+                    match = re.match(r"bytes=(\d+)-(\d*)", Range)
+                    if match:
+                        start = int(match.group(1))
+                        end = int(match.group(2) or len(data) - 1)
+                        data = data[start : end + 1]
                 return {"Body": FakeStreamingBody(data), "ContentLength": len(data)}
 
             def delete_object(self, Bucket, Key):
                 store.objects.pop((Bucket, Key), None)
+
+            def create_multipart_upload(self, Bucket, Key):
+                upload_id = f"compose-{len(store._uploads) + 1}"
+                store._uploads[upload_id] = (Bucket, Key, {})
+                return {"UploadId": upload_id}
+
+            def upload_part_copy(
+                self, Bucket, Key, UploadId, PartNumber, CopySource
+            ):
+                source_key = CopySource["Key"]
+                store._uploads[UploadId][2][PartNumber] = source_key
+                etag = hashlib.md5(
+                    store.objects[(Bucket, source_key)],
+                    usedforsecurity=False,
+                ).hexdigest()
+                return {"CopyPartResult": {"ETag": f'"{etag}"'}}
+
+            def complete_multipart_upload(
+                self, Bucket, Key, UploadId, MultipartUpload
+            ):
+                _source_bucket, _dest_key, parts = store._uploads.pop(UploadId)
+                source_keys = [parts[part["PartNumber"]] for part in MultipartUpload["Parts"]]
+                store.compose_calls.append((Bucket, Key, source_keys))
+                store.objects[(Bucket, Key)] = b"".join(
+                    store.objects[(Bucket, source_key)] for source_key in source_keys
+                )
+                etag = hashlib.md5(
+                    store.objects[(Bucket, Key)],
+                    usedforsecurity=False,
+                ).hexdigest()
+                return {"ETag": f'"{etag}"'}
+
+            def abort_multipart_upload(self, Bucket, Key, UploadId):
+                store._uploads.pop(UploadId, None)
 
         return _Client()
 
 
 @pytest.fixture()
 def fake_storage(monkeypatch):
-    store = FakeBucketStore()
+    store = FakeStorageBackendStore()
     monkeypatch.setattr(
-        "services.objects.boto3.client",
+        "infra.object_storage.registry.boto3.client",
         lambda **kwargs: store.make_client(),
     )
     return store
@@ -236,7 +266,7 @@ def test_native_header_put_creates_file_and_marks_key_used(
     assert file.actor_id == user.id
     assert file.meta["album"] == "native"
     blob = db_session.get(Blob, file.blob_id)
-    assert fake_storage.objects[(physical_bucket.bucket, blob.bucket_key)] == body
+    assert fake_storage.objects[(physical_bucket.namespace, blob.bucket_key)] == body
 
 
 def test_native_header_list_head_get_and_delete(
@@ -347,7 +377,7 @@ def test_native_header_multipart_upload(
     blob = db_session.get(Blob, file.blob_id)
     assert blob.size_bytes == len(b"native multipart")
     assert (
-        fake_storage.objects[(physical_bucket.bucket, blob.bucket_key)]
+        fake_storage.objects[(physical_bucket.namespace, blob.bucket_key)]
         == b"native multipart"
     )
 
@@ -420,7 +450,12 @@ def test_presigned_delete_drops_file_and_blob(
     response = client.delete(signed["url"], headers=signed["headers"])
     assert response.status_code == 204
     assert db_session.scalar(select(File).where(File.id == file.id)) is None
-    purge_dereferenced_blobs_batch(db_session, batch=S.STORAGE_MAINTENANCE_PURGE_BATCH)
+    run_with_uow(
+        db_session,
+        lambda uow: purge_dereferenced_blobs_batch(
+            uow, batch=S.STORAGE_MAINTENANCE_PURGE_BATCH
+        ),
+    )
     assert db_session.scalar(select(Blob).where(Blob.id == blob_id)) is None
     assert fake_storage.objects == {}
 
@@ -683,7 +718,7 @@ def test_presigned_head_returns_ok(
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     upload_file(client, photos_folder, filename="cat.jpg", content=b"cat photo")
-    signed = s3_signing.sign_request_url(
+    signed = object_signing.sign_request_url(
         method="HEAD",
         bucket="photos",
         key="cat.jpg",
@@ -701,7 +736,7 @@ def test_multipart_upload_completes_object(
     client, db_session, user, photos_folder, physical_bucket, fake_storage
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
-    create = s3_signing.sign_request_url(
+    create = object_signing.sign_request_url(
         method="POST",
         bucket="photos",
         key="large.bin",
@@ -720,7 +755,7 @@ def test_multipart_upload_completes_object(
     ]
     uploaded_parts = []
     for part_number, content in [(1, b"hello "), (2, b"world")]:
-        signed = s3_signing.sign_request_url(
+        signed = object_signing.sign_request_url(
             method="PUT",
             bucket="photos",
             key="large.bin",
@@ -735,7 +770,7 @@ def test_multipart_upload_completes_object(
         assert response.headers["etag"] == f'"{hashlib.md5(content, usedforsecurity=False).hexdigest()}"'
         uploaded_parts.append((part_number, response.headers["etag"]))
 
-    uploads = s3_signing.sign_bucket_url(
+    uploads = object_signing.sign_bucket_url(
         method="GET",
         bucket="photos",
         headers={},
@@ -749,7 +784,7 @@ def test_multipart_upload_completes_object(
     assert f"<UploadId>{upload_id}</UploadId>" in uploads_response.text
     assert "<Initiated>" in uploads_response.text
 
-    parts = s3_signing.sign_request_url(
+    parts = object_signing.sign_request_url(
         method="GET",
         bucket="photos",
         key="large.bin",
@@ -772,7 +807,7 @@ def test_multipart_upload_completes_object(
         )
         + "</CompleteMultipartUpload>"
     )
-    complete = s3_signing.sign_request_url(
+    complete = object_signing.sign_request_url(
         method="POST",
         bucket="photos",
         key="large.bin",
@@ -797,9 +832,19 @@ def test_multipart_upload_completes_object(
     blob = db_session.get(Blob, file.blob_id)
     assert blob.size_bytes == len(b"hello world")
     assert (
-        fake_storage.objects[(physical_bucket.bucket, blob.bucket_key)]
+        fake_storage.objects[(physical_bucket.namespace, blob.bucket_key)]
         == b"hello world"
     )
+    assert fake_storage.compose_calls == [
+        (
+            physical_bucket.namespace,
+            blob.bucket_key,
+            [
+                f"__relic_multipart_uploads/{upload_id}/1",
+                f"__relic_multipart_uploads/{upload_id}/2",
+            ],
+        )
+    ]
     assert not [
         key
         for (_bucket, key) in fake_storage.objects
@@ -811,7 +856,7 @@ def test_multipart_upload_abort_removes_temp_parts(
     client, db_session, user, photos_folder, physical_bucket, fake_storage
 ):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
-    create = s3_signing.sign_request_url(
+    create = object_signing.sign_request_url(
         method="POST",
         bucket="photos",
         key="large.bin",
@@ -825,7 +870,7 @@ def test_multipart_upload_abort_removes_temp_parts(
     upload_id = create_response.text.split("<UploadId>", 1)[1].split("</UploadId>", 1)[
         0
     ]
-    signed = s3_signing.sign_request_url(
+    signed = object_signing.sign_request_url(
         method="PUT",
         bucket="photos",
         key="large.bin",
@@ -843,7 +888,7 @@ def test_multipart_upload_abort_removes_temp_parts(
         key.startswith("__relic_multipart_uploads/")
         for (_bucket, key) in fake_storage.objects
     )
-    abort = s3_signing.sign_request_url(
+    abort = object_signing.sign_request_url(
         method="DELETE",
         bucket="photos",
         key="large.bin",
@@ -916,11 +961,11 @@ def test_delete_url_expired(
     file = db_session.scalar(select(File).where(File.name == "cat.jpg"))
 
     frozen = dt.datetime(2026, 5, 9, 0, 0, tzinfo=dt.UTC)
-    monkeypatch.setattr("services.s3_signing.now_utc", lambda: frozen)
+    monkeypatch.setattr("infra.auth.s3_signing.now_utc", lambda: frozen)
     presign = client.post("/api/uploads/presign-delete", json={"file_id": str(file.id)})
     signed = presign.json()
     monkeypatch.setattr(
-        "services.s3_signing.now_utc",
+        "infra.auth.s3_signing.now_utc",
         lambda: frozen + dt.timedelta(minutes=10),
     )
     response = client.delete(signed["url"], headers=signed["headers"])

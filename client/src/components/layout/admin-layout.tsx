@@ -5,11 +5,12 @@ import { SidebarHeader } from "@/components/layout/sidebar-header"
 import { cn } from "@/lib/utils"
 
 const adminNavItems = [
-  { to: "/admin/buckets", label: "Buckets" },
+  { to: "/admin/storage-backends", label: "Storage Backends" },
   { to: "/admin/users", label: "Users" },
   { to: "/admin/access-keys", label: "Access Keys" },
   { to: "/admin/folders", label: "Folder Access" },
   { to: "/admin/audit-events", label: "Audit Events" },
+  { to: "/admin/filesystem-events", label: "Filesystem Events" },
 ] as const
 
 export function AdminLayout() {
@@ -37,7 +38,7 @@ export function AdminLayout() {
       </aside>
       <div className="lg:pl-56">
         <header className="border-b px-4 py-3 lg:hidden">
-          <div className="text-sm font-semibold">Relic Bucket Admin</div>
+          <div className="text-sm font-semibold">Relic Storage Admin</div>
           <nav className="mt-3 flex gap-3 overflow-x-auto text-sm">
             {adminNavItems.map((item) => (
               <NavLink

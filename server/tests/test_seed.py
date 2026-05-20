@@ -38,3 +38,29 @@ def test_main_runs_migrations_before_seed(monkeypatch):
     seed_module.main()
 
     assert calls == ["migrations", "seed"]
+
+
+def test_upsert_seed_folder_creates_starter_folder(db_session, monkeypatch):
+    monkeypatch.setattr(seed_module.S, "RELIC_SEED_FOLDER_NAME", "Uploads")
+
+    root = seed_module.upsert_root_folder(db_session)
+    db_session.commit()
+
+    folder = seed_module.upsert_seed_folder(db_session, root)
+    db_session.commit()
+
+    assert folder is not None
+    assert folder.name == "Uploads"
+    assert folder.parent_id == root.id
+
+    again = seed_module.upsert_seed_folder(db_session, root)
+    assert again.id == folder.id
+
+
+def test_upsert_seed_folder_skipped_when_name_blank(db_session, monkeypatch):
+    monkeypatch.setattr(seed_module.S, "RELIC_SEED_FOLDER_NAME", "  ")
+
+    root = seed_module.upsert_root_folder(db_session)
+    db_session.commit()
+
+    assert seed_module.upsert_seed_folder(db_session, root) is None

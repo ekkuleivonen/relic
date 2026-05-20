@@ -1,7 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { toast } from "sonner"
+import { useQuery } from "@tanstack/react-query"
 
-import { apiRequest, extractApiError } from "@/lib/api"
+import { apiRequest } from "@/lib/api"
 import type {
   AuditEventsQuery,
   AuditEventsResponse,
@@ -21,24 +20,6 @@ export function useAuditEvents(query: AuditEventsQuery) {
   })
 }
 
-export function useClearAuditEvents() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: () =>
-      apiRequest<void>("/audit-events/", {
-        method: "DELETE",
-      }),
-    onSuccess: () => {
-      toast.success("Audit log cleared")
-      void queryClient.invalidateQueries({ queryKey: auditEventsQueryRootKey })
-    },
-    onError: (error) => {
-      toast.error(extractApiError(error))
-    },
-  })
-}
-
 function toQueryString(query: AuditEventsQuery) {
   const params = new URLSearchParams()
   addString(params, "operation", query.operation)
@@ -47,7 +28,7 @@ function toQueryString(query: AuditEventsQuery) {
   addString(params, "request_id", query.request_id)
   addString(params, "job", query.job)
   addString(params, "batch_id", query.batch_id)
-  addString(params, "bucket_id", query.bucket_id)
+  addString(params, "storage_backend_id", query.storage_backend_id)
   addString(params, "blob_id", query.blob_id)
   addString(params, "created_after", query.created_after)
   addString(params, "created_before", query.created_before)

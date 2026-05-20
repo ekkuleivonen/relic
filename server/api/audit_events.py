@@ -1,14 +1,14 @@
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict
 
 from api.users import UserRead
+from api.dependencies import UnitOfWorkDep
 from constants import AUDIT_EVENT_DEFAULT_LIMIT, AUDIT_EVENT_MAX_LIMIT
-from database import DbSession
-from models import AuditEvent
-from services import audit_events as audit_event_service
+from infra.db.models import AuditEvent
+from application.control_plane import audit_events
 
 router = APIRouter()
 
@@ -24,7 +24,7 @@ class AuditEventRead(BaseModel):
     request_id: str | None
     job: str | None
     batch_id: uuid.UUID | None
-    bucket_id: uuid.UUID | None
+    storage_backend_id: uuid.UUID | None
     blob_id: uuid.UUID | None
     duration_ms: int | None
     metadata: dict
@@ -42,7 +42,7 @@ class AuditEventRead(BaseModel):
             request_id=event.request_id,
             job=event.job,
             batch_id=event.batch_id,
-            bucket_id=event.bucket_id,
+            storage_backend_id=event.storage_backend_id,
             blob_id=event.blob_id,
             duration_ms=event.duration_ms,
             metadata=event.meta,
@@ -62,14 +62,14 @@ class AuditEventListResponse(BaseModel):
 
 @router.get("/")
 async def list_audit_events(
-    db: DbSession,
+    uow: UnitOfWorkDep,
     operation: str | None = None,
     status: str | None = None,
     actor_id: uuid.UUID | None = None,
     request_id: str | None = None,
     job: str | None = None,
     batch_id: uuid.UUID | None = None,
-    bucket_id: uuid.UUID | None = None,
+    storage_backend_id: uuid.UUID | None = None,
     blob_id: uuid.UUID | None = None,
     created_after: dt.datetime | None = None,
     created_before: dt.datetime | None = None,
@@ -80,15 +80,15 @@ async def list_audit_events(
     ),
     offset: int = Query(default=0, ge=0),
 ) -> AuditEventListResponse:
-    page = audit_event_service.list_audit_events(
-        db,
+    page = audit_events.list_audit_events(
+        uow.session,
         operation=operation,
         status=status,
         actor_id=actor_id,
         request_id=request_id,
         job=job,
         batch_id=batch_id,
-        bucket_id=bucket_id,
+        storage_backend_id=storage_backend_id,
         blob_id=blob_id,
         created_after=created_after,
         created_before=created_before,
@@ -103,7 +103,3 @@ async def list_audit_events(
     )
 
 
-@router.delete("/")
-async def clear_audit_events(db: DbSession) -> Response:
-    audit_event_service.clear_audit_events(db)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)

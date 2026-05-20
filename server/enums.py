@@ -27,3 +27,10 @@ class EventStatus(enum.StrEnum):
 class HealthStatus(enum.StrEnum):
     OK = "ok"
     FAILED = "failed"
+
+
+class StorageBackendKind(enum.StrEnum):
+    S3 = "s3"
+    FILESYSTEM = "filesystem"
+    AZURE_BLOB = "azure_blob"
+    GCS = "gcs"

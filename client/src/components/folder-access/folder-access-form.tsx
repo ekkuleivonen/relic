@@ -77,7 +77,7 @@ export function FolderAccessForm({
         <FolderCombobox
           folders={folders}
           value={folderId || undefined}
-          onChange={setFolderId}
+          onChange={(id) => setFolderId(id ?? "")}
           disabled={isEdit}
         />
       </div>

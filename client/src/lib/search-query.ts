@@ -1,8 +1,8 @@
 import {
   DEFAULT_SEARCH_QUERY,
-  KVS_OPS,
-  type KvsFilter,
-  type KvsOp,
+  META_OPS,
+  type MetaFilter,
+  type MetaOp,
   type SearchOrder,
   type SearchQuery,
   type SearchSort,
@@ -16,9 +16,6 @@ const ORDER_VALUES: SearchOrder[] = ["asc", "desc"]
 export function parseSearchQuery(params: URLSearchParams): SearchQuery {
   return {
     q: params.get("q")?.trim() ?? "",
-    tags: dedupe(params.getAll("tag")),
-    require_all_tags: parseBool(params.get("require_all_tags")),
-    keywords: dedupe(params.getAll("keyword")),
     mimetypes: dedupe(params.getAll("mimetype")),
     extensions: dedupe(params.getAll("extension")),
     min_size: parseIntOrNull(params.get("min_size")),
@@ -28,7 +25,7 @@ export function parseSearchQuery(params: URLSearchParams): SearchQuery {
     recursive: parseBool(params.get("recursive")),
     created_after: params.get("created_after") || null,
     created_before: params.get("created_before") || null,
-    kvs: parseKvsFilters(params.getAll("kv")),
+    meta: parseMetaFilters(params.getAll("meta")),
     sort: pickEnum(params.get("sort"), SORT_VALUES, DEFAULT_SEARCH_QUERY.sort),
     order: pickEnum(params.get("order"), ORDER_VALUES, DEFAULT_SEARCH_QUERY.order),
     limit: clampInt(params.get("limit"), 1, 200, DEFAULT_SEARCH_QUERY.limit),
@@ -40,9 +37,6 @@ export function parseSearchQuery(params: URLSearchParams): SearchQuery {
 export function serializeSearchQuery(query: SearchQuery): URLSearchParams {
   const params = new URLSearchParams()
   if (query.q) params.set("q", query.q)
-  for (const tag of query.tags) params.append("tag", tag)
-  if (query.require_all_tags) params.set("require_all_tags", "true")
-  for (const keyword of query.keywords) params.append("keyword", keyword)
   for (const mime of query.mimetypes) params.append("mimetype", mime)
   for (const ext of query.extensions) params.append("extension", ext)
   if (query.min_size !== null) params.set("min_size", String(query.min_size))
@@ -52,8 +46,8 @@ export function serializeSearchQuery(query: SearchQuery): URLSearchParams {
   if (query.recursive) params.set("recursive", "true")
   if (query.created_after) params.set("created_after", query.created_after)
   if (query.created_before) params.set("created_before", query.created_before)
-  for (const kvsFilter of query.kvs) {
-    params.append("kv", `${kvsFilter.key}:${kvsFilter.op}:${kvsFilter.value}`)
+  for (const metaFilter of query.meta) {
+    params.append("meta", `${metaFilter.key}:${metaFilter.op}:${metaFilter.value}`)
   }
   if (query.sort !== DEFAULT_SEARCH_QUERY.sort) params.set("sort", query.sort)
   if (query.order !== DEFAULT_SEARCH_QUERY.order) params.set("order", query.order)
@@ -68,8 +62,6 @@ export function serializeSearchQuery(query: SearchQuery): URLSearchParams {
 export function isEmptySearchQuery(query: SearchQuery): boolean {
   return (
     !query.q &&
-    query.tags.length === 0 &&
-    query.keywords.length === 0 &&
     query.mimetypes.length === 0 &&
     query.extensions.length === 0 &&
     query.min_size === null &&
@@ -78,7 +70,7 @@ export function isEmptySearchQuery(query: SearchQuery): boolean {
     query.folder_id === null &&
     query.created_after === null &&
     query.created_before === null &&
-    query.kvs.length === 0
+    query.meta.length === 0
   )
 }
 
@@ -86,8 +78,6 @@ export function isEmptySearchQuery(query: SearchQuery): boolean {
 export function countActiveFilters(query: SearchQuery): number {
   let count = 0
   if (query.q) count += 1
-  count += query.tags.length
-  count += query.keywords.length
   count += query.mimetypes.length
   count += query.extensions.length
   if (query.min_size !== null) count += 1
@@ -96,7 +86,7 @@ export function countActiveFilters(query: SearchQuery): number {
   if (query.folder_id) count += 1
   if (query.created_after) count += 1
   if (query.created_before) count += 1
-  count += query.kvs.length
+  count += query.meta.length
   return count
 }
 
@@ -181,8 +171,8 @@ function pickEnum<T extends string>(
   return fallback
 }
 
-function parseKvsFilters(values: string[]): KvsFilter[] {
-  const out: KvsFilter[] = []
+function parseMetaFilters(values: string[]): MetaFilter[] {
+  const out: MetaFilter[] = []
   for (const raw of values) {
     const parts = raw.split(":")
     if (parts.length < 3) continue
@@ -190,8 +180,8 @@ function parseKvsFilters(values: string[]): KvsFilter[] {
     const op = parts[1].trim()
     const value = parts.slice(2).join(":").trim()
     if (!key || !value) continue
-    if (!(KVS_OPS as string[]).includes(op)) continue
-    out.push({ key, op: op as KvsOp, value })
+    if (!(META_OPS as string[]).includes(op)) continue
+    out.push({ key, op: op as MetaOp, value })
   }
   return out
 }

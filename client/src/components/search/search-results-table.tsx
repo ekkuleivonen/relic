@@ -1,7 +1,6 @@
 import { File as FileIcon } from "lucide-react"
 import { Link } from "react-router"
 
-import { Badge } from "@/components/ui/badge"
 import {
   Table,
   TableBody,
@@ -10,10 +9,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { buildSingleFilterHref, toggleStringFilter } from "@/lib/search-query"
+import { buildMetaEqFilter } from "@/lib/file-meta"
+import { buildSingleFilterHref } from "@/lib/search-query"
 import { formatBytes, formatRelativeTime } from "@/lib/format"
-import { cn } from "@/lib/utils"
-import { metaString, metaStringList, type FileSystemFile } from "@/types/filesystem"
+import { metaPreview } from "@/lib/file-meta"
+import type { FileSystemFile } from "@/types/filesystem"
 import type { SearchQuery } from "@/types/search"
 
 type SearchResultsTableProps = {
@@ -22,10 +22,6 @@ type SearchResultsTableProps = {
   onChange: (next: SearchQuery) => void
 }
 
-/** Result rows mirror the folder browser columns (icon / name / type / size /
- * updated) but include a second line of matched metadata: the summary plus
- * up to a handful of tags. Clicking any tag adds it to the active filter so
- * users can drill into similar files without retyping. */
 export function SearchResultsTable({
   files,
   query,
@@ -64,14 +60,9 @@ type ResultRowProps = {
   onChange: (next: SearchQuery) => void
 }
 
-const VISIBLE_TAGS = 6
-
 function ResultRow({ file, query, onChange }: ResultRowProps) {
   const detailHref = `/file/${encodeURIComponent(file.id)}`
-  const allTags = metaStringList(file.meta, "tags")
-  const tags = allTags.slice(0, VISIBLE_TAGS)
-  const overflow = allTags.length - tags.length
-  const summary = metaString(file.meta, "summary")
+  const preview = metaPreview(file.meta)
 
   return (
     <TableRow>
@@ -87,47 +78,42 @@ function ResultRow({ file, query, onChange }: ResultRowProps) {
           >
             {file.name}
           </Link>
-          {summary && (
-            <p className="line-clamp-1 text-xs text-muted-foreground">
-              {summary}
-            </p>
-          )}
-          {tags.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {tags.map((tag) => {
-                const isActive = query.tags.some(
-                  (value) => value.toLowerCase() === tag.toLowerCase()
+          {preview.length > 0 && (
+            <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+              {preview.map((item) => {
+                const filter = buildMetaEqFilter(item.path, item.display)
+                const isActive = query.meta.some(
+                  (active) =>
+                    active.key === filter.key &&
+                    active.op === filter.op &&
+                    active.value.toLowerCase() === filter.value.toLowerCase()
                 )
                 return (
                   <button
-                    key={tag}
+                    key={item.path}
                     type="button"
                     onClick={() =>
                       onChange({
                         ...query,
-                        tags: toggleStringFilter(query.tags, tag),
+                        meta: toggleMetaFilter(query.meta, filter),
                         offset: 0,
                       })
                     }
-                    className={cn(
-                      "rounded-full border px-2 py-0.5 text-[0.625rem] font-medium transition-colors",
+                    className={
                       isActive
-                        ? "border-primary/40 bg-primary/15 text-primary"
-                        : "border-primary/20 bg-primary/10 text-primary hover:border-primary/40"
-                    )}
+                        ? "text-primary"
+                        : "hover:text-foreground"
+                    }
+                    title={`Filter by ${item.path}`}
                   >
-                    {tag}
+                    <span className="font-mono text-[0.625rem] text-muted-foreground/80">
+                      {item.path}
+                    </span>
+                    {": "}
+                    <span>{item.display}</span>
                   </button>
                 )
               })}
-              {overflow > 0 && (
-                <Badge
-                  variant="outline"
-                  className="font-normal text-muted-foreground"
-                >
-                  +{overflow}
-                </Badge>
-              )}
             </div>
           )}
         </div>
@@ -166,6 +152,20 @@ function ResultRow({ file, query, onChange }: ResultRowProps) {
       </TableCell>
     </TableRow>
   )
+}
+
+function toggleMetaFilter(
+  filters: SearchQuery["meta"],
+  candidate: SearchQuery["meta"][number]
+) {
+  const idx = filters.findIndex(
+    (filter) =>
+      filter.key === candidate.key &&
+      filter.op === candidate.op &&
+      filter.value === candidate.value
+  )
+  if (idx === -1) return [...filters, candidate]
+  return filters.filter((_, i) => i !== idx)
 }
 
 function RowIcon() {
