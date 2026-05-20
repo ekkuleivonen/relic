@@ -28,18 +28,18 @@ def trim_old_audit_events(
     return deleted_rows
 
 
-def trim_old_file_events(
+def trim_old_filesystem_events(
     uow: UnitOfWork,
     *,
     retention_days: int,
     batch_id: uuid.UUID | None = None,
 ) -> int:
     effective_batch_id = batch_id or uuid.uuid4()
-    deleted_rows = uow.file_events.trim_older_than(retention_days=retention_days)
+    deleted_rows = uow.filesystem_events.trim_older_than(retention_days=retention_days)
     if deleted_rows > 0:
         uow.audit.emit(
-            job="trim_file_events",
-            operation="file_event.trimmed",
+            job="trim_filesystem_events",
+            operation="filesystem_event.trimmed",
             status="succeeded",
             batch_id=effective_batch_id,
             metadata={

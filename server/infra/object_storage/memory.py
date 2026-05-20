@@ -30,12 +30,31 @@ class MemoryObjectStorage:
     def get(
         self, *, namespace: str, key: str, start: int | None = None, end: int | None = None
     ) -> bytes:
+        body, _content_length = self.open_read(
+            namespace=namespace, key=key, start=start, end=end
+        )
+        try:
+            return body.read()
+        finally:
+            body.close()
+
+    def open_read(
+        self,
+        *,
+        namespace: str,
+        key: str,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> tuple[BinaryIO, int]:
         data = self._objects.get((namespace, key))
         if data is None:
             raise ResourceNotFound("Object not found")
         if start is None and end is None:
-            return data
-        return data[start : (end + 1 if end is not None else None)]
+            return BytesIO(data), len(data)
+        slice_start = start or 0
+        slice_end = None if end is None else end + 1
+        sliced = data[slice_start:slice_end]
+        return BytesIO(sliced), len(sliced)
 
     def head(self, *, namespace: str, key: str) -> int:
         data = self._objects.get((namespace, key))

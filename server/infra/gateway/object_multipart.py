@@ -284,16 +284,21 @@ def _hash_parts(
             bucket_key=part.bucket_key,
         )
         stream = boto_response["Body"]
-        while True:
-            chunk = stream.read(64 * 1024)
-            if not chunk:
-                break
-            total_size += len(chunk)
-            enforce_max_object_bytes(size_bytes=total_size)
-            digest.update(chunk)
-            if len(prefix) < FILE_INFO_PREFIX_BYTES:
-                remaining = FILE_INFO_PREFIX_BYTES - len(prefix)
-                prefix.extend(chunk[:remaining])
+        try:
+            while True:
+                chunk = stream.read(64 * 1024)
+                if not chunk:
+                    break
+                total_size += len(chunk)
+                enforce_max_object_bytes(size_bytes=total_size)
+                digest.update(chunk)
+                if len(prefix) < FILE_INFO_PREFIX_BYTES:
+                    remaining = FILE_INFO_PREFIX_BYTES - len(prefix)
+                    prefix.extend(chunk[:remaining])
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                close()
     return digest.digest(), total_size, bytes(prefix)
 
 
@@ -313,14 +318,19 @@ def _assemble_parts(
             bucket_key=part.bucket_key,
         )
         stream = boto_response["Body"]
-        while True:
-            chunk = stream.read(64 * 1024)
-            if not chunk:
-                break
-            total_size += len(chunk)
-            enforce_max_object_bytes(size_bytes=total_size)
-            digest.update(chunk)
-            assembled.write(chunk)
+        try:
+            while True:
+                chunk = stream.read(64 * 1024)
+                if not chunk:
+                    break
+                total_size += len(chunk)
+                enforce_max_object_bytes(size_bytes=total_size)
+                digest.update(chunk)
+                assembled.write(chunk)
+        finally:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                close()
     assembled.seek(0)
     return assembled, digest.digest(), total_size
 

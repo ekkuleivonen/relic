@@ -298,15 +298,19 @@ class File(Base, TimestampMixin):
         return self.actor.name if self.actor else None
 
 
-class FileEvent(Base):
-    """Append-only integrator subscription log for file lifecycle changes."""
+class FilesystemEvent(Base):
+    """Append-only integrator subscription log for file and folder lifecycle changes."""
 
-    __tablename__ = "file_events"
+    __tablename__ = "filesystem_events"
     __table_args__ = (
-        Index("ix_file_events_seq", "seq", unique=True),
-        Index("ix_file_events_folder_id_seq", "folder_id", "seq"),
-        Index("ix_file_events_file_id_seq", "file_id", "seq"),
-        Index("ix_file_events_event_type_created_at", "event_type", "created_at"),
+        Index("ix_filesystem_events_seq", "seq", unique=True),
+        Index("ix_filesystem_events_folder_id_seq", "folder_id", "seq"),
+        Index("ix_filesystem_events_file_id_seq", "file_id", "seq"),
+        Index(
+            "ix_filesystem_events_event_type_created_at",
+            "event_type",
+            "created_at",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
@@ -318,7 +322,7 @@ class FileEvent(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     event_type: Mapped[str] = mapped_column(String(128), nullable=False)
-    file_id: Mapped[uuid.UUID] = mapped_column(GUID(), nullable=False)
+    file_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
     folder_id: Mapped[uuid.UUID] = mapped_column(GUID(), nullable=False, index=True)
     actor_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("users.id", ondelete="SET NULL"), nullable=True

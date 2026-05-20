@@ -31,6 +31,16 @@ class ObjectStorage(Protocol):
         self, *, namespace: str, key: str, start: int | None = None, end: int | None = None
     ) -> bytes: ...
 
+    def open_read(
+        self,
+        *,
+        namespace: str,
+        key: str,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> tuple[BinaryIO, int]:
+        """Return ``(body, content_length)``. Caller must close ``body`` when done."""
+
     def head(self, *, namespace: str, key: str) -> int: ...
 
     def delete(self, *, namespace: str, key: str) -> None: ...

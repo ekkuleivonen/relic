@@ -3,7 +3,7 @@
 import uuid
 
 from application.context import Actor
-from application.control_plane import file_event_emission
+from application.control_plane import filesystem_event_emission
 from application.uow import UnitOfWork
 from enums import Permission
 from infra.db.models import Blob
@@ -22,7 +22,7 @@ def remove_file_record(
     if blob is None and uow.session is not None:
         blob = uow.session.get(Blob, file.blob_id)
     if blob is not None:
-        file_event_emission.emit_file_deleted(
+        filesystem_event_emission.emit_file_deleted(
             uow,
             file=file,
             blob=blob,

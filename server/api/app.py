@@ -13,7 +13,7 @@ from .auth import router as auth_router
 from .storage_backends import router as storage_backends_router
 from .dependencies import require_admin, require_user
 from .exception_handlers import register_exception_handlers
-from .file_events import router as file_events_router
+from .filesystem_events import router as filesystem_events_router
 from .files import router as files_router
 from .folder_access import router as folder_access_router
 from .folders import router as folders_router
@@ -101,9 +101,9 @@ app.include_router(
     dependencies=[Depends(require_user)],
 )
 app.include_router(
-    file_events_router,
-    prefix=f"{API_PREFIX}/file-events",
-    tags=["file-events"],
+    filesystem_events_router,
+    prefix=f"{API_PREFIX}/filesystem-events",
+    tags=["filesystem-events"],
     dependencies=[Depends(require_user)],
 )
 app.include_router(

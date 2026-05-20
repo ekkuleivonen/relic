@@ -27,13 +27,19 @@ def require_user(
     uow: Annotated[UnitOfWork, Depends(get_uow)],
     session_token: Annotated[str | None, Cookie(alias=S.SESSION_COOKIE_NAME)] = None,
     authorization: Annotated[str | None, Header()] = None,
+    x_request_id: Annotated[str | None, Header(alias="X-Request-ID")] = None,
+    x_correlation_id: Annotated[str | None, Header(alias="X-Correlation-ID")] = None,
 ) -> User:
-    user = session_auth.get_authenticated_user(
+    request_id = x_request_id or x_correlation_id
+    user, audited_failure = session_auth.get_authenticated_user(
         uow,
         session_token=session_token,
         authorization=authorization,
+        request_id=request_id,
     )
     if not user:
+        if audited_failure:
+            uow.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",

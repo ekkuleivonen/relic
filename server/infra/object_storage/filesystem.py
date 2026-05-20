@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from domain.exceptions import ResourceNotFound
+from infra.object_storage.streams import RangeLimitedReader
 from ports.object_storage import ObjectStorage, PutResult, StorageCapabilities
 
 
@@ -43,13 +44,38 @@ class FilesystemObjectStorage:
     def get(
         self, *, namespace: str, key: str, start: int | None = None, end: int | None = None
     ) -> bytes:
+        body, _content_length = self.open_read(
+            namespace=namespace, key=key, start=start, end=end
+        )
+        try:
+            return body.read()
+        finally:
+            body.close()
+
+    def open_read(
+        self,
+        *,
+        namespace: str,
+        key: str,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> tuple[BinaryIO, int]:
         path = self._path(namespace, key)
         if not path.is_file():
             raise ResourceNotFound("Object not found")
-        data = path.read_bytes()
+        total = path.stat().st_size
         if start is None and end is None:
-            return data
-        return data[start : (end + 1 if end is not None else None)]
+            handle = open(path, "rb")
+            return handle, total
+
+        read_start = start or 0
+        read_end = total - 1 if end is None else min(end, total - 1)
+        if read_start >= total:
+            return BytesIO(b""), 0
+        handle = open(path, "rb")
+        handle.seek(read_start)
+        length = read_end - read_start + 1
+        return RangeLimitedReader(handle, length), length
 
     def head(self, *, namespace: str, key: str) -> int:
         path = self._path(namespace, key)

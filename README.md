@@ -157,6 +157,10 @@ Relic is split into a React client, a FastAPI server, and ARQ workers:
 
 ## Local Development
 
+The Docker Compose stack below is **local development only**. Production runs
+the three application images on Kubernetes — see
+[Production Deployment (Kubernetes)](#production-deployment-kubernetes).
+
 The repository includes a Docker Compose stack for the full local product:
 
 - PostgreSQL.
@@ -194,6 +198,272 @@ Password: relic-admin
 
 These defaults are for local development only. Override secrets and seed values
 with environment variables before using non-local data.
+
+## Production Deployment (Kubernetes)
+
+This section is for the infra team deploying Relic into an existing cluster.
+Postgres, Redis, and S3-compatible object storage (Garage, MinIO, AWS S3, etc.)
+are **external** — Relic only ships three application workloads plus a
+one-off migration job.
+
+### Container images
+
+CI builds and pushes multi-platform (`linux/amd64`, `linux/arm64`) images on
+every push to `main` and on version tags (`v*`):
+
+| Image | Context | Default command |
+|-------|---------|-----------------|
+| `ghcr.io/<owner>/<repo>/server` | `server/` | `uvicorn api.app:app --host 0.0.0.0 --port 8000` |
+| `ghcr.io/<owner>/<repo>/client` | `client/` | nginx on port 80 |
+
+The **server image** serves both the API Deployment and the maintenance worker.
+Only the container command differs.
+
+Registry authentication uses the GitHub Actions `GITHUB_TOKEN` with `packages:
+write`. For a private registry outside GHCR, mirror these images or retarget the
+workflow. Clusters pulling from GHCR need a pull secret if the package is
+private (`kubectl create secret docker-registry …`).
+
+### Workloads
+
+| Workload | Type | Replicas | Notes |
+|----------|------|----------|-------|
+| **api** | Deployment | ≥ 1 | HTTP on port **8000** |
+| **worker-maintenance** | Deployment | **1** | Do not scale — cron enqueues jobs every minute; multiple replicas duplicate work |
+| **client** | Deployment | ≥ 1 | Static SPA + nginx reverse proxy on port **80** |
+| **migrate** | Job (one-off) | — | Run before first deploy and on every upgrade |
+
+#### API container
+
+- **Image:** server image (default CMD).
+- **Port:** 8000.
+- **Probes:**
+  - Liveness: `GET /healthz` — process is up.
+  - Readiness: `GET /readyz` — DB, Redis, registered storage-backend probe state, optional worker heartbeat. Returns **503** until storage backends are probed (maintenance worker must be running; first probe within ~1 minute of deploy).
+- **Metrics:** `GET /metrics` (Prometheus text format, **not** under `/api`). Scrape port 8000 from the pod or via your ingress policy.
+
+#### Maintenance worker container
+
+- **Image:** server image.
+- **Command:** `arq workers.maintenance.WorkerSettings`
+- **Port:** none exposed.
+- **Cron:** enqueues seven jobs every minute (blob purge, storage-backend probes, tier demotion/promotion, audit/filesystem event retention trim, stale multipart abort).
+- **Heartbeat:** writes `relic:heartbeat:maintenance` in Redis. Set `MAINTENANCE_HEARTBEAT_REQUIRED=true` on the API so `/readyz` fails when the worker is absent or stale.
+
+#### Client container
+
+- **Image:** client image.
+- **Port:** 80.
+- **Routing:** the bundled `nginx.conf` serves the SPA and reverse-proxies:
+  - `/api/` → `http://api:8000/api/`
+  - `/s3/` → `http://api:8000/s3/` (buffering disabled for large uploads)
+- The upstream hostname is hardcoded as **`api`**. Name the Kubernetes Service
+  for the API workload `api`, or replace `nginx.conf` via ConfigMap.
+- Alternative: skip client-side proxying and terminate `/api` + `/s3` on a
+  shared Ingress, serving the SPA from `/` only. The SPA defaults to
+  `VITE_API_BASE_URL=/api` (same-origin); no build-time env is required when
+  API and UI share an origin.
+
+#### Migration job
+
+Run before the first deploy and before restarting the API on every schema
+upgrade:
+
+```text
+python seed.py
+```
+
+This runs `alembic upgrade head` then idempotent seeding (root folder, optional
+seed folder, admin user if missing). Safe to re-run — it does not rotate an
+existing admin password.
+
+Wire the same env vars and secrets as the API/worker. The job needs Postgres
+connectivity only (no Redis required for migrations).
+
+### External dependencies
+
+Relic expects these services to already exist in the cluster or network:
+
+| Dependency | Used by | Purpose |
+|------------|---------|---------|
+| **PostgreSQL** | API, worker, migrate job | All relational state |
+| **Redis** | API, worker | ARQ maintenance queue, tiered cache, worker heartbeats |
+| **S3-compatible storage** | API, worker | Blob bytes — **registered at runtime** via admin UI, not configured purely by env |
+
+Storage backends (bucket endpoint, credentials, tier) are created in the Relic
+admin UI after deploy. Until at least one backend is registered and probed,
+`/readyz` object-store check passes vacuously (zero backends = healthy). Plan to
+register backends immediately after first deploy.
+
+If using Relic's **embedded filesystem storage backend** (local disk instead of
+remote S3), mount a PVC at `STORAGE_FILESYSTEM_BASE_PATH` on API and worker
+pods. Both must share the same path if tiering moves blobs between backends on
+disk.
+
+### Networking summary
+
+| Path | Handler | Auth |
+|------|---------|------|
+| `/api/*` | FastAPI JSON control plane | Session cookie or bearer access key |
+| `/s3/*` | S3-compatible gateway | SigV4 (access key or presigned URL) |
+| `/healthz` | Liveness | None |
+| `/readyz` | Readiness | None |
+| `/metrics` | Prometheus | None — restrict at network layer |
+| `/docs`, `/redoc` | OpenAPI | None — disable or restrict in prod if desired |
+
+Set `SESSION_COOKIE_SECURE=true` when the UI is served over HTTPS.
+
+Set `S3_CORS_ALLOWED_ORIGINS` to the browser origin if uploads/downloads go
+directly to `/s3` cross-origin (comma-separated list). Empty disables S3 CORS
+middleware.
+
+### Environment variables
+
+All configuration is via environment variables (see `server/settings.py`). Grouped
+by concern:
+
+#### Required secrets (production)
+
+Generate unique values — defaults are dev-only and `/readyz` reports warnings
+but does not fail on them.
+
+| Variable | Purpose |
+|----------|---------|
+| `ENCRYPTION_SECRET` | Fernet key for encrypted storage-backend credentials and access-key secrets at rest |
+| `SESSION_SECRET` | HMAC key for session cookies — use a **separate** value from `ENCRYPTION_SECRET` |
+| `RELIC_SIGNING_KEYS` | JSON map of `{ "key_id": "secret" }` for presigned S3 URLs |
+| `RELIC_SIGNING_CURRENT_KEY_ID` | Active key id; must exist in `RELIC_SIGNING_KEYS` |
+| `POSTGRES_PASSWORD` or `DATABASE_URL` | Database credentials |
+| `REDIS_PASSWORD` | Redis AUTH |
+
+Optional convenience: set `DATABASE_URL` (`postgresql+psycopg://…`) instead of
+individual `POSTGRES_*` fields.
+
+#### Database
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `POSTGRES_HOST` | `localhost` | |
+| `POSTGRES_PORT` | `5432` | |
+| `POSTGRES_DB` | `relic` | |
+| `POSTGRES_USER` | `relic` | |
+| `POSTGRES_PASSWORD` | `relic` | |
+| `DATABASE_URL` | — | Overrides `POSTGRES_*` when set |
+
+#### Redis
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `REDIS_HOST` | `localhost` | |
+| `REDIS_PORT` | `6379` | |
+| `REDIS_PASSWORD` | `replace_me` | |
+| `MAINTENANCE_QUEUE_NAME` | `relic:maintenance` | ARQ queue name |
+
+Redis keys are prefixed `relic:` (cache generations, heartbeats, etc.). API
+replicas require a **shared** Redis instance for cache invalidation coherence.
+
+#### Sessions and seed data
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `SESSION_COOKIE_NAME` | `relic_session` | |
+| `SESSION_MAX_AGE_SECONDS` | `604800` (7 days) | |
+| `SESSION_COOKIE_SECURE` | `false` | Set `true` behind TLS |
+| `RELIC_ADMIN_NAME` | `Relic Admin` | Used only when seeding a new admin |
+| `RELIC_ADMIN_EMAIL` | `admin@relic.local` | |
+| `RELIC_ADMIN_PASSWORD` | `relic-admin` | Only applied on **first** admin creation |
+| `RELIC_SEED_FOLDER_NAME` | `Uploads` | Optional top-level folder; empty skips |
+
+#### S3 gateway
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `RELIC_SIGNING_TTL_SECONDS` | `300` | Presigned URL lifetime |
+| `RELIC_SIGNING_REGION` | `relic` | Native SigV4 clients must use this region |
+| `RELIC_SIGNING_KEY_ID` | `relic-dev` | Fallback when `RELIC_SIGNING_KEYS` unset |
+| `RELIC_SIGNING_SECRET` | derived | Fallback when `RELIC_SIGNING_KEYS` unset |
+| `S3_CORS_ALLOWED_ORIGINS` | empty | Comma-separated browser origins |
+| `MAX_OBJECT_BYTES` | `5368709120` (5 GiB) | Upload size cap |
+| `UPLOAD_SPOOL_MAX_MEMORY_BYTES` | `8388608` | In-memory spool before disk |
+| `S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS` | `24` | Stale multipart cleanup |
+
+#### Worker and maintenance
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `MAINTENANCE_HEARTBEAT_REQUIRED` | `false` | Set **`true`** in production |
+| `MAINTENANCE_HEARTBEAT_TTL_SECONDS` | `180` | |
+| `MAINTENANCE_HEARTBEAT_STALE_SECONDS` | `120` | |
+| `EVENT_RETENTION_DAYS` | `90` | Audit + filesystem event trim |
+| `PROBES_RETENTION_DAYS` | `14` | Storage-backend probe history |
+| `STORAGE_MAINTENANCE_PURGE_BATCH` | `80` | Dereferenced blob purge batch |
+| `STORAGE_DEMOTION_PRESSURE_RATIO` | `0.85` | Tier demotion threshold |
+| `STORAGE_PROMOTION_HEADROOM_RATIO` | `0.70` | Tier promotion threshold |
+| `STORAGE_PROMOTION_RECENCY_DAYS` | `7` | |
+| `STORAGE_MIGRATION_MIN_RESIDENCY_HOURS` | `6` | Anti-ping-pong after migration |
+| `STORAGE_WRITE_HEADROOM_RATIO` | `0.95` | Placement headroom on upload |
+| `STORAGE_DEMOTE_BATCH` | `24` | |
+| `STORAGE_PROMOTE_BATCH` | `24` | |
+| `PLACEMENT_REQUIRE_REACHABLE_STORAGE_BACKEND` | `true` | Skip unprobed backends for new writes |
+| `PROBE_RANKING_WINDOW` | `3` | Probe samples for hotness ranking |
+
+#### Caching and logging
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `FOLDER_METADATA_CACHE_TTL_SECONDS` | `120` | |
+| `S3_LIST_OBJECTS_CACHE_TTL_SECONDS` | `15` | |
+| `S3_ACCESS_KEY_CACHE_TTL_SECONDS` | `120` | |
+| `S3_ACCESS_KEY_LAST_USED_DEBOUNCE_SECONDS` | `60` | |
+| `ACCESS_TOUCH_DEBOUNCE_MINUTES` | `5` | Blob `accessed_at` debounce |
+| `LOG_LEVEL` | `INFO` | JSON logs to stdout |
+| `STORAGE_FILESYSTEM_BASE_PATH` | — | Root for embedded filesystem backends |
+
+Server and worker Deployments should receive the **same** env var set (except
+nothing worker-specific today — share a ConfigMap/Secret).
+
+### Deploy and upgrade order
+
+**First deploy**
+
+1. Run **migrate** Job (`python seed.py`).
+2. Start **worker-maintenance** (single replica).
+3. Start **api**.
+4. Start **client** (or your Ingress equivalent).
+5. Log in as admin; register storage backends in the admin UI.
+6. Wait for maintenance probe tick; confirm `/readyz` is 200.
+7. Change the seeded admin password if this is a fresh install.
+
+**Upgrades**
+
+1. Backup Postgres.
+2. Run **migrate** Job with the new server image tag.
+3. Roll **worker-maintenance**, then **api**, then **client**.
+
+### Scaling notes
+
+- **API:** horizontal scaling is supported. All replicas share Postgres + Redis.
+  Redis outage degrades cross-replica cache invalidation (permissions/listings may
+  lag until TTL expiry).
+- **Worker:** keep at **one** replica.
+- **Client:** stateless; scale freely.
+
+### Observability
+
+- Logs: structured JSON on stdout (`structlog`). No separate log shipper in-repo.
+- Metrics: scrape `http://<api-pod>:8000/metrics`. Key series include
+  `relic_api_requests_total`, `relic_gateway_requests_total`,
+  `relic_maintenance_jobs_total`, `relic_maintenance_queue_depth`,
+  `relic_storage_backend_probe_total`.
+- Readiness JSON includes per-check detail (DB, Redis queue depth, unhealthy
+  storage backends, worker heartbeat age, configuration warnings).
+
+### Integrator note (filesystem events)
+
+Downstream services poll `GET /api/filesystem-events` with bearer access keys
+granted **READ** on watched folders. Metadata enrichment uses
+`PATCH /api/files/{id}/meta` (**ENRICH** permission). Delivery is pull-only (seq
+cursor); see `events.md` for event types, retention, and ACL rules.
 
 ## Useful Commands
 
@@ -262,33 +532,14 @@ through a native boto3 client. Use `--api-url`, `--email`, `--password`,
 
 ## Configuration
 
-Important environment variables include:
+Environment variables are documented in the
+[Production Deployment (Kubernetes)](#production-deployment-kubernetes) section
+(`server/settings.py` is the source of truth). For local development, see
+`docker-compose.yaml` and the variables listed there.
 
-- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`,
-  `POSTGRES_PASSWORD`, or `DATABASE_URL` to override the connection string.
-- `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`.
-- `ENCRYPTION_SECRET` for encrypted bucket credentials.
-- `SESSION_SECRET`, `SESSION_COOKIE_NAME`, `SESSION_MAX_AGE_SECONDS`, and
-  `SESSION_COOKIE_SECURE`.
-- `RELIC_ADMIN_NAME`, `RELIC_ADMIN_EMAIL`, and `RELIC_ADMIN_PASSWORD` for seed
-  data.
-- `RELIC_SIGNING_TTL_SECONDS`, `RELIC_SIGNING_REGION`,
-  `RELIC_SIGNING_KEY_ID`, `RELIC_SIGNING_SECRET`, `RELIC_SIGNING_KEYS`, and
-  `RELIC_SIGNING_CURRENT_KEY_ID` for S3 gateway signing. Native S3 clients must
-  sign with the same `RELIC_SIGNING_REGION`.
-- `meta_extract` per-toolchain byte caps such as `IMAGE_META_EXTRACT_MAX_BYTES`,
-  `PDF_META_EXTRACT_MAX_BYTES`, `TEXT_META_EXTRACT_MAX_BYTES`, and related
-  per-format limits. Files larger than the cap are parsed from the truncated
-  prefix.
-- `PROCESSING_QUEUE_NAME` and `MAINTENANCE_QUEUE_NAME` for the two ARQ worker
-  queues.
-- `DISPATCHER_BATCH_SIZE`, `DISPATCHER_SAFETY_INTERVAL_SECONDS`, and
-  `DISPATCHER_LISTEN_BACKOFF_SECONDS` to tune the warm-path dispatcher.
-- `EVENT_RETENTION_DAYS` — retention knob for `audit_events`. Per-table
-  retention can be split out later if it becomes necessary.
-- Storage maintenance knobs such as `STORAGE_MAINTENANCE_PURGE_BATCH`,
-  `STORAGE_MAINTENANCE_MIGRATE_BATCH`, and
-  `STORAGE_MAINTENANCE_BUCKET_PRESSURE_RATIO`.
+Key groups: Postgres (`POSTGRES_*` or `DATABASE_URL`), Redis (`REDIS_*`),
+encryption/session secrets, S3 signing keys (`RELIC_SIGNING_*`), maintenance
+tuning, and retention (`EVENT_RETENTION_DAYS`).
 
 ## Product Status
 

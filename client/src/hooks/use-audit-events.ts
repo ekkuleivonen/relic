@@ -1,7 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { toast } from "sonner"
+import { useQuery } from "@tanstack/react-query"
 
-import { apiRequest, extractApiError } from "@/lib/api"
+import { apiRequest } from "@/lib/api"
 import type {
   AuditEventsQuery,
   AuditEventsResponse,
@@ -18,24 +17,6 @@ export function useAuditEvents(query: AuditEventsQuery) {
     queryKey: auditEventsQueryKey(query),
     queryFn: () =>
       apiRequest<AuditEventsResponse>(`/audit-events/${toQueryString(query)}`),
-  })
-}
-
-export function useClearAuditEvents() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: () =>
-      apiRequest<void>("/audit-events/", {
-        method: "DELETE",
-      }),
-    onSuccess: () => {
-      toast.success("Audit log cleared")
-      void queryClient.invalidateQueries({ queryKey: auditEventsQueryRootKey })
-    },
-    onError: (error) => {
-      toast.error(extractApiError(error))
-    },
   })
 }
 

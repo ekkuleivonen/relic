@@ -81,11 +81,6 @@ def record_audit_event(
     )
 
 
-def clear_audit_events(db: Session) -> int:
-    result = db.execute(delete(AuditEvent))
-    return result.rowcount or 0
-
-
 def trim_audit_events_older_than(
     db: Session,
     *,

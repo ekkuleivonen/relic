@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 
 from domain.files.search import SearchQuery
+from enums import UserRole
 from infra.db.models import User
 from infra.db.stores import filesystem
 from infra.db.stores import folder_access

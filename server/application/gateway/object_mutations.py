@@ -11,7 +11,7 @@ from typing import BinaryIO
 from infra.gateway import object_multipart
 from infra.gateway import object_writes
 from application.gateway import delete_object as delete_object_use_case
-from application.gateway.file_event_emission import (
+from application.gateway.filesystem_event_emission import (
     emit_multipart_complete_events,
     emit_put_object_events,
 )
@@ -101,9 +101,9 @@ def copy_object(
     )
     uow.cache.invalidate_list_objects()
     uow.cache.invalidate_folder_hotpath(uow.session)
-    from application.control_plane import file_event_emission
+    from application.control_plane import filesystem_event_emission
 
-    file_event_emission.emit_file_created(
+    filesystem_event_emission.emit_file_created(
         uow,
         file=result.file,
         blob=result.blob,

@@ -1,7 +1,7 @@
 import uuid
 
 from application.context import Actor
-from application.control_plane import file_event_emission
+from application.control_plane import filesystem_event_emission
 from application.uow import UnitOfWork
 from domain.exceptions import BadRequestError
 from domain.files.meta import patch_meta
@@ -29,7 +29,7 @@ def patch_file_meta(
     uow.cache.invalidate_list_objects()
     blob = uow.session.get(Blob, file.blob_id)
     if blob is not None:
-        file_event_emission.emit_file_meta_updated(
+        filesystem_event_emission.emit_file_meta_updated(
             uow,
             file=file,
             blob=blob,

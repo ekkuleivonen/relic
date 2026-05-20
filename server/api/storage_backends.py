@@ -243,12 +243,19 @@ class DrainStorageBackendResponse(BaseModel):
 @router.post("/{storage_backend_id}/drain")
 async def drain_storage_backend(
     storage_backend_id: uuid.UUID,
+    request: Request,
     uow: UnitOfWorkDep,
     current_user: AdminUser,
 ) -> DrainStorageBackendResponse:
     """POST /buckets/{id}/drain -> migrate all blobs to colder buckets with capacity."""
-    del current_user
-    result = drain_storage_backend_use_case(uow, storage_backend_id=storage_backend_id)
+    result = drain_storage_backend_use_case(
+        uow,
+        storage_backend_id=storage_backend_id,
+        event_context=context_from_headers(
+            request.headers,
+            actor_id=current_user.id,
+        ),
+    )
     return DrainStorageBackendResponse(
         moved=result["moved"],
         skipped=result["skipped"],

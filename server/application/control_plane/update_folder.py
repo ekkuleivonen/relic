@@ -1,6 +1,6 @@
 import uuid
 
-from application.context import Actor
+from application.context import Actor, EventContext
 from application.control_plane.folder_use_cases import folder_result, validate_folder_name
 from application.control_plane.folders import FolderResult
 from application.uow import UnitOfWork
@@ -20,6 +20,7 @@ def update_folder(
     parent_id: uuid.UUID | None = None,
     preferred_storage_backend_id: uuid.UUID | None = None,
     set_preferred_storage_backend_id: bool = False,
+    event_context: EventContext | None = None,
 ) -> FolderResult:
     folder = uow.permissions.require_folder(folder_id)
     if folder.parent_id is None:
@@ -34,11 +35,15 @@ def update_folder(
             "Only administrators can change folder storage preferences."
         )
 
-    changed = False
+    previous_name = folder.name
+    from_parent_id = folder.parent_id
+    previous_preferred_storage_backend_id = folder.preferred_storage_backend_id
+    renamed = False
+    moved = False
 
     if name is not None:
         folder.name = validate_folder_name(name)
-        changed = True
+        renamed = folder.name != previous_name
 
     if parent_id is not None:
         if parent_id == folder.id:
@@ -52,8 +57,9 @@ def update_folder(
         uow.permissions.require_folder_permission(
             actor, new_parent.id, Permission.WRITE
         )
+        if folder.parent_id != new_parent.id:
+            moved = True
         folder.parent_id = new_parent.id
-        changed = True
 
     if set_preferred_storage_backend_id:
         if preferred_storage_backend_id is not None:
@@ -62,12 +68,56 @@ def update_folder(
             except ResourceNotFound as exc:
                 raise BadRequestError("Preferred bucket does not exist") from exc
         folder.preferred_storage_backend_id = preferred_storage_backend_id
-        changed = True
+        if (
+            event_context is not None
+            and folder.preferred_storage_backend_id
+            != previous_preferred_storage_backend_id
+        ):
+            uow.audit.record(
+                operation="folder.preferred_storage_backend.updated",
+                event_context=event_context,
+                metadata={
+                    "folder_id": str(folder.id),
+                    "name": folder.name,
+                    "previous_preferred_storage_backend_id": (
+                        str(previous_preferred_storage_backend_id)
+                        if previous_preferred_storage_backend_id is not None
+                        else None
+                    ),
+                    "preferred_storage_backend_id": (
+                        str(folder.preferred_storage_backend_id)
+                        if folder.preferred_storage_backend_id is not None
+                        else None
+                    ),
+                },
+            )
 
-    if not changed:
+    if not renamed and not moved and not set_preferred_storage_backend_id:
         return folder_result(uow, actor, folder)
 
     uow.folders.save(folder)
+    request_id = event_context.request_id if event_context else None
+    if renamed and not moved:
+        from application.control_plane import filesystem_event_emission
+
+        filesystem_event_emission.emit_folder_renamed(
+            uow,
+            folder=folder,
+            previous_name=previous_name,
+            actor_id=actor.id,
+            request_id=request_id,
+        )
+    if moved:
+        assert from_parent_id is not None
+        from application.control_plane import filesystem_event_emission
+
+        filesystem_event_emission.emit_folder_moved(
+            uow,
+            folder=folder,
+            from_parent_id=from_parent_id,
+            actor_id=actor.id,
+            request_id=request_id,
+        )
     uow.cache.invalidate_folder_hotpath(uow.session)
     uow.cache.invalidate_list_objects()
     log.info(

@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from infra.db.stores import folder_access
+from infra.db.stores.filesystem import collect_descendant_folder_ids
 from infra.cache.hotpath import get_or_set_request
 
 
@@ -138,15 +139,8 @@ def build_listing_candidates(
 ) -> list[tuple[str, ObjectListingItem | str]]:
     permissions = folder_access.effective_permissions_by_folder(db, user)
     bucket_path = folder_access.resolve_folder_path(db, bucket)
-    folders = list(
-        db.scalars(
-            select(Folder).where(Folder.id != bucket.id).order_by(Folder.name)
-        ).all()
-    )
-    files = list(
-        db.scalars(
-            select(File).options(selectinload(File.blob)).order_by(File.name)
-        ).all()
+    folders, files = _load_listing_rows(
+        db, bucket=bucket, prefix=prefix, delimiter=delimiter
     )
     folder_ids = {
         bucket.id,
@@ -207,6 +201,72 @@ def build_listing_candidates(
         candidates[key] = ("content", ObjectListingItem(key=key, file=file))
 
     return [candidates[key] for key in sorted(candidates)]
+
+
+def _load_listing_rows(
+    db: Session,
+    *,
+    bucket: Folder,
+    prefix: str,
+    delimiter: str | None,
+) -> tuple[list[Folder], list[File]]:
+    """Load folders/files scoped to the bucket subtree (not the whole deployment)."""
+    subtree_ids = collect_descendant_folder_ids(db, bucket.id)
+    subtree_id_set = set(subtree_ids)
+
+    if delimiter and (not prefix or prefix.endswith("/")):
+        listing_folder = _resolve_listing_folder(db, bucket, prefix)
+        folders = list(
+            db.scalars(
+                select(Folder)
+                .where(Folder.parent_id == listing_folder.id)
+                .order_by(Folder.name)
+            ).all()
+        )
+        files = list(
+            db.scalars(
+                select(File)
+                .where(File.folder_id == listing_folder.id)
+                .options(selectinload(File.blob))
+                .order_by(File.name)
+            ).all()
+        )
+        return folders, files
+
+    folders = list(
+        db.scalars(
+            select(Folder)
+            .where(Folder.id.in_(subtree_id_set), Folder.id != bucket.id)
+            .order_by(Folder.name)
+        ).all()
+    )
+    files = list(
+        db.scalars(
+            select(File)
+            .where(File.folder_id.in_(subtree_id_set))
+            .options(selectinload(File.blob))
+            .order_by(File.name)
+        ).all()
+    )
+    return folders, files
+
+
+def _resolve_listing_folder(db: Session, bucket: Folder, prefix: str) -> Folder:
+    if not prefix:
+        return bucket
+    parts = [part for part in prefix.split("/") if part]
+    current = bucket
+    for part in parts:
+        child = db.scalar(
+            select(Folder).where(
+                Folder.parent_id == current.id,
+                Folder.name == part,
+            )
+        )
+        if child is None:
+            return current
+        current = child
+    return current
 
 
 def path_to_key(bucket_path: str, folder_path: str, *, is_folder: bool = False) -> str:

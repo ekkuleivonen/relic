@@ -60,10 +60,6 @@ class SqlAlchemyAuditPort:
             metadata=metadata,
         )
 
-    def clear_all(self) -> int:
-        result = self._session.execute(delete(AuditEvent))
-        return result.rowcount or 0
-
     def trim_older_than(
         self, *, retention_days: int, now: dt.datetime | None = None
     ) -> int:

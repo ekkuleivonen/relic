@@ -202,7 +202,7 @@ def probe_all_storage_backends(
                 metrics.observe_storage_backend_probe(status="failed")
                 uow.audit.emit(
                     job="storage_backend_probe",
-                    operation="bucket.probe_failed",
+                    operation="storage_backend.probe_failed",
                     status="failed",
                     batch_id=effective_batch_id,
                     storage_backend_id=result.storage_backend.id,
@@ -214,7 +214,7 @@ def probe_all_storage_backends(
             metrics.observe_storage_backend_probe(status="failed")
             uow.audit.emit(
                 job="storage_backend_probe",
-                operation="bucket.probe_failed",
+                operation="storage_backend.probe_failed",
                 status="failed",
                 batch_id=effective_batch_id,
                 storage_backend_id=b.id,
@@ -721,6 +721,22 @@ def promote_recently_accessed_batch(
             preferred_storage_backend_id=agreed_preferred_storage_backend_id(db, blob),
         )
         if destination is None:
+            skipped += 1
+            started_at = timer_start()
+            uow.audit.emit(
+                job="promote_recently_accessed",
+                operation="blob.promotion_skipped",
+                status="skipped",
+                batch_id=effective_batch_id,
+                storage_backend_id=blob.storage_backend_id,
+                blob_id=blob.id,
+                duration_ms=elapsed_ms(started_at, minimum=0),
+                metadata={
+                    "from_storage_backend_id": str(blob.storage_backend_id),
+                    "reason": "no_hotter_bucket_with_headroom",
+                    "size_bytes": blob.size_bytes,
+                },
+            )
             continue
 
         started_at = timer_start()

@@ -47,7 +47,7 @@ class FakeCache:
 
 
 @dataclass
-class FakeFileEventPort:
+class FakeFilesystemEventPort:
     emitted: list[dict] = field(default_factory=list)
 
     def emit(self, **kwargs) -> None:
@@ -65,7 +65,9 @@ class FakeUnitOfWork:
     files: FakeFileStore
     permissions: FakePermissionStore
     cache: FakeCache
-    file_events: FakeFileEventPort = field(default_factory=FakeFileEventPort)
+    filesystem_events: FakeFilesystemEventPort = field(
+        default_factory=FakeFilesystemEventPort
+    )
     session: object = None
 
 
@@ -97,8 +99,8 @@ def test_remove_file_by_id_deletes_and_invalidates_cache():
     remove_file_by_id(uow, actor=Actor(id=uuid.uuid4()), file_id=file_id)
 
     assert files.deleted == [file]
-    assert len(uow.file_events.emitted) == 1
-    assert uow.file_events.emitted[0]["event_type"] == "file.deleted"
+    assert len(uow.filesystem_events.emitted) == 1
+    assert uow.filesystem_events.emitted[0]["event_type"] == "file.deleted"
     assert uow.cache.list_objects_cleared == 1
     assert uow.cache.folder_cleared == 1
 

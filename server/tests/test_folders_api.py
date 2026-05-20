@@ -525,6 +525,36 @@ def test_delete_non_empty_folder_without_recursive_returns_409(
     assert response.status_code == 409
 
 
+def test_delete_recursive_emits_folder_deleted_for_each_folder(
+    client, db_session, user, root_folder, blob
+):
+    grant(
+        db_session,
+        user,
+        root_folder,
+        int(Permission.READ | Permission.WRITE | Permission.DELETE),
+    )
+    photos = add_folder(db_session, root_folder, "photos")
+    raw = add_folder(db_session, photos, "raw")
+    add_file(db_session, photos, "image.jpg", blob, user)
+    add_file(db_session, raw, "raw.nef", blob, user)
+    blob.refcount = 2
+    db_session.commit()
+
+    response = client.delete(f"/api/folders/{photos.id}?recursive=true")
+
+    assert response.status_code == 204
+
+    events = client.get("/api/filesystem-events?types=folder.deleted").json()
+    assert len(events["items"]) == 2
+    deleted_folder_ids = {
+        item["payload"]["deleted_folder_id"] for item in events["items"]
+    }
+    assert deleted_folder_ids == {str(raw.id), str(photos.id)}
+    visibility_folder_ids = {item["folder_id"] for item in events["items"]}
+    assert visibility_folder_ids == {str(root_folder.id)}
+
+
 def test_delete_recursive_cascades_and_decrements_blob_refcount(
     client, db_session, user, root_folder, blob
 ):

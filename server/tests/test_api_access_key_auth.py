@@ -127,7 +127,7 @@ def test_bearer_access_key_can_patch_file_meta(
     assert response.json()["meta"] == {"tags": ["new"], "source": "integration"}
 
 
-def test_invalid_bearer_token_returns_401(client):
+def test_invalid_bearer_token_returns_401_and_audits(client, db_session):
     response = client.get(
         "/api/folders/tree",
         headers={"Authorization": "Bearer RKINVALID:wrong-secret"},
@@ -135,8 +135,23 @@ def test_invalid_bearer_token_returns_401(client):
 
     assert response.status_code == 401
 
+    from infra.db.models import AuditEvent
+    from sqlalchemy import select
 
-def test_revoked_access_key_returns_401(client, db_session, access_key, root_folder):
+    event = db_session.scalar(
+        select(AuditEvent)
+        .where(AuditEvent.operation == "auth.bearer.failed")
+        .order_by(AuditEvent.created_at.desc())
+    )
+    assert event is not None
+    assert event.status == "failed"
+    assert event.meta["reason"] == "unknown_key"
+    assert event.meta["key_id"] == "RKINVALID"
+
+
+def test_revoked_access_key_returns_401_and_audits(
+    client, db_session, access_key, root_folder
+):
     access_key.revoked_at = access_key.created_at
     db_session.commit()
 
@@ -144,14 +159,38 @@ def test_revoked_access_key_returns_401(client, db_session, access_key, root_fol
 
     assert response.status_code == 401
 
+    from infra.db.models import AuditEvent
+    from sqlalchemy import select
 
-def test_malformed_bearer_token_returns_401(client):
+    event = db_session.scalar(
+        select(AuditEvent)
+        .where(AuditEvent.operation == "auth.bearer.failed")
+        .order_by(AuditEvent.created_at.desc())
+    )
+    assert event is not None
+    assert event.meta["reason"] == "revoked"
+    assert event.meta["key_id"] == access_key.key_id
+
+
+def test_malformed_bearer_token_returns_401_and_audits(client, db_session):
     response = client.get(
         "/api/folders/tree",
         headers={"Authorization": "Bearer not-a-valid-token"},
     )
 
     assert response.status_code == 401
+
+    from infra.db.models import AuditEvent
+    from sqlalchemy import select
+
+    event = db_session.scalar(
+        select(AuditEvent)
+        .where(AuditEvent.operation == "auth.bearer.failed")
+        .order_by(AuditEvent.created_at.desc())
+    )
+    assert event is not None
+    assert event.meta["reason"] == "malformed"
+    assert "key_id" not in event.meta
 
 
 def test_bearer_access_key_respects_folder_permissions(

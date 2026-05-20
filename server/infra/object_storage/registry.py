@@ -72,6 +72,22 @@ class S3ObjectStorage:
     def get(
         self, *, namespace: str, key: str, start: int | None = None, end: int | None = None
     ) -> bytes:
+        body, _content_length = self.open_read(
+            namespace=namespace, key=key, start=start, end=end
+        )
+        try:
+            return body.read()
+        finally:
+            body.close()
+
+    def open_read(
+        self,
+        *,
+        namespace: str,
+        key: str,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> tuple[BinaryIO, int]:
         del namespace
         try:
             params: dict = {"Bucket": self._storage_backend.namespace, "Key": key}
@@ -79,7 +95,9 @@ class S3ObjectStorage:
                 end_suffix = "" if end is None else str(end)
                 params["Range"] = f"bytes={start or 0}-{end_suffix}"
             response = self._client().get_object(**params)
-            return response["Body"].read()
+            body = response["Body"]
+            content_length = int(response["ContentLength"])
+            return body, content_length
         except (BotoCoreError, ClientError) as exc:
             raise ResourceNotFound("Object not found") from exc
 

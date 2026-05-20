@@ -2,7 +2,7 @@ from ports.uow import UnitOfWork
 from infra.object_storage.registry import build_storage_registry
 from infra.db.repositories.access_keys import build_access_key_store
 from infra.db.repositories.audit import build_audit_port
-from infra.db.repositories.file_events import build_file_event_port
+from infra.db.repositories.filesystem_events import build_filesystem_event_port
 from infra.cache.list_objects import build_cache_port
 from infra.db.repositories.blobs import build_blob_store
 from infra.db.repositories.storage_backends import build_storage_backend_store
@@ -13,7 +13,7 @@ from infra.db.repositories.permissions import build_permission_store
 from infra.db.repositories.search import build_search_store
 from infra.db.repositories.users import build_user_store
 from ports.audit import AuditPort
-from ports.file_events import FileEventPort
+from ports.filesystem_events import FilesystemEventPort
 from ports.cache import CachePort
 from ports.repositories.access_keys import AccessKeyStore
 from ports.repositories.blobs import BlobStore
@@ -42,7 +42,7 @@ class SqlAlchemyUnitOfWork:
         self._multipart: MultipartStore | None = None
         self._cache: CachePort | None = None
         self._audit: AuditPort | None = None
-        self._file_events: FileEventPort | None = None
+        self._filesystem_events: FilesystemEventPort | None = None
         self._storage: StorageRegistry | None = None
 
     @property
@@ -116,10 +116,10 @@ class SqlAlchemyUnitOfWork:
         return self._audit
 
     @property
-    def file_events(self) -> FileEventPort:
-        if self._file_events is None:
-            self._file_events = build_file_event_port(self._session)
-        return self._file_events
+    def filesystem_events(self) -> FilesystemEventPort:
+        if self._filesystem_events is None:
+            self._filesystem_events = build_filesystem_event_port(self._session)
+        return self._filesystem_events
 
     @property
     def storage(self) -> StorageRegistry:

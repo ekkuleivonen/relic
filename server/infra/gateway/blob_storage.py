@@ -1,7 +1,6 @@
 """Blob byte I/O via ``StorageRegistry`` (S3, filesystem, …)."""
 
 import re
-from io import BytesIO
 from typing import Any, BinaryIO
 
 from domain.exceptions import BadRequestError
@@ -82,8 +81,13 @@ def fetch_blob_bytes(
     if range_header:
         total = adapter.head(namespace=remote_bucket, key=key)
         start, end, headers = _parse_range_header(range_header, total)
-        data = adapter.get(namespace=remote_bucket, key=key, start=start, end=end)
-        return {**headers, "Body": BytesIO(data)}
+        body, _content_length = adapter.open_read(
+            namespace=remote_bucket,
+            key=key,
+            start=start,
+            end=end,
+        )
+        return {**headers, "Body": body}
 
-    data = adapter.get(namespace=remote_bucket, key=key)
-    return {"ContentLength": len(data), "Body": BytesIO(data)}
+    body, content_length = adapter.open_read(namespace=remote_bucket, key=key)
+    return {"ContentLength": str(content_length), "Body": body}

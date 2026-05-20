@@ -11,9 +11,25 @@ def get_authenticated_user(
     *,
     session_token: str | None,
     authorization: str | None,
-) -> User | None:
+    request_id: str | None = None,
+) -> tuple[User | None, bool]:
     user = auth.get_session_user(uow.session, session_token)
     if user is not None:
-        return user
+        return user, False
 
-    return access_key_auth.authenticate_bearer_token(uow, authorization)
+    bearer_user, failure_reason = access_key_auth.resolve_bearer_authentication(
+        uow, authorization
+    )
+    if bearer_user is not None:
+        return bearer_user, False
+
+    if failure_reason is not None:
+        access_key_auth.record_bearer_auth_failure(
+            uow,
+            authorization=authorization,
+            request_id=request_id,
+            reason=failure_reason,
+        )
+        return None, True
+
+    return None, False

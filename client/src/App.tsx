@@ -6,6 +6,7 @@ import { AccessKeysPage } from "@/pages/admin/access-keys-page"
 import { StorageBackendsPage } from "@/pages/admin/storage-backends-page"
 import { FolderAccessPage } from "@/pages/admin/folder-access-page"
 import { AuditEventsPage } from "@/pages/admin/audit-events-page"
+import { FilesystemEventsPage } from "@/pages/admin/filesystem-events-page"
 import { UsersPage } from "@/pages/admin/users-page"
 import { FileDetailPage } from "@/pages/file-detail-page"
 import { FilesystemPage } from "@/pages/filesystem-page"
@@ -24,6 +25,7 @@ export function App() {
           <Route path="access-keys" element={<AccessKeysPage />} />
           <Route path="folders" element={<FolderAccessPage />} />
           <Route path="audit-events" element={<AuditEventsPage />} />
+          <Route path="filesystem-events" element={<FilesystemEventsPage />} />
         </Route>
       </Route>
       <Route element={<RequireSession />}>

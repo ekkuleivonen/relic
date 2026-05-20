@@ -28,6 +28,16 @@ class AzureBlobObjectStorage:
     ) -> bytes:
         raise NotImplementedError
 
+    def open_read(
+        self,
+        *,
+        namespace: str,
+        key: str,
+        start: int | None = None,
+        end: int | None = None,
+    ) -> tuple[BinaryIO, int]:
+        raise NotImplementedError
+
     def head(self, *, namespace: str, key: str) -> int:
         raise NotImplementedError
 

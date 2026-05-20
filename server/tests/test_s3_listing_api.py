@@ -207,6 +207,28 @@ def test_list_objects_v2_supports_prefix_and_delimiter(
     assert common_prefix_texts(response) == ["2026/raw/"]
 
 
+def test_list_objects_v2_only_lists_objects_in_the_requested_bucket(
+    client, db_session, user, root_folder
+):
+    photos = add_folder(db_session, "photos", root_folder)
+    archives = add_folder(db_session, "archives", root_folder)
+    grant(db_session, user, photos)
+    grant(db_session, user, archives)
+    add_file(db_session, photos, user, "visible.txt", b"visible")
+    add_file(db_session, archives, user, "hidden.txt", b"hidden")
+    signed = signed_bucket_request(
+        "GET",
+        user,
+        "photos",
+        {"list-type": "2"},
+    )
+
+    response = client.get(signed.url, headers=signed.headers)
+
+    assert response.status_code == 200, response.text
+    assert xml_texts(response, "Key") == ["visible.txt"]
+
+
 def test_list_objects_v2_paginates_with_continuation_token(
     client, db_session, user, root_folder
 ):

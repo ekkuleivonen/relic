@@ -177,11 +177,16 @@ def parse_part_number(value: str | None) -> int:
 
 def stream_boto_body(body):
     chunk_size = 64 * 1024
-    while True:
-        chunk = body.read(chunk_size)
-        if not chunk:
-            break
-        yield chunk
+    try:
+        while True:
+            chunk = body.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        close = getattr(body, "close", None)
+        if callable(close):
+            close()
 
 
 def _child_text(element: ET.Element, wanted_name: str) -> str | None:

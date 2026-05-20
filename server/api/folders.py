@@ -2,7 +2,7 @@ import uuid
 
 from api.dependencies import AdminUser, CurrentUser, UnitOfWorkDep
 from application.uow import UnitOfWork
-from application.context import Actor
+from application.context import Actor, context_from_headers
 from application.control_plane.storage_backend_mutations import (
     create_storage_backend as create_storage_backend_use_case,
     delete_storage_backend as delete_storage_backend_use_case,
@@ -215,6 +215,10 @@ async def create_folder(
         actor=Actor.from_user(current_user),
         parent_id=payload.parent_id,
         name=payload.name,
+        event_context=context_from_headers(
+            request.headers,
+            actor_id=current_user.id,
+        ),
     )
     return FolderRead.from_result(uow, result, user=current_user)
 
@@ -240,6 +244,10 @@ async def update_folder(
         parent_id=payload.parent_id,
         preferred_storage_backend_id=payload.preferred_storage_backend_id,
         set_preferred_storage_backend_id="preferred_storage_backend_id" in payload.model_fields_set,
+        event_context=context_from_headers(
+            request.headers,
+            actor_id=current_user.id,
+        ),
     )
     return FolderRead.from_result(uow, result, user=current_user)
 
@@ -264,6 +272,10 @@ async def delete_folder(
         actor=Actor.from_user(current_user),
         folder_id=folder_id,
         recursive=recursive,
+        event_context=context_from_headers(
+            request.headers,
+            actor_id=current_user.id,
+        ),
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -290,5 +302,9 @@ async def copy_folder(
         destination_parent_id=payload.destination_parent_id,
         name=payload.name,
         recursive=payload.recursive,
+        event_context=context_from_headers(
+            request.headers,
+            actor_id=current_user.id,
+        ),
     )
     return FolderRead.from_result(uow, result, user=current_user)

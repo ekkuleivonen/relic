@@ -1,14 +1,15 @@
 # Events reference
 
-Relic maintains two **implemented** event logs plus a **planned** folder subscription surface.
+Relic has two event logs:
 
 | Log | Table | API | Audience |
 |-----|-------|-----|----------|
 | **Audit** | `audit_events` | `GET /api/audit-events` (admin) | Security, compliance, ops |
-| **Subscription (files)** | `file_events` | `GET /api/file-events` (ACL-filtered) | Integrators polling filesystem changes |
-| **Subscription (folders)** | — *planned* | — | Same poll model as files; not implemented yet |
+| **Filesystem subscription** | `filesystem_events` | `GET /api/filesystem-events` (ACL-filtered) | Integrators polling tree changes |
 
-**Retention:** audit and file events are trimmed after `EVENT_RETENTION_DAYS` (default 90). Probe samples use `PROBES_RETENTION_DAYS` (default 14) in a separate table.
+The subscription log holds **`file.*`** and **`folder.*`** event types in one append-only table.
+
+**Retention:** audit and filesystem events use `EVENT_RETENTION_DAYS` (default 90). Probe samples use `PROBES_RETENTION_DAYS` (default 14) in `storage_backend_probes`.
 
 ---
 
@@ -38,27 +39,27 @@ Stored in `audit_events`. API field `metadata` maps to DB column `meta`.
 - `uow.audit.record(...)` — user-initiated actions. **No-op when `event_context` is missing** (see `infra/db/repositories/audit.py`).
 - `uow.audit.emit(...)` — jobs and cases that supply fields directly (e.g. failed login).
 
-### File event row
+### Filesystem event row
 
-Stored in `file_events`. Monotonic `seq` is the poll cursor.
+Stored in `filesystem_events`. Monotonic `seq` is the poll cursor.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `seq` | int | Strictly increasing; allocate via `max(seq)+1` |
 | `id` | UUID | |
-| `event_type` | string | One of `file.*` (see below) |
+| `event_type` | string | `file.*` or `folder.*` |
 | `created_at` | datetime | |
-| `file_id` | UUID | |
 | `folder_id` | UUID | ACL anchor and filter key |
+| `file_id` | UUID \| null | Set for `file.*`; null for `folder.*` |
 | `actor_id` | UUID \| null | Defaults to file owner when omitted at emit time |
-| `request_id` | string \| null | Rarely set today |
+| `request_id` | string \| null | From `EventContext` when wired |
 | `payload` | object | Event-specific body |
 
-**Poll:** `GET /api/file-events?after=<seq>&folder_id=&recursive=&types=&limit=`
+**Poll:** `GET /api/filesystem-events?after=<seq>&folder_id=&recursive=&types=&limit=`
 
 Non-admin users only receive events for folders they can **READ**. Admins see all.
 
-**ACL anchor:** for `file.moved`, `folder_id` is the **destination** folder. Subscribers on the source folder do not see move-out events (same as destination-centric design today).
+**ACL anchor:** for `file.moved` and `folder.moved`, `folder_id` is the **destination** folder (or destination parent for folder moves). Subscribers on the source folder do not see move-out events.
 
 ---
 
@@ -68,11 +69,12 @@ Non-admin users only receive events for folders they can **READ**. Admins see al
 
 | Operation | Status | Trigger | Metadata |
 |-----------|--------|---------|----------|
-| `auth.login.succeeded` | succeeded | `POST /api/auth/login` → `application/control_plane/auth_mutations.login` | `{ "email": string }` |
+| `auth.login.succeeded` | succeeded | `POST /api/auth/login` → `auth_mutations.login` | `{ "email": string }` |
 | `auth.login.failed` | failed | Same, on bad credentials | `{ "email": string }` |
+| `auth.bearer.failed` | failed | Bearer access-key auth on `/api/*` when token is malformed, unknown, revoked, or wrong secret | `{ "reason": "malformed" \| "unknown_key" \| "revoked" \| "invalid_secret" [, "key_id"] }` |
 | `auth.logout` | succeeded | `POST /api/auth/logout` → `auth_mutations.logout` | `{ "email": string }` if user known, else `{}` |
 
-Bearer access-key API auth does **not** emit audit events.
+Bearer access-key API auth failures are audited; successful bearer calls are not.
 
 ---
 
@@ -93,24 +95,30 @@ Requires `event_context` from request headers.
 | Operation | Status | Trigger | Metadata |
 |-----------|--------|---------|----------|
 | `access_key.created` | succeeded | `POST /api/access-keys` → `access_key_mutations.create_access_key` | `{ "access_key_id", "key_id", "actor_id", "name" }` |
-| `access_key.revoked` | succeeded | `POST /api/access-keys/{key_id}/revoke` → `access_key_mutations.revoke_access_key` | `{ "access_key_id", "key_id", "actor_id" }` — only when newly revoked |
-| `access_key.deleted` | succeeded | `DELETE /api/access-keys/{key_id}` → `access_key_mutations.delete_access_key` | `{ "access_key_id", "key_id", "actor_id" }` |
+| `access_key.revoked` | succeeded | `POST /api/access-keys/{key_id}/revoke` | `{ "access_key_id", "key_id", "actor_id" }` — only when newly revoked |
+| `access_key.deleted` | succeeded | `DELETE /api/access-keys/{key_id}` | `{ "access_key_id", "key_id", "actor_id" }` |
 
 ---
 
 ### Folder access (ACL)
 
-Emits via `create_audit_event` in `infra/db/stores/folder_access.py` (not the UoW port). Same `event_context` guard.
-
 | Operation | Status | Trigger | Metadata |
 |-----------|--------|---------|----------|
-| `folder.access.granted` | succeeded | `POST /api/folder-access` → `grant_folder_access` (new row) | `{ "access_id", "actor_id", "folder_id", "permissions", "folder_path" }` |
+| `folder.access.granted` | succeeded | `POST /api/folder-access` (new row) | `{ "access_id", "actor_id", "folder_id", "permissions", "folder_path" }` |
 | `folder.access.updated` | succeeded | Same (existing row updated) | Same shape |
-| `folder.access.revoked` | succeeded | `DELETE /api/folder-access/{id}` → `revoke_folder_access` | `{ "access_id", "actor_id", "folder_id", "permissions" }` |
+| `folder.access.revoked` | succeeded | `DELETE /api/folder-access/{id}` | `{ "access_id", "actor_id", "folder_id", "permissions" }` |
 
 `permissions` is an integer bitfield (`READ=1`, `WRITE=2`, `DELETE=4`, `ENRICH=8`).
 
-Folder CRUD (create/rename/move/delete/duplicate) does **not** audit today.
+---
+
+### Folder control plane (audit summaries)
+
+| Operation | Status | Trigger | Metadata |
+|-----------|--------|---------|----------|
+| `folder.deleted` | succeeded | `DELETE /api/folders/{id}` → `delete_folder` | `{ "deleted_folder_id", "name", "parent_id", "recursive", "descendant_folder_count", "file_count" }` |
+| `folder.duplicated` | succeeded | `POST /api/folders/{id}/copy` → `duplicate_folder` | `{ "source_folder_id", "cloned_folder_id", "destination_parent_id", "name", "recursive" }` |
+| `folder.preferred_storage_backend.updated` | succeeded | `PATCH /api/folders/{id}` (admin storage preference) | `{ "folder_id", "name", "previous_preferred_storage_backend_id", "preferred_storage_backend_id" }` |
 
 ---
 
@@ -118,13 +126,11 @@ Folder CRUD (create/rename/move/delete/duplicate) does **not** audit today.
 
 | Operation | Status | Trigger | Metadata |
 |-----------|--------|---------|----------|
-| `storage_backend.created` | succeeded | `POST /api/storage-backends` → `storage_backend_mutations.create_storage_backend` | `{ "storage_backend_id", "name", "duration_ms", "db_latency_ms" }` |
-| `storage_backend.updated` | succeeded | `PATCH /api/storage-backends/{id}` → `update_storage_backend` | `{ "storage_backend_id", "name", "changed_fields", "duration_ms", "db_latency_ms" }` |
-| `storage_backend.deleted` | succeeded | `DELETE /api/storage-backends/{id}` → `delete_storage_backend` | `{ "storage_backend_id", "name", "duration_ms", "db_latency_ms" }` |
-| `storage_backend.drain_started` | succeeded | `drain_storage_backend` when blobs remain | `{ "storage_backend_id", "blob_count" }` |
+| `storage_backend.created` | succeeded | `POST /api/storage-backends` | `{ "storage_backend_id", "name", "duration_ms", "db_latency_ms" }` |
+| `storage_backend.updated` | succeeded | `PATCH /api/storage-backends/{id}` | `{ "storage_backend_id", "name", "changed_fields", "duration_ms", "db_latency_ms" }` |
+| `storage_backend.deleted` | succeeded | `DELETE /api/storage-backends/{id}` | `{ "storage_backend_id", "name", "duration_ms", "db_latency_ms" }` |
+| `storage_backend.drain_started` | succeeded | `POST /api/storage-backends/{id}/drain` → `drain_storage_backend` | `{ "storage_backend_id", "blob_count" }` |
 | `storage_backend.drained` | succeeded | After successful drain | `{ "storage_backend_id", "moved", "skipped", "failed", "scanned" }` |
-
-**Note:** `POST /api/storage-backends/{id}/drain` does not pass `event_context` today, so `drain_started` / `drained` are **not emitted** from the HTTP route until that is wired.
 
 Manual `POST /api/storage-backends/{id}/probe` writes to `storage_backend_probes` only — no audit row.
 
@@ -133,291 +139,171 @@ Manual `POST /api/storage-backends/{id}/probe` writes to `storage_backend_probes
 ### Blob purge
 
 **Job:** `purge_dereferenced_blobs`  
-**Worker:** `purge_dereferenced_blobs_worker`  
-**Code:** `infra/maintenance/storage.py` → `purge_dereferenced_blobs_batch`
+**Worker:** `purge_dereferenced_blobs_worker`
 
 | Operation | Status | When | Metadata |
 |-----------|--------|------|----------|
 | `blob.purged` | succeeded | Remote + DB row deleted | `{ "freed_bytes", "bucket_key" }` |
 | `blob.purge_failed` | failed | Exception during purge | `{ "bucket_key", "size_bytes", "error_class", "error_message" }` |
 
-Row fields: `batch_id`, `storage_backend_id`, `blob_id`, `duration_ms`.
-
 ---
 
 ### Storage backend probe (batch)
 
 **Job:** `storage_backend_probe`  
-**Worker:** `refresh_all_storage_backend_probes_worker`  
-**Code:** `probe_all_storage_backends`
+**Worker:** `refresh_all_storage_backend_probes_worker`
 
 | Operation | Status | When | Metadata |
 |-----------|--------|------|----------|
-| `bucket.probe_failed` | failed | Probe unreachable or exception | On unreachable: `{ "put_ms", "head_ms", "get_ms", "delete_ms" }`. On exception: `{ "error_class", "error_message" }` |
+| `storage_backend.probe_failed` | failed | Probe unreachable or exception | Latency fields or `{ "error_class", "error_message" }` |
 
-Successful probes are **not** audited (stored in `storage_backend_probes`).
-
-**Legacy name:** operation still uses `bucket.probe_failed`; domain entity is `storage_backend`.
+Successful probes are stored in `storage_backend_probes` only.
 
 ---
 
 ### Probe retention trim
 
-**Job:** `trim_storage_backend_probes`  
-**Worker:** `trim_old_storage_backend_probes_worker`
+**Job:** `trim_storage_backend_probes`
 
-| Operation | Status | When | Metadata |
-|-----------|--------|------|----------|
-| `storage_backend_probe.trimmed` | succeeded | `deleted_rows > 0` | `{ "retention_days", "deleted_rows" }` |
+| Operation | Status | Metadata |
+|-----------|--------|----------|
+| `storage_backend_probe.trimmed` | succeeded | `{ "retention_days", "deleted_rows" }` |
 
 ---
 
 ### Blob migration (demote / drain / promote)
 
-Per-blob events via `_record_migration_event` in `infra/maintenance/storage.py`.
+Per-blob events via `_record_migration_event`. Shared metadata includes `from_storage_backend_id`, `to_storage_backend_id`, `size_bytes`, latencies, `reason`. On failure adds `error_class`, `error_message`.
 
-Shared metadata base:
+**Jobs:** `demote_pressured_buckets`, `drain_storage_backend`, `promote_recently_accessed`
 
-```json
-{
-  "from_storage_backend_id": "uuid",
-  "to_storage_backend_id": "uuid",
-  "size_bytes": 0,
-  "db_latency_ms": 0,
-  "remote_latency_ms": 0,
-  "reason": "string"
-}
-```
+| Prefix | Operations |
+|--------|------------|
+| demote | `blob.demoted`, `blob.demotion_failed`, `blob.demotion_skipped` |
+| drain | `blob.drained`, `blob.drain_failed`, `blob.drain_skipped` |
+| promote | `blob.promoted`, `blob.promotion_failed`, `blob.promotion_skipped` |
 
-On failure, adds `error_class`, `error_message`.  
-`storage_backend_id` on the row = destination if migrated, else source.
-
-**Skip/migration `reason` values** (from `BlobMigrationResult`):  
-`same_bucket`, `source_bucket_missing`, `destination_full`, `destination_headroom_exceeded`, `remote_copy_failed`, `db_commit_failed`.
-
-#### Demote pressured backends
-
-**Job:** `demote_pressured_buckets`  
-**Worker:** `demote_pressured_buckets_worker`
-
-| Operation | Status |
-|-----------|--------|
-| `blob.demoted` | succeeded |
-| `blob.demotion_failed` | failed |
-| `blob.demotion_skipped` | skipped |
-
-Extra explicit skip (no destination with headroom):
-
-| Operation | Status | Metadata |
-|-----------|--------|----------|
-| `blob.demotion_skipped` | skipped | `{ "from_storage_backend_id", "reason": "no_colder_bucket_with_headroom", "size_bytes" }` |
-
-#### Drain storage backend (maintenance batch)
-
-**Job:** `drain_storage_backend`  
-**Code:** `drain_storage_backend_batch` (also used by admin drain use case)
-
-| Operation | Status |
-|-----------|--------|
-| `blob.drained` | succeeded |
-| `blob.drain_failed` | failed |
-| `blob.drain_skipped` | skipped |
-
-Explicit skip when no colder destination: same pattern as demotion with `"reason": "no_colder_bucket_with_headroom"`.
-
-#### Promote recently accessed
-
-**Job:** `promote_recently_accessed`  
-**Worker:** `promote_recently_accessed_worker`
-
-| Operation | Status |
-|-----------|--------|
-| `blob.promoted` | succeeded |
-| `blob.promotion_failed` | failed |
-| `blob.promotion_skipped` | skipped |
-
-When no hotter destination exists, the loop **continues silently** — no skip audit event.
+Explicit skip when no destination: `"reason": "no_colder_bucket_with_headroom"` (demote/drain) or `"no_hotter_bucket_with_headroom"` (promote).
 
 ---
 
 ### Event retention & multipart cleanup
 
-**Workers:** `trim_old_audit_events_worker`, `abort_incomplete_multipart_uploads_worker`
-
-| Operation | Job | Status | Metadata |
-|-----------|-----|--------|----------|
-| `audit_event.trimmed` | `trim_audit_events` | succeeded | `{ "retention_days", "deleted_rows" }` |
-| `file_event.trimmed` | `trim_file_events` | succeeded | `{ "retention_days", "deleted_rows" }` |
-| `multipart_upload.aborted` | `abort_incomplete_multipart_uploads` | succeeded | `{ "abort_after_hours", "deleted_rows" }` |
+| Operation | Job | Metadata |
+|-----------|-----|----------|
+| `audit_event.trimmed` | `trim_audit_events` | `{ "retention_days", "deleted_rows" }` |
+| `filesystem_event.trimmed` | `trim_filesystem_events` | `{ "retention_days", "deleted_rows" }` |
+| `multipart_upload.aborted` | `abort_incomplete_multipart_uploads` | `{ "abort_after_hours", "deleted_rows" }` |
 
 Only emitted when `deleted_rows > 0`.
 
 ---
 
-## File events (subscription log)
+## Filesystem events (subscription log)
 
-Defined in `domain/file_events/types.py`. Emitted from `application/control_plane/file_event_emission.py` in the **same transaction** as the mutation.
+Types in `domain/filesystem_events/types.py`. Emitted from `application/control_plane/filesystem_event_emission.py` in the **same transaction** as the mutation.
 
 ### `file.created`
 
-| | |
-|--|--|
-| **Trigger sites** | |
-| S3 PUT (new object) | `application/gateway/object_mutations.put_object` → `emit_put_object_events` (`origin: "upload"`) |
-| S3 multipart complete (new) | `complete_multipart_upload` → `emit_multipart_complete_events` (`origin: "multipart"`) |
-| S3 CopyObject | `copy_object` (`origin: "copy"`, includes `source_file_id`) |
-| Folder duplicate | `duplicate_folder` → `clone_files` (`origin: "duplicate"`, includes `source_file_id`) |
+| Trigger | Notes |
+|---------|-------|
+| S3 PUT (new) | `origin: "upload"` |
+| S3 multipart complete (new) | `origin: "multipart"` |
+| S3 CopyObject | `origin: "copy"`, includes `source_file_id` |
+| Folder duplicate | `origin: "duplicate"`, includes `source_file_id` |
 
-**Payload**
-
-```json
-{
-  "name": "string",
-  "blob_id": "uuid",
-  "size_bytes": 0,
-  "mimetype": "string | null",
-  "extension": "string | null",
-  "meta": {},
-  "origin": "upload | multipart | copy | duplicate",
-  "source_file_id": "uuid"
-}
-```
-
-`source_file_id` only for `copy` and `duplicate`.
+**Payload:** `{ name, blob_id, size_bytes, mimetype, extension, meta, origin [, source_file_id] }`
 
 ---
 
 ### `file.content_updated`
 
-| | |
-|--|--|
-| **Trigger sites** | |
-| S3 PUT (overwrite) | `emit_put_object_events` when `previous_blob_id != blob.id` |
-| S3 multipart complete (overwrite) | Same via `emit_multipart_complete_events` |
+S3 PUT / multipart overwrite when blob changes.
 
-**Payload**
-
-```json
-{
-  "name": "string",
-  "blob_id": "uuid",
-  "size_bytes": 0,
-  "mimetype": "string | null",
-  "extension": "string | null",
-  "previous_blob_id": "uuid",
-  "meta": {}
-}
-```
+**Payload:** `{ name, blob_id, size_bytes, mimetype, extension, previous_blob_id, meta }`
 
 ---
 
 ### `file.meta_updated`
 
-| | |
-|--|--|
-| **Trigger sites** | |
-| JSON API | `PATCH /api/files/{id}` → `patch_file_meta` |
-| Bulk | `POST /api/files/bulk-patch-meta` → `bulk_patch_file_meta` (one event per file) |
+`PATCH /api/files/{id}` and bulk meta patch.
 
-**Payload**
-
-```json
-{
-  "name": "string",
-  "blob_id": "uuid",
-  "meta": {}
-}
-```
+**Payload:** `{ name, blob_id, meta }`
 
 ---
 
 ### `file.renamed`
 
-| | |
-|--|--|
-| **Trigger sites** | |
-| JSON API | `PATCH /api/files/{id}/rename` → `rename_file` |
-| Move within same folder | `move_file` when `from_folder_id == destination.id` and name changes |
+Rename API; move within same folder with name change.
 
-**Payload**
-
-```json
-{
-  "name": "string",
-  "previous_name": "string",
-  "blob_id": "uuid"
-}
-```
+**Payload:** `{ name, previous_name, blob_id }`
 
 ---
 
 ### `file.moved`
 
-| | |
-|--|--|
-| **Trigger sites** | |
-| JSON API | `PATCH /api/files/{id}/move` → `move_file` (cross-folder) |
-| Bulk | `POST /api/files/bulk-move` → `bulk_move_files` (one event per file) |
+Move API (cross-folder); bulk move.
 
-**Payload**
-
-```json
-{
-  "name": "string",
-  "previous_name": "string",
-  "from_folder_id": "uuid",
-  "to_folder_id": "uuid",
-  "blob_id": "uuid"
-}
-```
-
-`folder_id` on the event row = `to_folder_id`.
+**Payload:** `{ name, previous_name, from_folder_id, to_folder_id, blob_id }` — row `folder_id` = `to_folder_id`.
 
 ---
 
 ### `file.deleted`
 
-| | |
-|--|--|
-| **Trigger sites** | |
-| JSON API | `DELETE /api/files/{id}` → `delete_file` → `remove_file_record` |
-| Bulk | `POST /api/files/bulk-delete` |
-| S3 DeleteObject | `application/gateway/delete_object` → `remove_file_record` |
-| Recursive folder delete | `delete_folder` (one event per file before row delete) |
+File delete API, bulk delete, S3 DeleteObject, recursive folder delete (per file).
 
-**Payload**
-
-```json
-{
-  "name": "string",
-  "blob_id": "uuid"
-}
-```
+**Payload:** `{ name, blob_id }`
 
 ---
 
-## Folder events (planned)
+### `folder.created`
 
-Not implemented. Intended for the **same subscription log** as files (extend `file_events` or rename to `filesystem_events`), not a separate table.
+`POST /api/folders`; nested clones during duplicate (not the duplicated root).
 
-These belong in subscription (integrators need them), **not** audit:
+**Payload:** `{ name, parent_id }` — row `file_id`: null, `folder_id`: new folder.
 
-| Event type | Trigger site (future) | Proposed payload |
-|------------|----------------------|------------------|
-| `folder.created` | `POST /api/folders` → `create_folder` | `{ "name", "parent_id" }` |
-| `folder.renamed` | `PATCH /api/folders/{id}` (name change) → `update_folder` | `{ "name", "previous_name", "parent_id" }` |
-| `folder.moved` | `PATCH /api/folders/{id}` (parent change) → `update_folder` | `{ "name", "from_parent_id", "to_parent_id" }` |
-| `folder.deleted` | `DELETE /api/folders/{id}` → `delete_folder` | `{ "name", "parent_id", "recursive", "descendant_folder_count", "file_count" }` |
-| `folder.duplicated` | `POST /api/folders/{id}/duplicate` → `duplicate_folder` | `{ "name", "source_folder_id", "destination_parent_id", "recursive" }` |
+---
 
-**Emit nested `folder.created`** for each cloned subfolder on duplicate, or rely on a single root `folder.duplicated` plus `file.created` events (today duplicate only emits `file.created`).
+### `folder.renamed`
 
-**Stay audit-only (not subscription):**
+`PATCH /api/folders/{id}` name change.
 
-- `folder.access.*`
-- `preferred_storage_backend_id` changes on folders (admin policy)
+**Payload:** `{ name, previous_name, parent_id }`
 
-**Optional audit summaries** (low volume, admin forensics): `folder.deleted`, `folder.duplicated` with counts — without duplicating per-file detail already in `file.*`.
+---
+
+### `folder.moved`
+
+`PATCH /api/folders/{id}` parent change.
+
+**Payload:** `{ name, from_parent_id, to_parent_id }` — row `folder_id`: destination parent (`to_parent_id`).
+
+---
+
+### `folder.deleted`
+
+`DELETE /api/folders/{id}` (including empty folders). Recursive delete emits **`folder.deleted` per removed folder** (deepest first) plus per-file `file.deleted`.
+
+**Payload:** `{ deleted_folder_id, name, parent_id, recursive, descendant_folder_count, file_count }` — row `folder_id`: nearest ancestor **outside** the delete set (so subscribers with READ on that ancestor still see events after folders are removed).
+
+---
+
+### `folder.duplicated`
+
+`POST /api/folders/{id}/copy` on the new root clone.
+
+**Payload:** `{ name, source_folder_id, destination_parent_id, recursive }`
+
+Nested subfolders emit `folder.created`; files emit `file.created`.
+
+---
+
+### Not in filesystem subscription
+
+| Topic | Log instead |
+|-------|-------------|
+| `folder.access.*` | Audit |
+| `preferred_storage_backend_id` changes | Audit (`folder.preferred_storage_backend.updated`) |
 
 ---
 
@@ -425,35 +311,28 @@ These belong in subscription (integrators need them), **not** audit:
 
 | Action | Notes |
 |--------|-------|
-| Folder create / rename / move / empty delete | structlog only |
-| Admin clear audit log | `DELETE /api/audit-events` |
 | Storage backend manual probe | `storage_backend_probes` table |
 | Successful batch probes | probe table + metrics |
 | Blob touch / access time update | `touch_blob_access` |
-| Multipart abort (user or worker) | worker abort only audits aggregate `multipart_upload.aborted` |
 | Search, list, read, presign | read paths |
 
 ---
 
-## Known inconsistencies
+## Known limitations
 
-| Issue | Detail |
+| Topic | Detail |
 |-------|--------|
-| `bucket.probe_failed` | Legacy operation name; entity is `storage_backend` |
-| Admin UI filter lists | `client/src/pages/admin/audit-events-page.tsx` still lists `bucket.*` ops/jobs; server emits `storage_backend.*` |
-| Drain API audit gap | `POST .../drain` omits `event_context` → no `storage_backend.drain_*` rows |
-| Promote skip silence | No audit event when no hotter destination (unlike demote/drain) |
-| Move-out visibility | `file.moved` / planned `folder.moved` anchored on destination — source-folder subscribers miss move-out |
+| Move-out visibility | `file.moved` / `folder.moved` destination-anchored — source-folder subscribers miss move-out |
 
 ---
 
 ## Source index
 
-| Area | Primary files |
-|------|----------------|
-| Audit port | `server/ports/audit.py`, `server/infra/db/repositories/audit.py`, `server/infra/db/stores/audit_events.py` |
-| File emit helpers | `server/application/control_plane/file_event_emission.py`, `server/application/gateway/file_event_emission.py` |
-| File event types | `server/domain/file_events/types.py` |
-| Maintenance audit | `server/infra/maintenance/storage.py`, `server/application/maintenance/retention.py` |
-| Workers | `server/workers/maintenance.py` |
-| APIs | `server/api/audit_events.py`, `server/api/file_events.py` |
+| Area | Files |
+|------|-------|
+| Audit | `server/ports/audit.py`, `server/infra/db/repositories/audit.py`, `server/infra/db/stores/audit_events.py` |
+| Filesystem emit | `server/application/control_plane/filesystem_event_emission.py`, `server/application/gateway/filesystem_event_emission.py` |
+| Event types | `server/domain/filesystem_events/types.py` |
+| Store / model | `server/infra/db/stores/filesystem_events.py`, `server/infra/db/models.py` (`FilesystemEvent`) |
+| Maintenance | `server/infra/maintenance/storage.py`, `server/application/maintenance/retention.py`, `server/workers/maintenance.py` |
+| APIs | `server/api/audit_events.py`, `server/api/filesystem_events.py` |

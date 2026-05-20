@@ -134,7 +134,7 @@ async def trim_old_audit_events_worker(ctx) -> None:
             )
             file_deleted = run_with_uow(
                 db,
-                lambda uow: retention_maintenance.trim_old_file_events(
+                lambda uow: retention_maintenance.trim_old_filesystem_events(
                     uow,
                     retention_days=S.EVENT_RETENTION_DAYS,
                     batch_id=batch_id,
@@ -144,7 +144,7 @@ async def trim_old_audit_events_worker(ctx) -> None:
             "event_retention_trimmed",
             retention_days=S.EVENT_RETENTION_DAYS,
             audit_deleted_rows=audit_deleted,
-            file_deleted_rows=file_deleted,
+            filesystem_deleted_rows=file_deleted,
         )
 
     await _run_maintenance_job("trim_old_audit_events", run)

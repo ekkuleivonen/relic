@@ -1,8 +1,8 @@
 import uuid
 from collections import defaultdict
 
-from application.context import Actor
-from application.control_plane import file_event_emission
+from application.context import Actor, EventContext
+from application.control_plane import filesystem_event_emission
 from application.control_plane.folder_use_cases import folder_result, validate_folder_name
 from application.control_plane.folders import FolderResult
 from application.uow import UnitOfWork
@@ -23,6 +23,7 @@ def duplicate_folder(
     destination_parent_id: uuid.UUID,
     name: str,
     recursive: bool = True,
+    event_context: EventContext | None = None,
 ) -> FolderResult:
     name = validate_folder_name(name)
     source = uow.permissions.require_folder(folder_id)
@@ -39,12 +40,37 @@ def duplicate_folder(
             "Cannot duplicate a folder into itself or one of its descendants"
         )
 
+    request_id = event_context.request_id if event_context else None
+
     cloned_root = Folder(
         parent_id=destination.id,
         name=name,
         preferred_storage_backend_id=source.preferred_storage_backend_id,
     )
     uow.folders.add(cloned_root)
+    uow.session.flush()
+
+    filesystem_event_emission.emit_folder_duplicated(
+        uow,
+        folder=cloned_root,
+        source_folder_id=source.id,
+        destination_parent_id=destination.id,
+        recursive=recursive,
+        actor_id=actor.id,
+        request_id=request_id,
+    )
+    if event_context is not None:
+        uow.audit.record(
+            operation="folder.duplicated",
+            event_context=event_context,
+            metadata={
+                "source_folder_id": str(source.id),
+                "cloned_folder_id": str(cloned_root.id),
+                "destination_parent_id": str(destination.id),
+                "name": name,
+                "recursive": recursive,
+            },
+        )
 
     blob_increments: dict[uuid.UUID, int] = defaultdict(int)
 
@@ -61,12 +87,13 @@ def duplicate_folder(
             uow.session.flush()
             blob = uow.session.get(Blob, new_file.blob_id)
             if blob is not None:
-                file_event_emission.emit_file_created(
+                filesystem_event_emission.emit_file_created(
                     uow,
                     file=new_file,
                     blob=blob,
                     origin="duplicate",
                     actor_id=actor.id,
+                    request_id=request_id,
                     source_file_id=source_file.id,
                 )
             blob_increments[source_file.blob_id] += 1
@@ -87,6 +114,13 @@ def duplicate_folder(
                     preferred_storage_backend_id=child.preferred_storage_backend_id,
                 )
                 uow.folders.add(clone)
+                uow.session.flush()
+                filesystem_event_emission.emit_folder_created(
+                    uow,
+                    folder=clone,
+                    actor_id=actor.id,
+                    request_id=request_id,
+                )
                 cloned_by_source[child.id] = clone
                 clone_files(child.id, clone.id)
                 queue.append(child.id)

@@ -1,14 +1,11 @@
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict
 
 from api.users import UserRead
-from api.dependencies import AdminUser, UnitOfWorkDep
-from application.control_plane.audit_mutations import (
-    clear_audit_events as clear_audit_events_use_case,
-)
+from api.dependencies import UnitOfWorkDep
 from constants import AUDIT_EVENT_DEFAULT_LIMIT, AUDIT_EVENT_MAX_LIMIT
 from infra.db.models import AuditEvent
 from application.control_plane import audit_events
@@ -106,7 +103,3 @@ async def list_audit_events(
     )
 
 
-@router.delete("/")
-async def clear_audit_events(uow: UnitOfWorkDep, current_user: AdminUser) -> Response:
-    clear_audit_events_use_case(uow)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)

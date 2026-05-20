@@ -25,9 +25,11 @@ type FolderSelectOption = {
 type FolderComboboxProps = {
   folders: FolderSelectOption[]
   value: string | undefined
-  onChange: (folderId: string) => void
+  onChange: (folderId: string | undefined) => void
   disabled?: boolean
   placeholder?: string
+  allowClear?: boolean
+  clearLabel?: string
 }
 
 export function FolderCombobox({
@@ -36,6 +38,8 @@ export function FolderCombobox({
   onChange,
   disabled,
   placeholder = "Select a folder",
+  allowClear = false,
+  clearLabel = "Any folder",
 }: FolderComboboxProps) {
   const [open, setOpen] = React.useState(false)
   const selected = folders.find((folder) => folder.id === value)
@@ -54,7 +58,7 @@ export function FolderCombobox({
           role="combobox"
           aria-expanded={open}
           disabled={disabled}
-          className="w-full justify-between font-normal"
+          className="h-9 w-full justify-between font-normal"
         >
           <span
             className={cn(
@@ -77,6 +81,20 @@ export function FolderCombobox({
           <CommandList>
             <CommandEmpty>No folders found.</CommandEmpty>
             <CommandGroup>
+              {allowClear && (
+                <CommandItem
+                  value={clearLabel}
+                  onSelect={() => {
+                    onChange(undefined)
+                    setOpen(false)
+                  }}
+                >
+                  <span className="text-muted-foreground">{clearLabel}</span>
+                  <CheckIcon
+                    className={cn("ml-auto", !value ? "opacity-100" : "opacity-0")}
+                  />
+                </CommandItem>
+              )}
               {sorted.map((entry) => (
                 <CommandItem
                   key={entry.id}
