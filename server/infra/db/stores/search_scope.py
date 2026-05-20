@@ -1,4 +1,4 @@
-"""Folder scope resolution for file search."""
+"""Folder scope resolution for file search and file events."""
 
 from __future__ import annotations
 
@@ -26,3 +26,28 @@ def scope_folder_ids(db: Session, *, user: User, query: SearchQuery) -> set[uuid
     if query.folder_id not in visible_ids:
         return set()
     return {query.folder_id}
+
+
+def scope_folder_ids_for_events(
+    db: Session,
+    *,
+    user: User,
+    folder_id: uuid.UUID,
+    recursive: bool,
+) -> set[uuid.UUID]:
+    visible_ids = folder_access.visible_folder_ids(db, user)
+    if not visible_ids:
+        return set()
+
+    if user.role == UserRole.ADMIN:
+        if recursive:
+            return set(filesystem.collect_descendant_folder_ids(db, folder_id))
+        return {folder_id}
+
+    if recursive:
+        descendants = filesystem.collect_descendant_folder_ids(db, folder_id)
+        return {fid for fid in descendants if fid in visible_ids}
+
+    if folder_id not in visible_ids:
+        return set()
+    return {folder_id}

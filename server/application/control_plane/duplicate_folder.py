@@ -2,11 +2,13 @@ import uuid
 from collections import defaultdict
 
 from application.context import Actor
+from application.control_plane import file_event_emission
 from application.control_plane.folder_use_cases import folder_result, validate_folder_name
 from application.control_plane.folders import FolderResult
 from application.uow import UnitOfWork
 from domain.exceptions import BadRequestError
 from enums import Permission
+from infra.db.models import Blob
 from ports.entities import File, Folder
 from utils.logging import get_logger
 
@@ -47,16 +49,27 @@ def duplicate_folder(
     blob_increments: dict[uuid.UUID, int] = defaultdict(int)
 
     def clone_files(source_id: uuid.UUID, target_id: uuid.UUID) -> None:
-        for file in uow.files.list_in_folders([source_id]):
+        for source_file in uow.files.list_in_folders([source_id]):
             new_file = File(
                 folder_id=target_id,
-                blob_id=file.blob_id,
-                actor_id=file.actor_id,
-                name=file.name,
-                meta=dict(file.meta),
+                blob_id=source_file.blob_id,
+                actor_id=source_file.actor_id,
+                name=source_file.name,
+                meta=dict(source_file.meta),
             )
             uow.files.add(new_file)
-            blob_increments[file.blob_id] += 1
+            uow.session.flush()
+            blob = uow.session.get(Blob, new_file.blob_id)
+            if blob is not None:
+                file_event_emission.emit_file_created(
+                    uow,
+                    file=new_file,
+                    blob=blob,
+                    origin="duplicate",
+                    actor_id=actor.id,
+                    source_file_id=source_file.id,
+                )
+            blob_increments[source_file.blob_id] += 1
 
     clone_files(source.id, cloned_root.id)
 

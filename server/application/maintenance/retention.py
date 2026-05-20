@@ -28,6 +28,28 @@ def trim_old_audit_events(
     return deleted_rows
 
 
+def trim_old_file_events(
+    uow: UnitOfWork,
+    *,
+    retention_days: int,
+    batch_id: uuid.UUID | None = None,
+) -> int:
+    effective_batch_id = batch_id or uuid.uuid4()
+    deleted_rows = uow.file_events.trim_older_than(retention_days=retention_days)
+    if deleted_rows > 0:
+        uow.audit.emit(
+            job="trim_file_events",
+            operation="file_event.trimmed",
+            status="succeeded",
+            batch_id=effective_batch_id,
+            metadata={
+                "retention_days": retention_days,
+                "deleted_rows": deleted_rows,
+            },
+        )
+    return deleted_rows
+
+
 def abort_incomplete_multipart_uploads(
     uow: UnitOfWork,
     *,

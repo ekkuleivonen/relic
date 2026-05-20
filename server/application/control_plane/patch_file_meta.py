@@ -1,10 +1,12 @@
 import uuid
 
 from application.context import Actor
+from application.control_plane import file_event_emission
 from application.uow import UnitOfWork
 from domain.exceptions import BadRequestError
 from domain.files.meta import patch_meta
 from enums import Permission
+from infra.db.models import Blob
 from ports.entities import File
 
 
@@ -25,4 +27,12 @@ def patch_file_meta(
         raise BadRequestError(str(exc)) from exc
     uow.files.save(file)
     uow.cache.invalidate_list_objects()
+    blob = uow.session.get(Blob, file.blob_id)
+    if blob is not None:
+        file_event_emission.emit_file_meta_updated(
+            uow,
+            file=file,
+            blob=blob,
+            actor_id=actor.id,
+        )
     return file

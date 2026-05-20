@@ -4,6 +4,7 @@ from typing import Protocol
 
 from ports.audit import AuditPort
 from ports.cache import CachePort
+from ports.file_events import FileEventPort
 from ports.repositories.access_keys import AccessKeyStore
 from ports.repositories.blobs import BlobStore
 from ports.repositories.storage_backends import StorageBackendStore
@@ -30,6 +31,7 @@ class UnitOfWork(Protocol):
     multipart: MultipartStore
     cache: CachePort
     audit: AuditPort
+    file_events: FileEventPort
     storage: StorageRegistry
 
     def commit(self) -> None: ...

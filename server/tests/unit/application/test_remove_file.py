@@ -47,10 +47,25 @@ class FakeCache:
 
 
 @dataclass
+class FakeFileEventPort:
+    emitted: list[dict] = field(default_factory=list)
+
+    def emit(self, **kwargs) -> None:
+        self.emitted.append(kwargs)
+
+    def list_events(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def trim_older_than(self, *args, **kwargs):
+        raise NotImplementedError
+
+
+@dataclass
 class FakeUnitOfWork:
     files: FakeFileStore
     permissions: FakePermissionStore
     cache: FakeCache
+    file_events: FakeFileEventPort = field(default_factory=FakeFileEventPort)
     session: object = None
 
 
@@ -82,6 +97,8 @@ def test_remove_file_by_id_deletes_and_invalidates_cache():
     remove_file_by_id(uow, actor=Actor(id=uuid.uuid4()), file_id=file_id)
 
     assert files.deleted == [file]
+    assert len(uow.file_events.emitted) == 1
+    assert uow.file_events.emitted[0]["event_type"] == "file.deleted"
     assert uow.cache.list_objects_cleared == 1
     assert uow.cache.folder_cleared == 1
 

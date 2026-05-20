@@ -106,4 +106,10 @@ def put_object(
             if old_blob.refcount < 0:
                 old_blob.refcount = 0
     db.flush()
-    return PutObjectResult(file=file, blob=blob, etag=digest_hex)
+    return PutObjectResult(
+        file=file,
+        blob=blob,
+        etag=digest_hex,
+        created=existing_file is None,
+        previous_blob_id=previous_blob_id,
+    )

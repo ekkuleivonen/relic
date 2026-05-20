@@ -2,9 +2,11 @@ import uuid
 from collections import defaultdict
 
 from application.context import Actor
+from application.control_plane import file_event_emission
 from application.uow import UnitOfWork
 from domain.exceptions import BadRequestError, ConflictError
 from enums import Permission
+from infra.db.models import Blob
 from utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -35,6 +37,14 @@ def delete_folder(
 
     blob_decrements: dict[uuid.UUID, int] = defaultdict(int)
     for file in file_rows:
+        blob = uow.session.get(Blob, file.blob_id)
+        if blob is not None:
+            file_event_emission.emit_file_deleted(
+                uow,
+                file=file,
+                blob=blob,
+                actor_id=actor.id,
+            )
         blob_decrements[file.blob_id] += 1
 
     if file_rows:

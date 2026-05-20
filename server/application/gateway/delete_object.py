@@ -31,5 +31,9 @@ def delete_object(
     if file is None:
         return DeleteObjectResult(existed=False)
 
-    remove_file_record(uow, file=file)
+    remove_file_record(
+        uow,
+        file=file,
+        actor_id=current_user.id if current_user is not None else None,
+    )
     return DeleteObjectResult(existed=True)

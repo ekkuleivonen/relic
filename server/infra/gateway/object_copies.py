@@ -95,4 +95,9 @@ def copy_object(
     db.flush()
 
     etag = blob.content_hash.hex()
-    return CopyObjectResult(file=new_file, blob=blob, etag=etag)
+    return CopyObjectResult(
+        file=new_file,
+        blob=blob,
+        etag=etag,
+        source_file_id=source_file.id,
+    )

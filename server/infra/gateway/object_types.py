@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,6 +10,8 @@ class PutObjectResult:
     file: File
     blob: Blob
     etag: str
+    created: bool
+    previous_blob_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -16,6 +19,7 @@ class CopyObjectResult:
     file: File
     blob: Blob
     etag: str
+    source_file_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)

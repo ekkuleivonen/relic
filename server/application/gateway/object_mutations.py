@@ -11,6 +11,10 @@ from typing import BinaryIO
 from infra.gateway import object_multipart
 from infra.gateway import object_writes
 from application.gateway import delete_object as delete_object_use_case
+from application.gateway.file_event_emission import (
+    emit_multipart_complete_events,
+    emit_put_object_events,
+)
 from infra.gateway import object_copies
 from infra.gateway.object_multipart import (
     CompleteMultipartPart,
@@ -50,6 +54,12 @@ def put_object(
     )
     uow.cache.invalidate_list_objects()
     uow.cache.invalidate_folder_hotpath(uow.session)
+    emit_put_object_events(
+        uow,
+        result=result,
+        current_user=current_user,
+        origin="upload",
+    )
     return result
 
 
@@ -91,6 +101,16 @@ def copy_object(
     )
     uow.cache.invalidate_list_objects()
     uow.cache.invalidate_folder_hotpath(uow.session)
+    from application.control_plane import file_event_emission
+
+    file_event_emission.emit_file_created(
+        uow,
+        file=result.file,
+        blob=result.blob,
+        origin="copy",
+        actor_id=current_user.id,
+        source_file_id=result.source_file_id,
+    )
     return result
 
 
@@ -165,6 +185,7 @@ def complete_multipart_upload(
     )
     uow.cache.invalidate_list_objects()
     uow.cache.invalidate_folder_hotpath(uow.session)
+    emit_multipart_complete_events(uow, result=result, current_user=current_user)
     return result
 
 

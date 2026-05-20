@@ -124,7 +124,7 @@ async def trim_old_audit_events_worker(ctx) -> None:
         batch_id = uuid.uuid4()
         sm = get_sessionmaker()
         with sm() as db:
-            deleted_rows = run_with_uow(
+            audit_deleted = run_with_uow(
                 db,
                 lambda uow: retention_maintenance.trim_old_audit_events(
                     uow,
@@ -132,10 +132,19 @@ async def trim_old_audit_events_worker(ctx) -> None:
                     batch_id=batch_id,
                 ),
             )
+            file_deleted = run_with_uow(
+                db,
+                lambda uow: retention_maintenance.trim_old_file_events(
+                    uow,
+                    retention_days=S.EVENT_RETENTION_DAYS,
+                    batch_id=batch_id,
+                ),
+            )
         log.info(
-            "audit_event_retention_trimmed",
+            "event_retention_trimmed",
             retention_days=S.EVENT_RETENTION_DAYS,
-            deleted_rows=deleted_rows,
+            audit_deleted_rows=audit_deleted,
+            file_deleted_rows=file_deleted,
         )
 
     await _run_maintenance_job("trim_old_audit_events", run)

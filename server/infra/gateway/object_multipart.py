@@ -23,6 +23,7 @@ from infra.gateway import blob_storage
 from infra.gateway import object_blobs
 from infra.gateway import object_paths
 from infra.gateway import object_writes
+from infra.gateway.object_types import PutObjectResult
 from infra.db.stores.placement import choose_storage_backend, effective_preferred_storage_backend_id
 
 log = get_logger(__name__)
@@ -45,6 +46,10 @@ class CompleteMultipartResult:
     bucket: str
     key: str
     etag: str
+    file: File | None = None
+    blob: Blob | None = None
+    created: bool = False
+    previous_blob_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -193,7 +198,7 @@ def complete_multipart_upload(
             upload=upload,
             ordered_parts=ordered_parts,
         )
-        put_etag = _put_composed_object(
+        put_result = _put_composed_object(
             db,
             storage=storage,
             upload=upload,
@@ -203,6 +208,7 @@ def complete_multipart_upload(
             prefix=prefix,
             current_user=current_user,
         )
+        put_etag = put_result.etag
     else:
         assembled, digest, total_size = _assemble_parts(
             storage=storage,
@@ -238,6 +244,10 @@ def complete_multipart_upload(
         bucket=bucket_name,
         key=key,
         etag=completed_etag or put_etag,
+        file=put_result.file,
+        blob=put_result.blob,
+        created=put_result.created,
+        previous_blob_id=put_result.previous_blob_id,
     )
 
 
@@ -325,7 +335,7 @@ def _put_composed_object(
     size_bytes: int,
     prefix: bytes,
     current_user: User,
-) -> str:
+) -> PutObjectResult:
     folder, file_name = object_paths.resolve_object_path(
         db,
         bucket_name=upload.bucket_name,
@@ -365,6 +375,7 @@ def _put_composed_object(
         )
         db.add(file)
     else:
+        file = existing_file
         old_blob = db.get(Blob, previous_blob_id)
         existing_file.blob_id = blob.id
         existing_file.actor_id = current_user.id
@@ -374,7 +385,13 @@ def _put_composed_object(
             if old_blob.refcount < 0:
                 old_blob.refcount = 0
     db.flush()
-    return etag
+    return PutObjectResult(
+        file=file,
+        blob=blob,
+        etag=etag,
+        created=existing_file is None,
+        previous_blob_id=previous_blob_id,
+    )
 
 
 def abort_multipart_upload(
