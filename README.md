@@ -80,13 +80,20 @@ actor, and time range.
 Retention is controlled by `EVENT_RETENTION_DAYS`; the maintenance worker
 trims old rows on its cron tick.
 
-See [MANIFEST.md](./MANIFEST.md) for the server layer layout.
-
 ### Operational Visibility
 
 - Admin view for audit events is live.
-
-Prometheus-compatible `/metrics` is not implemented yet; see `ROADMAP.md`.
+- Prometheus-compatible `GET /metrics` on the API process (not under `/api`).
+  Low-cardinality counters and histograms in `server/infra/metrics.py`:
+  - `relic_api_requests_total` / `relic_api_duration_seconds` — HTTP API
+    traffic by method, route template, and status class (`2xx`, `4xx`, …).
+  - `relic_gateway_requests_total` / `relic_gateway_duration_seconds` — S3
+    gateway traffic under `/s3` by operation (e.g. `put_object`, `get_object`).
+  - `relic_maintenance_jobs_total` / `relic_maintenance_duration_seconds` —
+    maintenance worker jobs by name and outcome.
+  - `relic_maintenance_queue_depth` — pending jobs on the maintenance ARQ queue.
+  - `relic_storage_backend_probe_total` — bucket probe successes and failures.
+  Standard `prometheus-client` process metrics are included in the scrape body.
 
 ### Health and Readiness
 
@@ -142,7 +149,6 @@ Relic is split into a React client, a FastAPI server, and ARQ workers:
 - `server/ports/` defines store and adapter interfaces.
 - `server/infra/` contains SQLAlchemy stores, object storage adapters, auth, cache, and maintenance.
 - `server/composition.py` wires the Unit of Work from settings.
-- See [MANIFEST.md](./MANIFEST.md) for the full architectural intent.
 - PostgreSQL stores users, folders, files, blobs, access grants, access keys,
   bucket registrations, and audit events. SQLite is used in tests.
 - Redis backs ARQ maintenance jobs on the `relic:maintenance` queue.
@@ -287,9 +293,8 @@ Important environment variables include:
 ## Product Status
 
 Relic is an early product with substantial core behavior in place. The web
-app, JSON API, object gateway, content-hash deduplication, tiered storage
-placement, unified `audit_events`, and production health / readiness
-endpoints are live. See `MANIFEST.md` for the target architecture and
-`ROADMAP.md` for planned work: external activity sinks, native-client S3
-compatibility, Prometheus metrics, import-from-bucket flows, quotas,
-retention, versioning, and richer admin file/blob inspection.
+app, JSON API, object gateway, native SigV4 clients, content-hash
+deduplication, tiered storage placement, unified `audit_events`, Prometheus
+`/metrics`, and production health / readiness endpoints are live. Planned work
+includes external activity sinks, import-from-bucket flows, quotas, extended
+retention controls, versioning, and richer admin file/blob inspection.
