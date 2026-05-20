@@ -112,6 +112,19 @@ def get_active_access_key_credentials_by_key_id(
     return credentials
 
 
+def authenticate_access_key(db: Session, *, key_id: str, secret: str) -> User | None:
+    try:
+        row = get_active_access_key_by_key_id(db, key_id)
+    except ResourceNotFound:
+        return None
+
+    if not secrets.compare_digest(row.access_key.secret_access_key, secret):
+        return None
+
+    mark_access_key_used(db, row.access_key)
+    return row.user
+
+
 def mark_access_key_used(db: Session, access_key: AccessKey) -> None:
     mark_access_key_used_by_id(db, access_key.id)
 

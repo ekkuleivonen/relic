@@ -75,7 +75,8 @@ export function AccessKeysPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Access Keys</h1>
           <p className="text-sm text-muted-foreground">
-            Mint and revoke SigV4 access keys for users.
+            Mint and revoke access keys for users. Keys authenticate the JSON API
+            (Bearer token) and the S3 gateway (SigV4).
           </p>
         </div>
         <Button type="button" onClick={() => setIsCreateOpen(true)}>

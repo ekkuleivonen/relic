@@ -21,10 +21,13 @@ from infra.db.stores.access_keys import AccessKeyRow, CreatedAccessKey
 router = APIRouter()
 
 """
-S3 access keys. Each key belongs to a user and inherits that user's
-folder permissions for SigV4-authenticated requests at the S3 gateway.
+Relic access keys for programmatic API access.
 
-Secret is shown ONCE at creation, then only the hash is stored.
+Each key belongs to a user and inherits that user's folder permissions for:
+- JSON control plane routes (`/api/*`) via `Authorization: Bearer <key_id>:<secret>`
+- S3 gateway routes (`/s3/*`) via SigV4 request signing
+
+Secret is shown ONCE at creation, then only the encrypted value is stored.
 """
 
 
