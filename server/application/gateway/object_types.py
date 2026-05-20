@@ -1,0 +1,44 @@
+from dataclasses import dataclass
+from typing import Any
+
+from infra.db.models import Blob, Bucket, File
+
+
+@dataclass(frozen=True)
+class PutObjectResult:
+    file: File
+    blob: Blob
+    etag: str
+
+
+@dataclass(frozen=True)
+class CopyObjectResult:
+    file: File
+    blob: Blob
+    etag: str
+
+
+@dataclass(frozen=True)
+class GetObjectResult:
+    file: File
+    blob: Blob
+    bucket: Bucket
+
+
+@dataclass(frozen=True)
+class GetObjectBytesResult:
+    result: GetObjectResult
+    boto_response: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class DeleteObjectResult:
+    """Result of a DELETE call. existed=False when the key was already absent."""
+
+    existed: bool
+
+
+@dataclass(frozen=True)
+class CreateBlobResult:
+    blob: Blob
+    remote_latency_ms: int

@@ -5,8 +5,8 @@ from fastapi.responses import JSONResponse
 import settings as S
 from constants import API_PREFIX
 from enums import HealthStatus
-from database import DbSession
-from services import health as health_service
+from infra.db.engine import DbSession
+from application import health
 from .access_keys import router as access_keys_router
 from .auth import router as auth_router
 from .buckets import router as buckets_router
@@ -16,6 +16,7 @@ from .files import router as files_router
 from .folder_access import router as folder_access_router
 from .folders import router as folders_router
 from .audit_events import router as audit_events_router
+from .blobs import router as blobs_router
 from .s3_gateway import router as s3_gateway_router
 from .uploads import router as uploads_router
 from .users import router as users_router
@@ -81,6 +82,12 @@ app.include_router(
     dependencies=[Depends(require_user)],
 )
 app.include_router(
+    blobs_router,
+    prefix=f"{API_PREFIX}/blobs",
+    tags=["blobs"],
+    dependencies=[Depends(require_admin)],
+)
+app.include_router(
     audit_events_router,
     prefix=f"{API_PREFIX}/audit-events",
     tags=["audit-events"],
@@ -93,12 +100,12 @@ app.include_router(s3_gateway_router, prefix="/s3", tags=["s3"])
 
 @app.get("/healthz")
 def healthz():
-    return health_service.health_response()
+    return health.health_response()
 
 
 @app.get("/readyz")
 async def readyz(db: DbSession):
-    payload = await health_service.readiness_response(db)
+    payload = await health.readiness_response(db)
     if payload["status"] != HealthStatus.OK.value:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

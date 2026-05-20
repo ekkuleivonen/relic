@@ -25,9 +25,11 @@ import {
   useBuckets,
   useCreateBucket,
   useDeleteBucket,
+  useDrainBucket,
   useProbeBucket,
   useUpdateBucket,
 } from "@/hooks/use-buckets"
+import { useBlobGc } from "@/hooks/use-blobs"
 import type { Bucket, BucketCreateInput } from "@/types/buckets"
 
 export function BucketsPage() {
@@ -36,10 +38,14 @@ export function BucketsPage() {
   const updateBucket = useUpdateBucket()
   const deleteBucket = useDeleteBucket()
   const probeBucket = useProbeBucket()
+  const drainBucket = useDrainBucket()
+  const blobGc = useBlobGc()
 
   const [isCreateOpen, setIsCreateOpen] = React.useState(false)
   const [editingBucket, setEditingBucket] = React.useState<Bucket | null>(null)
   const [deletingBucket, setDeletingBucket] = React.useState<Bucket | null>(null)
+  const [drainingBucket, setDrainingBucket] = React.useState<Bucket | null>(null)
+  const [gcConfirmOpen, setGcConfirmOpen] = React.useState(false)
 
   async function handleCreate(values: BucketCreateInput) {
     const bucket = await createBucket.mutateAsync(values)
@@ -76,6 +82,20 @@ export function BucketsPage() {
     setDeletingBucket(null)
   }
 
+  async function handleDrain() {
+    if (!drainingBucket) {
+      return
+    }
+
+    await drainBucket.mutateAsync(drainingBucket.id)
+    setDrainingBucket(null)
+  }
+
+  async function handleGc() {
+    await blobGc.mutateAsync()
+    setGcConfirmOpen(false)
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -85,9 +105,19 @@ export function BucketsPage() {
             Register and manage S3-compatible remote buckets.
           </p>
         </div>
-        <Button type="button" onClick={() => setIsCreateOpen(true)}>
-          Add Bucket
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setGcConfirmOpen(true)}
+            disabled={blobGc.isPending}
+          >
+            {blobGc.isPending ? "Running GC..." : "Run Blob GC"}
+          </Button>
+          <Button type="button" onClick={() => setIsCreateOpen(true)}>
+            Add Bucket
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -99,9 +129,11 @@ export function BucketsPage() {
             buckets={bucketsQuery.data ?? []}
             isLoading={bucketsQuery.isLoading}
             probingId={probeBucket.variables}
+            drainingId={drainBucket.variables}
             onEdit={setEditingBucket}
             onDelete={setDeletingBucket}
             onProbe={(bucket) => probeBucket.mutate(bucket.id)}
+            onDrain={setDrainingBucket}
           />
         </CardContent>
       </Card>
@@ -180,6 +212,62 @@ export function BucketsPage() {
               disabled={deleteBucket.isPending}
             >
               {deleteBucket.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={drainingBucket !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDrainingBucket(null)
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Drain bucket?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {drainingBucket
+                ? `This migrates all blobs out of ${drainingBucket.name} into colder backends with capacity.`
+                : "This migrates all blobs out of the selected bucket."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                void handleDrain()
+              }}
+              disabled={drainBucket.isPending}
+            >
+              {drainBucket.isPending ? "Draining..." : "Drain"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={gcConfirmOpen} onOpenChange={setGcConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Run blob garbage collection?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Purges dereferenced blobs (refcount zero) from storage and the
+              database. This runs one maintenance batch immediately.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault()
+                void handleGc()
+              }}
+              disabled={blobGc.isPending}
+            >
+              {blobGc.isPending ? "Running..." : "Run GC"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

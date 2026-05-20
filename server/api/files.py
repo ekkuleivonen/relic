@@ -1,10 +1,26 @@
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.dependencies import CurrentUser
+from api.dependencies import CurrentUser, UnitOfWorkDep
+from application.context import Actor
+from application.control_plane.bulk_move_files import (
+    bulk_move_files as bulk_move_files_use_case,
+)
+from application.control_plane.bulk_patch_file_meta import (
+    bulk_patch_file_meta as bulk_patch_file_meta_use_case,
+)
+from application.control_plane.delete_file import (
+    bulk_delete_files as bulk_delete_files_use_case,
+    delete_file as delete_file_use_case,
+)
+from application.control_plane.move_file import move_file as move_file_use_case
+from application.control_plane.patch_file_meta import (
+    patch_file_meta as patch_file_meta_use_case,
+)
+from application.control_plane.rename_file import rename_file as rename_file_use_case
 from constants import (
     FILESYSTEM_DEFAULT_LIST_LIMIT,
     FILESYSTEM_MAX_LIST_LIMIT,
@@ -13,11 +29,12 @@ from constants import (
     SEARCH_MAX_FACET_TOP,
     SEARCH_MAX_LIMIT,
 )
-from database import DbSession
-from models import File
-from services import files as files_service
-from services import filesystem as filesystem_service
-from services import search as search_service
+from infra.db.engine import DbSession
+from infra.db.models import File
+from application.control_plane.files import get_file as get_file_use_case
+from application.control_plane import filesystem
+from domain.files.search import KvsFilter, SearchQuery
+from application.control_plane.search_files import compute_facets, search_files
 
 router = APIRouter()
 
@@ -120,6 +137,48 @@ class FileListResponse(BaseModel):
     offset: int
 
 
+class BulkDeleteFilesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+
+
+class BulkDeleteFilesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    deleted_ids: list[uuid.UUID]
+    errors: list[dict[str, str]]
+
+
+class BulkMoveFilesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    destination_folder_id: uuid.UUID
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+
+
+class BulkMoveFilesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    moved_ids: list[uuid.UUID]
+    errors: list[dict[str, str]]
+
+
+class BulkPatchFileMetaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    meta: dict = Field(default_factory=dict)
+
+
+class BulkPatchFileMetaResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    patched_ids: list[uuid.UUID]
+    errors: list[dict[str, str]]
+
+
 @router.get("/")
 async def list_files(
     db: DbSession,
@@ -135,7 +194,7 @@ async def list_files(
     sort: str = Query(default="name"),
     order: str = Query(default="asc"),
 ) -> FileListResponse:
-    page = filesystem_service.list_files(
+    page = filesystem.list_files(
         db,
         current_user,
         folder_id=folder_id,
@@ -154,8 +213,8 @@ async def list_files(
 
 
 @router.get("/search")
-async def search_files(
-    db: DbSession,
+async def search_files_route(
+    uow: UnitOfWorkDep,
     current_user: CurrentUser,
     q: str | None = None,
     tag: list[str] = Query(default_factory=list),
@@ -202,7 +261,7 @@ async def search_files(
         limit=limit,
         offset=offset,
     )
-    results = search_service.search_files(db, user=current_user, query=query)
+    results = search_files(uow, user=current_user, query=query)
     return FileSearchResponse(
         items=[FileRead.from_file(file) for file in results.items],
         total=results.total,
@@ -213,7 +272,7 @@ async def search_files(
 
 @router.get("/facets")
 async def file_facets(
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: CurrentUser,
     q: str | None = None,
     tag: list[str] = Query(default_factory=list),
@@ -260,9 +319,7 @@ async def file_facets(
         limit=SEARCH_DEFAULT_LIMIT,
         offset=0,
     )
-    facets = search_service.compute_facets(
-        db, user=current_user, query=query, top=top
-    )
+    facets = compute_facets(uow, user=current_user, query=query, top=top)
     return FacetsRead(
         tags=[
             FacetValueRead(value=item.value, count=item.count) for item in facets.tags
@@ -303,8 +360,8 @@ def build_search_query(
     order: str,
     limit: int,
     offset: int,
-) -> search_service.SearchQuery:
-    return search_service.SearchQuery(
+) -> SearchQuery:
+    return SearchQuery(
         q=q.strip() if q and q.strip() else None,
         tags=tuple(_dedupe(tags)),
         require_all_tags=require_all_tags,
@@ -318,7 +375,7 @@ def build_search_query(
         recursive=recursive,
         created_after=created_after,
         created_before=created_before,
-        kvs=tuple(search_service.KvsFilter.parse(item) for item in kvs),
+        kvs=tuple(KvsFilter.parse(item) for item in kvs),
         sort=sort,
         order=order,
         limit=limit,
@@ -342,28 +399,101 @@ def _dedupe(values: list[str]) -> list[str]:
     return out
 
 
+@router.post("/bulk-delete")
+async def bulk_delete_files(
+    payload: BulkDeleteFilesRequest,
+    uow: UnitOfWorkDep,
+    current_user: CurrentUser,
+) -> BulkDeleteFilesResponse:
+    result = bulk_delete_files_use_case(
+        uow,
+        actor=Actor.from_user(current_user),
+        file_ids=payload.file_ids,
+    )
+    return BulkDeleteFilesResponse(
+        deleted_ids=result.deleted_ids,
+        errors=result.errors,
+    )
+
+
+@router.post("/bulk-move")
+async def bulk_move_files(
+    payload: BulkMoveFilesRequest,
+    uow: UnitOfWorkDep,
+    current_user: CurrentUser,
+) -> BulkMoveFilesResponse:
+    result = bulk_move_files_use_case(
+        uow,
+        actor=Actor.from_user(current_user),
+        file_ids=payload.file_ids,
+        destination_folder_id=payload.destination_folder_id,
+        name=payload.name,
+    )
+    return BulkMoveFilesResponse(
+        moved_ids=result.moved_ids,
+        errors=result.errors,
+    )
+
+
+@router.post("/bulk-update")
+async def bulk_update_file_meta(
+    payload: BulkPatchFileMetaRequest,
+    uow: UnitOfWorkDep,
+    current_user: CurrentUser,
+) -> BulkPatchFileMetaResponse:
+    result = bulk_patch_file_meta_use_case(
+        uow,
+        actor=Actor.from_user(current_user),
+        file_ids=payload.file_ids,
+        patch=payload.meta,
+    )
+    return BulkPatchFileMetaResponse(
+        patched_ids=result.patched_ids,
+        errors=result.errors,
+    )
+
+
 @router.get("/{file_id}")
 async def get_file(
     file_id: uuid.UUID,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> FileRead:
-    return files_service.get_file(db, file_id, current_user)
+    file = get_file_use_case(
+        uow,
+        actor=Actor.from_user(current_user),
+        file_id=file_id,
+    )
+    return FileRead.from_file(file)
+
+
+@router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_file(
+    file_id: uuid.UUID,
+    uow: UnitOfWorkDep,
+    current_user: CurrentUser,
+) -> Response:
+    delete_file_use_case(
+        uow,
+        actor=Actor.from_user(current_user),
+        file_id=file_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.patch("/{file_id}/meta")
 async def patch_file_meta(
     file_id: uuid.UUID,
     payload: PatchFileMetaRequest,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> FileRead:
     """Deep-merge ``meta`` keys into the file's consumer-owned metadata."""
-    file = files_service.patch_file_meta(
-        db,
+    file = patch_file_meta_use_case(
+        uow,
+        actor=Actor.from_user(current_user),
         file_id=file_id,
         patch=payload.meta,
-        current_user=current_user,
     )
     return FileRead.from_file(file)
 
@@ -372,15 +502,15 @@ async def patch_file_meta(
 async def rename_file(
     file_id: uuid.UUID,
     payload: RenameFileRequest,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> FileRead:
     """Rename a file in place."""
-    file = files_service.rename_file(
-        db,
+    file = rename_file_use_case(
+        uow,
+        actor=Actor.from_user(current_user),
         file_id=file_id,
         name=payload.name,
-        current_user=current_user,
     )
     return FileRead.from_file(file)
 
@@ -389,15 +519,15 @@ async def rename_file(
 async def move_file(
     file_id: uuid.UUID,
     payload: MoveFileRequest,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> FileRead:
     """Move a file to another folder. Atomic; refcount on Blob unchanged."""
-    file = files_service.move_file(
-        db,
+    file = move_file_use_case(
+        uow,
+        actor=Actor.from_user(current_user),
         file_id=file_id,
         destination_folder_id=payload.destination_folder_id,
         name=payload.name,
-        current_user=current_user,
     )
     return FileRead.from_file(file)

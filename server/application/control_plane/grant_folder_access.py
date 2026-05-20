@@ -1,0 +1,41 @@
+import uuid
+
+from application.context import EventContext
+from application.control_plane import folder_access
+from application.control_plane.folder_access import FolderAccessRow
+from application.uow import UnitOfWork
+
+
+def grant_folder_access(
+    uow: UnitOfWork,
+    *,
+    actor_id: uuid.UUID,
+    folder_id: uuid.UUID,
+    permissions: int,
+    event_context: EventContext | None = None,
+) -> FolderAccessRow:
+    row = folder_access.grant_folder_access(
+        uow.session,
+        actor_id=actor_id,
+        folder_id=folder_id,
+        permissions=permissions,
+        event_context=event_context,
+        commit=False,
+    )
+    uow.cache.invalidate_folder_hotpath(uow.session)
+    return row
+
+
+def revoke_folder_access(
+    uow: UnitOfWork,
+    *,
+    access_id: uuid.UUID,
+    event_context: EventContext | None = None,
+) -> None:
+    folder_access.revoke_folder_access(
+        uow.session,
+        access_id,
+        event_context=event_context,
+        commit=False,
+    )
+    uow.cache.invalidate_folder_hotpath(uow.session)

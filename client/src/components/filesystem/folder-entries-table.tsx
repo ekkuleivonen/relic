@@ -11,6 +11,7 @@ import { Link, useNavigate } from "react-router"
 
 import { FileContextMenu } from "@/components/filesystem/file-context-menu"
 import { FolderContextMenu } from "@/components/filesystem/folder-context-menu"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import {
   Table,
@@ -44,17 +45,33 @@ type FolderEntriesTableProps = {
   entries: FileSystemEntry[]
   sort: FolderContentsSortState
   onSortChange: (next: FolderContentsSortState) => void
+  selectedFileIds?: Set<string>
+  onToggleFileSelection?: (fileId: string) => void
+  onToggleAllFiles?: (fileIds: string[], selected: boolean) => void
+  selectionEnabled?: boolean
 }
 
 export function FolderEntriesTable({
   entries,
   sort,
   onSortChange,
+  selectedFileIds,
+  onToggleFileSelection,
+  onToggleAllFiles,
+  selectionEnabled = false,
 }: FolderEntriesTableProps) {
   const sorted = React.useMemo(
     () => orderFolderTableEntries(entries, sort),
     [entries, sort]
   )
+  const fileIds = React.useMemo(
+    () => sorted.filter((entry) => entry.kind === "file").map((entry) => entry.id),
+    [sorted]
+  )
+  const allFilesSelected =
+    fileIds.length > 0 && fileIds.every((id) => selectedFileIds?.has(id))
+  const someFilesSelected =
+    fileIds.some((id) => selectedFileIds?.has(id)) && !allFilesSelected
 
   function toggle(key: SortKey) {
     if (sort.key !== key) {
@@ -69,7 +86,17 @@ export function FolderEntriesTable({
       <Table>
         <TableHeader>
           <TableRow className="bg-muted/30 hover:bg-muted/30">
-            <TableHead className="w-10 pl-3" />
+            <TableHead className="w-10 pl-3">
+              {selectionEnabled ? (
+                <Checkbox
+                  aria-label="Select all files"
+                  checked={allFilesSelected ? true : someFilesSelected ? "indeterminate" : false}
+                  onCheckedChange={(checked) =>
+                    onToggleAllFiles?.(fileIds, checked === true)
+                  }
+                />
+              ) : null}
+            </TableHead>
             <TableHead>
               <SortButton
                 label="Name"
@@ -111,7 +138,13 @@ export function FolderEntriesTable({
             entry.kind === "folder" ? (
               <FolderRow key={`folder-${entry.id}`} entry={entry} />
             ) : (
-              <FileRow key={`blob-${entry.id}`} entry={entry} />
+              <FileRow
+                key={`blob-${entry.id}`}
+                entry={entry}
+                selectionEnabled={selectionEnabled}
+                selected={selectedFileIds?.has(entry.id) ?? false}
+                onToggleSelection={onToggleFileSelection}
+              />
             )
           )}
         </TableBody>
@@ -343,9 +376,17 @@ function FolderRow({ entry }: FolderRowProps) {
 
 type FileRowProps = {
   entry: Extract<FileSystemEntry, { kind: "file" }>
+  selectionEnabled?: boolean
+  selected?: boolean
+  onToggleSelection?: (fileId: string) => void
 }
 
-function FileRow({ entry }: FileRowProps) {
+function FileRow({
+  entry,
+  selectionEnabled = false,
+  selected = false,
+  onToggleSelection,
+}: FileRowProps) {
   const navigate = useNavigate()
   const rename = useRenameFile()
   const canRename = can(entry.folder.effective_permissions, PERM.WRITE)
@@ -373,7 +414,7 @@ function FileRow({ entry }: FileRowProps) {
   )
 
   const setDragHandleRef = React.useCallback(
-    (el: HTMLTableCellElement | null) => {
+    (el: HTMLDivElement | null) => {
       draggable.setActivatorNodeRef(el)
     },
     [draggable]
@@ -439,16 +480,28 @@ function FileRow({ entry }: FileRowProps) {
         ref={setRowRef}
         className={cn(draggable.isDragging && "opacity-40")}
       >
-        <TableCell
-          ref={setDragHandleRef}
-          {...draggable.listeners}
-          {...draggable.attributes}
-          className={cn(
-            "cursor-grab active:cursor-grabbing pl-3",
-            draggable.isDragging && "cursor-grabbing"
-          )}
-        >
-          <RowIcon kind="file" />
+        <TableCell className="pl-3">
+          <div className="flex items-center gap-2">
+            {selectionEnabled ? (
+              <Checkbox
+                aria-label={`Select ${entry.name}`}
+                checked={selected}
+                onCheckedChange={() => onToggleSelection?.(entry.id)}
+                onClick={(event) => event.stopPropagation()}
+              />
+            ) : null}
+            <div
+              ref={setDragHandleRef}
+              {...draggable.listeners}
+              {...draggable.attributes}
+              className={cn(
+                "cursor-grab active:cursor-grabbing",
+                draggable.isDragging && "cursor-grabbing"
+              )}
+            >
+              <RowIcon kind="file" />
+            </div>
+          </div>
         </TableCell>
         <TableCell className="font-medium">
           {editing ? (

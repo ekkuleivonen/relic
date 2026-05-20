@@ -1,16 +1,30 @@
 import uuid
 
-from database import DbSession
+from api.dependencies import AdminUser, CurrentUser, UnitOfWorkDep
+from application.context import Actor
+from application.control_plane.bucket_mutations import (
+    create_bucket as create_bucket_use_case,
+    delete_bucket as delete_bucket_use_case,
+    update_bucket as update_bucket_use_case,
+)
+from application.control_plane.create_folder import create_folder as create_folder_use_case
+from application.control_plane.delete_folder import delete_folder as delete_folder_use_case
+from application.control_plane.duplicate_folder import (
+    duplicate_folder as duplicate_folder_use_case,
+)
+from application.control_plane.folders import FolderResult
+from application.control_plane.grant_folder_access import (
+    grant_folder_access as grant_folder_access_use_case,
+    revoke_folder_access as revoke_folder_access_use_case,
+)
+from application.control_plane.update_folder import update_folder as update_folder_use_case
 from enums import UserRole
 from fastapi import APIRouter, Request, Response, status
-from models import Folder, User
+from infra.db.engine import DbSession
+from infra.db.models import Folder, User
 from pydantic import BaseModel, ConfigDict, Field
-from services import filesystem as filesystem_service
-from services import folders as folders_service
-from services.folders import FolderResult
-from services.placement import effective_preferred_bucket_id
-
-from api.dependencies import CurrentUser
+from application.control_plane import filesystem
+from application.control_plane.placement import effective_preferred_bucket_id
 
 router = APIRouter()
 
@@ -154,7 +168,7 @@ async def get_folder_tree(
     Convenience for UI navigation; equivalent to walking list_folders.
     Query params: ?root_id=<uuid> to subtree from a specific folder.
     """
-    root = filesystem_service.get_folder_tree(db, current_user, root_id)
+    root = filesystem.get_folder_tree(db, current_user, root_id)
     include_storage = current_user.role == UserRole.ADMIN
     return _folder_to_tree_read(db, root, include_storage_policy=include_storage)
 
@@ -171,7 +185,7 @@ async def get_folder_stats(
     logical size in bytes (sum of blob sizes per file row, no dedupe).
     Caller needs READ on the folder.
     """
-    stats = filesystem_service.get_folder_stats(
+    stats = filesystem.get_folder_stats(
         db, current_user, folder_id=folder_id
     )
     return FolderStatsRead(
@@ -187,6 +201,7 @@ async def get_folder_stats(
 async def create_folder(
     payload: FolderCreate,
     request: Request,
+    uow: UnitOfWorkDep,
     db: DbSession,
     current_user: CurrentUser,
 ) -> FolderRead:
@@ -196,9 +211,9 @@ async def create_folder(
     New folders inherit the ancestor preferred_bucket_id.
     Caller needs WRITE on the parent.
     """
-    result = folders_service.create_folder(
-        db,
-        current_user,
+    result = create_folder_use_case(
+        uow,
+        actor=Actor.from_user(current_user),
         parent_id=payload.parent_id,
         name=payload.name,
     )
@@ -210,6 +225,7 @@ async def update_folder(
     folder_id: uuid.UUID,
     payload: FolderUpdate,
     request: Request,
+    uow: UnitOfWorkDep,
     db: DbSession,
     current_user: CurrentUser,
 ) -> FolderRead:
@@ -218,9 +234,9 @@ async def update_folder(
     Body: { name?, parent_id?, preferred_bucket_id? }
     Set preferred_bucket_id to null to inherit from a parent.
     """
-    result = folders_service.update_folder(
-        db,
-        current_user,
+    result = update_folder_use_case(
+        uow,
+        actor=Actor.from_user(current_user),
         folder_id=folder_id,
         name=payload.name,
         parent_id=payload.parent_id,
@@ -234,7 +250,7 @@ async def update_folder(
 async def delete_folder(
     folder_id: uuid.UUID,
     request: Request,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: CurrentUser,
     recursive: bool = False,
 ) -> Response:
@@ -245,9 +261,9 @@ async def delete_folder(
     refcount-zero blobs are purged asynchronously by the storage maintenance worker (arq cron).
     Cannot delete root.
     """
-    folders_service.delete_folder(
-        db,
-        current_user,
+    delete_folder_use_case(
+        uow,
+        actor=Actor.from_user(current_user),
         folder_id=folder_id,
         recursive=recursive,
     )
@@ -259,6 +275,7 @@ async def copy_folder(
     folder_id: uuid.UUID,
     payload: FolderDuplicate,
     request: Request,
+    uow: UnitOfWorkDep,
     db: DbSession,
     current_user: CurrentUser,
 ) -> FolderRead:
@@ -269,9 +286,9 @@ async def copy_folder(
     No bytes moved; refcounts on referenced blobs are incremented.
     Caller needs READ on source and WRITE on destination.
     """
-    result = folders_service.duplicate_folder(
-        db,
-        current_user,
+    result = duplicate_folder_use_case(
+        uow,
+        actor=Actor.from_user(current_user),
         folder_id=folder_id,
         destination_parent_id=payload.destination_parent_id,
         name=payload.name,

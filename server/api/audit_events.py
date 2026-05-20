@@ -5,10 +5,14 @@ from fastapi import APIRouter, Query, Response, status
 from pydantic import BaseModel, ConfigDict
 
 from api.users import UserRead
+from api.dependencies import AdminUser, UnitOfWorkDep
+from application.control_plane.audit_mutations import (
+    clear_audit_events as clear_audit_events_use_case,
+)
 from constants import AUDIT_EVENT_DEFAULT_LIMIT, AUDIT_EVENT_MAX_LIMIT
-from database import DbSession
-from models import AuditEvent
-from services import audit_events as audit_event_service
+from infra.db.engine import DbSession
+from infra.db.models import AuditEvent
+from application.control_plane import audit_events
 
 router = APIRouter()
 
@@ -80,7 +84,7 @@ async def list_audit_events(
     ),
     offset: int = Query(default=0, ge=0),
 ) -> AuditEventListResponse:
-    page = audit_event_service.list_audit_events(
+    page = audit_events.list_audit_events(
         db,
         operation=operation,
         status=status,
@@ -104,6 +108,6 @@ async def list_audit_events(
 
 
 @router.delete("/")
-async def clear_audit_events(db: DbSession) -> Response:
-    audit_event_service.clear_audit_events(db)
+async def clear_audit_events(uow: UnitOfWorkDep, current_user: AdminUser) -> Response:
+    clear_audit_events_use_case(uow)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

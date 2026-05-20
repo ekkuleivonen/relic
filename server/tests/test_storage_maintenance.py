@@ -2,9 +2,9 @@ import datetime as dt
 import io
 
 import pytest
-from models import AuditEvent, Base, Blob, BucketProbe
-from services.placement import clear_bucket_usage_cache, get_bucket_usage
-from services.storage_maintenance import (
+from infra.db.models import AuditEvent, Base, Blob, BucketProbe
+from application.control_plane.placement import clear_bucket_usage_cache, get_bucket_usage
+from application.maintenance.storage import (
     demote_pressured_buckets_batch,
     probe_all_buckets,
     promote_recently_accessed_batch,
@@ -39,6 +39,10 @@ class FakeBucketStore:
         store = self
 
         class _Client:
+            def head_object(self, Bucket, Key):
+                data = store.objects[(Bucket, Key)]
+                return {"ContentLength": len(data)}
+
             def get_object(self, Bucket, Key, Range=None):
                 data = store.objects[(Bucket, Key)]
                 return {"Body": FakeStreamingBody(data), "ContentLength": len(data)}
@@ -59,25 +63,10 @@ class FakeBucketStore:
 def fake_storage(monkeypatch):
     store = FakeBucketStore()
     monkeypatch.setattr(
-        "services.objects.boto3.client",
+        "infra.object_storage.registry.boto3.client",
         lambda **kwargs: store.make_client(),
     )
     return store
-
-
-@pytest.fixture()
-def db_session():
-    clear_bucket_usage_cache()
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with SessionLocal() as session:
-        yield session
-    clear_bucket_usage_cache()
 
 
 def add_probe(db_session, bucket, *, latency: int = 10, success: bool = True) -> None:
@@ -99,7 +88,7 @@ def add_probe(db_session, bucket, *, latency: int = 10, success: bool = True) ->
 
 
 def test_purge_deletes_dereferenced_blob_and_adjusts_counters(
-    db_session, fake_storage
+    db_session, fake_storage, run_uow
 ):
     bucket_row = BucketFactory.build()
     db_session.add(bucket_row)
@@ -117,7 +106,7 @@ def test_purge_deletes_dereferenced_blob_and_adjusts_counters(
 
     fake_storage.objects[(bucket_row.bucket, blob_row.bucket_key)] = b"payload"
 
-    out = purge_dereferenced_blobs_batch(db_session, batch=50)
+    out = run_uow(lambda uow: purge_dereferenced_blobs_batch(uow, batch=50))
     assert out["deleted_rows"] == 1
     assert out["freed_bytes"] == 100
     assert out["errors"] == 0
@@ -136,7 +125,7 @@ def test_purge_deletes_dereferenced_blob_and_adjusts_counters(
     assert events[0].meta["freed_bytes"] == 100
 
 
-def test_purge_skips_positive_refcount(db_session, fake_storage):
+def test_purge_skips_positive_refcount(db_session, fake_storage, run_uow):
     bucket_row = BucketFactory.build()
     db_session.add(bucket_row)
     db_session.flush()
@@ -153,7 +142,7 @@ def test_purge_skips_positive_refcount(db_session, fake_storage):
 
     fake_storage.objects[(bucket_row.bucket, blob_row.bucket_key)] = b"x"
 
-    out = purge_dereferenced_blobs_batch(db_session, batch=50)
+    out = run_uow(lambda uow: purge_dereferenced_blobs_batch(uow, batch=50))
     assert out["deleted_rows"] == 0
     assert out["scanned"] == 0
     assert db_session.get(Blob, blob_row.id) is not None
@@ -169,7 +158,7 @@ def test_purge_skips_positive_refcount(db_session, fake_storage):
 
 
 def test_successful_scheduled_probe_records_probe_without_maintenance_event(
-    db_session, monkeypatch
+    db_session, monkeypatch, run_uow
 ):
     class FakeS3Client:
         def put_object(self, Bucket, Key, Body):
@@ -189,14 +178,14 @@ def test_successful_scheduled_probe_records_probe_without_maintenance_event(
             return None
 
     monkeypatch.setattr(
-        "services.buckets.boto3.client",
+        "application.control_plane.bucket_mutations.boto3.client",
         lambda *args, **kwargs: FakeS3Client(),
     )
     bucket_row = BucketFactory.build()
     db_session.add(bucket_row)
     db_session.commit()
 
-    result = probe_all_buckets(db_session)
+    result = run_uow(lambda uow: probe_all_buckets(uow))
 
     assert result == {"bucket_count": 1, "ok": 1, "failed": 0}
     assert db_session.scalars(select(AuditEvent)).all() == []
@@ -207,7 +196,7 @@ def test_successful_scheduled_probe_records_probe_without_maintenance_event(
     assert sample.success is True
 
 
-def test_trim_old_bucket_probes_drops_only_records_past_retention(db_session):
+def test_trim_old_bucket_probes_drops_only_records_past_retention(db_session, run_uow):
     bucket = BucketFactory.build()
     db_session.add(bucket)
     db_session.flush()
@@ -220,7 +209,7 @@ def test_trim_old_bucket_probes_drops_only_records_past_retention(db_session):
     db_session.add_all([fresh, stale])
     db_session.commit()
 
-    out = trim_old_bucket_probes_batch(db_session, retention_days=7)
+    out = run_uow(lambda uow: trim_old_bucket_probes_batch(uow, retention_days=7))
 
     assert out["deleted_rows"] == 1
     remaining = db_session.scalars(
@@ -234,7 +223,7 @@ def test_trim_old_bucket_probes_drops_only_records_past_retention(db_session):
     assert events[0].meta == {"retention_days": 7, "deleted_rows": 1}
 
 
-def test_trim_old_bucket_probes_skips_event_when_nothing_deleted(db_session):
+def test_trim_old_bucket_probes_skips_event_when_nothing_deleted(db_session, run_uow):
     bucket = BucketFactory.build()
     db_session.add(bucket)
     db_session.flush()
@@ -243,7 +232,7 @@ def test_trim_old_bucket_probes_skips_event_when_nothing_deleted(db_session):
     db_session.add(fresh)
     db_session.commit()
 
-    out = trim_old_bucket_probes_batch(db_session, retention_days=7)
+    out = run_uow(lambda uow: trim_old_bucket_probes_batch(uow, retention_days=7))
 
     assert out["deleted_rows"] == 0
     assert db_session.scalars(select(BucketProbe)).all() == [fresh]
@@ -255,7 +244,7 @@ def test_trim_old_bucket_probes_skips_event_when_nothing_deleted(db_session):
 # ---------------------------------------------------------------------------
 
 
-def test_demote_moves_oldest_blob_when_bucket_is_pressured(db_session, fake_storage):
+def test_demote_moves_oldest_blob_when_bucket_is_pressured(db_session, fake_storage, run_uow):
     hot = BucketFactory.build(name="hot", bucket="hot-blobs", max_size_bytes=100)
     cold = BucketFactory.build(name="cold", bucket="cold-blobs", max_size_bytes=1_000)
     db_session.add_all([hot, cold])
@@ -277,12 +266,14 @@ def test_demote_moves_oldest_blob_when_bucket_is_pressured(db_session, fake_stor
 
     fake_storage.objects[(hot.bucket, cold_blob.bucket_key)] = b"x" * 80
 
-    out = demote_pressured_buckets_batch(
-        db_session,
-        demote_limit=5,
-        pressure_ratio=0.5,
-        headroom_ratio=0.9,
-        min_residency_hours=0,
+    out = run_uow(
+        lambda uow: demote_pressured_buckets_batch(
+            uow,
+            demote_limit=5,
+            pressure_ratio=0.5,
+            headroom_ratio=0.9,
+            min_residency_hours=0,
+        )
     )
 
     assert out["moved"] == 1
@@ -297,7 +288,7 @@ def test_demote_moves_oldest_blob_when_bucket_is_pressured(db_session, fake_stor
     assert (hot.bucket, cold_blob.bucket_key) not in fake_storage.objects
 
 
-def test_demote_does_nothing_when_no_bucket_is_pressured(db_session, fake_storage):
+def test_demote_does_nothing_when_no_bucket_is_pressured(db_session, fake_storage, run_uow):
     hot = BucketFactory.build(name="hot", bucket="hot-blobs", max_size_bytes=1_000)
     cold = BucketFactory.build(name="cold", bucket="cold-blobs", max_size_bytes=1_000)
     db_session.add_all([hot, cold])
@@ -311,12 +302,14 @@ def test_demote_does_nothing_when_no_bucket_is_pressured(db_session, fake_storag
     db_session.add(blob)
     db_session.commit()
 
-    out = demote_pressured_buckets_batch(
-        db_session,
-        demote_limit=5,
-        pressure_ratio=0.85,
-        headroom_ratio=0.9,
-        min_residency_hours=0,
+    out = run_uow(
+        lambda uow: demote_pressured_buckets_batch(
+            uow,
+            demote_limit=5,
+            pressure_ratio=0.85,
+            headroom_ratio=0.9,
+            min_residency_hours=0,
+        )
     )
 
     assert out == {"scanned": 0, "moved": 0, "skipped": 0, "failed": 0}
@@ -324,7 +317,7 @@ def test_demote_does_nothing_when_no_bucket_is_pressured(db_session, fake_storag
     assert blob.bucket_id == hot.id
 
 
-def test_demote_respects_min_residency(db_session, fake_storage):
+def test_demote_respects_min_residency(db_session, fake_storage, run_uow):
     hot = BucketFactory.build(name="hot", bucket="hot-blobs", max_size_bytes=100)
     cold = BucketFactory.build(name="cold", bucket="cold-blobs", max_size_bytes=1_000)
     db_session.add_all([hot, cold])
@@ -345,12 +338,14 @@ def test_demote_respects_min_residency(db_session, fake_storage):
     db_session.commit()
     fake_storage.objects[(hot.bucket, blob.bucket_key)] = b"x" * 80
 
-    out = demote_pressured_buckets_batch(
-        db_session,
-        demote_limit=5,
-        pressure_ratio=0.5,
-        headroom_ratio=0.9,
-        min_residency_hours=12,
+    out = run_uow(
+        lambda uow: demote_pressured_buckets_batch(
+            uow,
+            demote_limit=5,
+            pressure_ratio=0.5,
+            headroom_ratio=0.9,
+            min_residency_hours=12,
+        )
     )
 
     assert out["moved"] == 0
@@ -363,7 +358,7 @@ def test_demote_respects_min_residency(db_session, fake_storage):
 # ---------------------------------------------------------------------------
 
 
-def test_promote_moves_recent_blob_to_hotter_bucket(db_session, fake_storage):
+def test_promote_moves_recent_blob_to_hotter_bucket(db_session, fake_storage, run_uow):
     hot = BucketFactory.build(name="hot", bucket="hot-blobs", max_size_bytes=1_000)
     cold = BucketFactory.build(name="cold", bucket="cold-blobs", max_size_bytes=1_000)
     db_session.add_all([hot, cold])
@@ -383,12 +378,14 @@ def test_promote_moves_recent_blob_to_hotter_bucket(db_session, fake_storage):
     db_session.commit()
     fake_storage.objects[(cold.bucket, blob.bucket_key)] = b"y" * 10
 
-    out = promote_recently_accessed_batch(
-        db_session,
-        promote_limit=5,
-        headroom_ratio=0.9,
-        recency_days=7,
-        min_residency_hours=0,
+    out = run_uow(
+        lambda uow: promote_recently_accessed_batch(
+            uow,
+            promote_limit=5,
+            headroom_ratio=0.9,
+            recency_days=7,
+            min_residency_hours=0,
+        )
     )
 
     assert out["moved"] == 1
@@ -405,7 +402,7 @@ def test_promote_moves_recent_blob_to_hotter_bucket(db_session, fake_storage):
     assert any(e.operation == "blob.promoted" for e in events)
 
 
-def test_promote_skips_blob_outside_recency_window(db_session, fake_storage):
+def test_promote_skips_blob_outside_recency_window(db_session, fake_storage, run_uow):
     hot = BucketFactory.build(name="hot", bucket="hot-blobs", max_size_bytes=1_000)
     cold = BucketFactory.build(name="cold", bucket="cold-blobs", max_size_bytes=1_000)
     db_session.add_all([hot, cold])
@@ -424,12 +421,14 @@ def test_promote_skips_blob_outside_recency_window(db_session, fake_storage):
     db_session.add(blob)
     db_session.commit()
 
-    out = promote_recently_accessed_batch(
-        db_session,
-        promote_limit=5,
-        headroom_ratio=0.9,
-        recency_days=7,
-        min_residency_hours=0,
+    out = run_uow(
+        lambda uow: promote_recently_accessed_batch(
+            uow,
+            promote_limit=5,
+            headroom_ratio=0.9,
+            recency_days=7,
+            min_residency_hours=0,
+        )
     )
 
     assert out["moved"] == 0
@@ -437,7 +436,7 @@ def test_promote_skips_blob_outside_recency_window(db_session, fake_storage):
     assert blob.bucket_id == cold.id
 
 
-def test_promote_skips_when_hotter_bucket_lacks_headroom(db_session, fake_storage):
+def test_promote_skips_when_hotter_bucket_lacks_headroom(db_session, fake_storage, run_uow):
     hot = BucketFactory.build(name="hot", bucket="hot-blobs", max_size_bytes=10)
     cold = BucketFactory.build(name="cold", bucket="cold-blobs", max_size_bytes=1_000)
     db_session.add_all([hot, cold])
@@ -461,12 +460,14 @@ def test_promote_skips_when_hotter_bucket_lacks_headroom(db_session, fake_storag
     db_session.add(blob)
     db_session.commit()
 
-    out = promote_recently_accessed_batch(
-        db_session,
-        promote_limit=5,
-        headroom_ratio=0.9,
-        recency_days=7,
-        min_residency_hours=0,
+    out = run_uow(
+        lambda uow: promote_recently_accessed_batch(
+            uow,
+            promote_limit=5,
+            headroom_ratio=0.9,
+            recency_days=7,
+            min_residency_hours=0,
+        )
     )
 
     assert out["moved"] == 0

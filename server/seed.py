@@ -3,9 +3,9 @@ from pathlib import Path
 import settings as S
 from alembic import command
 from alembic.config import Config
-from database import get_sessionmaker
+from infra.db.engine import get_sessionmaker
 from enums import UserRole
-from models import Folder, User
+from infra.db.models import Folder, User
 from sqlalchemy import select
 from utils.logging import get_logger
 from utils.passwords import hash_password

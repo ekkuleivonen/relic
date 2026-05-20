@@ -1,34 +1,22 @@
 import pytest
 from api.app import app
-from database import get_db
+from infra.db.engine import get_db
 from enums import Permission, UserRole
 from fastapi.testclient import TestClient
-from models import (
+from infra.db.models import (
     Base,
     File,
     Folder,
     FolderAccess,
     User,
 )
-from services.auth import create_session_token
+from application.control_plane.auth import create_session_token
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from tests.factories.models import BlobFactory, BucketFactory, UserFactory
 from utils.passwords import hash_password
 
-
-@pytest.fixture()
-def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with SessionLocal() as session:
-        yield session
 
 
 @pytest.fixture()

@@ -4,12 +4,16 @@ import uuid
 from fastapi import APIRouter, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.dependencies import AdminUser
+from api.dependencies import AdminUser, UnitOfWorkDep
 from api.users import UserRead
-from database import DbSession
-from services import folder_access as folder_access_service
-from services.event_context import context_from_headers
-from services.folder_access import FolderAccessRow
+from application.context import context_from_headers
+from application.control_plane.grant_folder_access import (
+    grant_folder_access as grant_folder_access_use_case,
+    revoke_folder_access as revoke_folder_access_use_case,
+)
+from application.control_plane.folder_access import FolderAccessRow
+from infra.db.engine import DbSession
+from application.control_plane import folder_access
 
 router = APIRouter()
 
@@ -59,7 +63,7 @@ async def list_folder_access(db: DbSession) -> list[FolderAccessRead]:
     GET /folder-access -> all grants across the filesystem.
     Returns a flat list with embedded user info and resolved folder paths.
     """
-    rows = folder_access_service.list_folder_access(db)
+    rows = folder_access.list_folder_access(db)
     return [FolderAccessRead.from_row(row) for row in rows]
 
 
@@ -67,7 +71,7 @@ async def list_folder_access(db: DbSession) -> list[FolderAccessRead]:
 async def create_folder_access(
     payload: FolderAccessGrant,
     request: Request,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: AdminUser,
 ) -> FolderAccessRead:
     """
@@ -75,8 +79,8 @@ async def create_folder_access(
     Body: { actor_id, folder_id, permissions }
     Idempotent: an existing row for the same (actor, folder) is updated.
     """
-    row = folder_access_service.grant_folder_access(
-        db,
+    row = grant_folder_access_use_case(
+        uow,
         actor_id=payload.actor_id,
         folder_id=payload.folder_id,
         permissions=payload.permissions,
@@ -92,16 +96,16 @@ async def create_folder_access(
 async def delete_folder_access(
     access_id: uuid.UUID,
     request: Request,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: AdminUser,
 ) -> Response:
     """
     DELETE /folder-access/{access_id} -> revoke an explicit grant.
     Inherited permissions from ancestor folders remain in effect.
     """
-    folder_access_service.revoke_folder_access(
-        db,
-        access_id,
+    revoke_folder_access_use_case(
+        uow,
+        access_id=access_id,
         event_context=context_from_headers(
             request.headers,
             actor_id=current_user.id,

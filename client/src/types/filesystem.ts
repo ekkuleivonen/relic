@@ -51,6 +51,27 @@ export type PaginatedFilesResponse = {
   offset: number
 }
 
+export type BulkFileMutationError = {
+  file_id: string
+  code: string
+  message: string
+}
+
+export type BulkDeleteFilesResponse = {
+  deleted_ids: string[]
+  errors: BulkFileMutationError[]
+}
+
+export type BulkMoveFilesResponse = {
+  moved_ids: string[]
+  errors: BulkFileMutationError[]
+}
+
+export type BulkPatchFileMetaResponse = {
+  patched_ids: string[]
+  errors: BulkFileMutationError[]
+}
+
 export type FileSystemEntry =
   | {
       kind: "folder"

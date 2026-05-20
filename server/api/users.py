@@ -1,14 +1,18 @@
 import datetime as dt
 import uuid
 
-from database import DbSession
+from api.dependencies import AdminUser, UnitOfWorkDep
+from application.context import context_from_headers
+from application.control_plane import users
+from application.control_plane.user_mutations import (
+    create_user as create_user_use_case,
+    delete_user as delete_user_use_case,
+    update_user as update_user_use_case,
+)
 from enums import UserRole
 from fastapi import APIRouter, Request, Response, status
+from infra.db.engine import DbSession
 from pydantic import BaseModel, ConfigDict, Field
-from services import users as user_service
-from services.event_context import context_from_headers
-
-from api.dependencies import AdminUser
 
 router = APIRouter()
 
@@ -59,20 +63,23 @@ async def list_users(request: Request, db: DbSession) -> list[UserRead]:
     GET /users -> list all users. Admin-only.
     Query params: ?limit=50&cursor=<id>&role=<int>
     """
-    return user_service.list_users(db)
+    return users.list_users(db)
 
 
 @router.post("/")
 async def create_user(
-    request: Request, payload: UserCreate, db: DbSession, current_user: AdminUser
+    request: Request,
+    payload: UserCreate,
+    uow: UnitOfWorkDep,
+    current_user: AdminUser,
 ) -> UserRead:
     """
     POST /users -> create a new user. Admin-only.
     Body: { name, email, password, role }
     Returns the created User without password_hash.
     """
-    return user_service.create_user(
-        db,
+    return create_user_use_case(
+        uow,
         payload.model_dump(),
         event_context=context_from_headers(
             request.headers,
@@ -87,7 +94,7 @@ async def get_user(user_id: uuid.UUID, request: Request, db: DbSession) -> UserR
     GET /users/{id} -> fetch a single user.
     Self or admin only.
     """
-    return user_service.get_user(db, user_id)
+    return users.get_user(db, user_id)
 
 
 @router.patch("/{user_id}")
@@ -95,7 +102,7 @@ async def update_user(
     user_id: uuid.UUID,
     request: Request,
     payload: UserUpdate,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: AdminUser,
 ) -> UserRead:
     """
@@ -103,8 +110,8 @@ async def update_user(
     Body: { name?, email?, role?, password? }
     Self can update name/email/password; only admin can change role.
     """
-    return user_service.update_user(
-        db,
+    return update_user_use_case(
+        uow,
         user_id,
         payload.model_dump(exclude_unset=True),
         event_context=context_from_headers(
@@ -116,15 +123,18 @@ async def update_user(
 
 @router.delete("/{user_id}")
 async def delete_user(
-    user_id: uuid.UUID, request: Request, db: DbSession, current_user: AdminUser
+    user_id: uuid.UUID,
+    request: Request,
+    uow: UnitOfWorkDep,
+    current_user: AdminUser,
 ) -> Response:
     """
     DELETE /users/{id} -> hard delete. Admin-only.
     Cascades: revoke all access keys, drop folder access rows.
     Users with uploaded files cannot be deleted.
     """
-    user_service.delete_user(
-        db,
+    delete_user_use_case(
+        uow,
         user_id,
         event_context=context_from_headers(
             request.headers,

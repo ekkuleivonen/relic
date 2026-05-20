@@ -1,8 +1,9 @@
 import settings as S
-from database import get_database_url
+from infra.db.engine import get_database_url
 
 
 def test_get_database_url_uses_split_postgres_settings(monkeypatch):
+    monkeypatch.setattr(S, "DATABASE_URL", None)
     monkeypatch.setattr(S, "POSTGRES_HOST", "db.internal")
     monkeypatch.setattr(S, "POSTGRES_PORT", 6543)
     monkeypatch.setattr(S, "POSTGRES_DB", "relic_test")

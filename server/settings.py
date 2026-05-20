@@ -27,7 +27,7 @@ configure_logging(
 )
 
 # =============================================================================
-# Postgres
+# Database
 # =============================================================================
 
 POSTGRES_HOST: str = env.str("POSTGRES_HOST", default="localhost")
@@ -35,6 +35,14 @@ POSTGRES_PORT: int = env.int("POSTGRES_PORT", default=5432)
 POSTGRES_DB: str = env.str("POSTGRES_DB", default="relic")
 POSTGRES_USER: str = env.str("POSTGRES_USER", default="relic")
 POSTGRES_PASSWORD: str = env.str("POSTGRES_PASSWORD", default="relic")
+
+# Optional override; when set, used instead of POSTGRES_* fields above.
+DATABASE_URL: str | None = env.str("DATABASE_URL", default=None)
+
+# Local filesystem object storage root for embedded / hot-NVMe mode.
+STORAGE_FILESYSTEM_BASE_PATH: str | None = env.str(
+    "STORAGE_FILESYSTEM_BASE_PATH", default=None
+)
 
 # =============================================================================
 # Encryption
@@ -97,8 +105,8 @@ S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS: int = env.int(
     "S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS",
     default=24,
 )
-S3_HOTPATH_METADATA_CACHE_TTL_SECONDS: int = env.int(
-    "S3_HOTPATH_METADATA_CACHE_TTL_SECONDS",
+FOLDER_METADATA_CACHE_TTL_SECONDS: int = env.int(
+    "FOLDER_METADATA_CACHE_TTL_SECONDS",
     default=120,
 )
 S3_LIST_OBJECTS_CACHE_TTL_SECONDS: int = env.int(

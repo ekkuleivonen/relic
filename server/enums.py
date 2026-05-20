@@ -27,3 +27,8 @@ class EventStatus(enum.StrEnum):
 class HealthStatus(enum.StrEnum):
     OK = "ok"
     FAILED = "failed"
+
+
+class StorageKind(enum.StrEnum):
+    S3 = "s3"
+    FILESYSTEM = "filesystem"

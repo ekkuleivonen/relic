@@ -22,7 +22,7 @@ Always use `from utils.logging import get_logger` + `log = get_logger(__name__)`
 Never use stdlib `logging.getLogger` or `print()` for operational output.
 
 **Errors — domain exceptions, not HTTPException**
-Business rule violations must raise `BadRequestError`, `ResourceNotFound`, or `ConflictError` (from `managers/exceptions.py`). These are mapped to HTTP status codes by `api/exception_handlers.py`.
+Business rule violations must raise `BadRequestError`, `ResourceNotFound`, or `ConflictError` (from `domain/exceptions.py`). These are mapped to HTTP status codes by `api/exception_handlers.py`.
 Only use `HTTPException` for HTTP-specific concerns (auth, content type).
 
 **Redis — use `RedisClient` from `_utils/redis`**

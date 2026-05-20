@@ -4,11 +4,11 @@ import uuid
 
 from arq.cron import cron
 
-from database import get_sessionmaker
-from services import audit_events as audit_event_service
-from services import s3_multipart
-from services import storage_maintenance
+from application.maintenance import retention as retention_maintenance
+from application.maintenance import storage as storage_maintenance
+from application.uow_runner import run_with_uow
 from infra.arq import arq_redis_settings
+from infra.db.engine import get_sessionmaker
 from utils.logging import get_logger
 
 import settings as S
@@ -23,10 +23,13 @@ async def purge_dereferenced_blobs_worker(ctx) -> None:
         batch_id = uuid.uuid4()
         sm = get_sessionmaker()
         with sm() as db:
-            storage_maintenance.purge_dereferenced_blobs_batch(
+            run_with_uow(
                 db,
-                batch=S.STORAGE_MAINTENANCE_PURGE_BATCH,
-                batch_id=batch_id,
+                lambda uow: storage_maintenance.purge_dereferenced_blobs_batch(
+                    uow,
+                    batch=S.STORAGE_MAINTENANCE_PURGE_BATCH,
+                    batch_id=batch_id,
+                ),
             )
 
     await asyncio.to_thread(run)
@@ -39,7 +42,12 @@ async def refresh_all_bucket_probes_worker(ctx) -> None:
         batch_id = uuid.uuid4()
         sm = get_sessionmaker()
         with sm() as db:
-            storage_maintenance.probe_all_buckets(db, batch_id=batch_id)
+            run_with_uow(
+                db,
+                lambda uow: storage_maintenance.probe_all_buckets(
+                    uow, batch_id=batch_id
+                ),
+            )
 
     await asyncio.to_thread(run)
 
@@ -51,10 +59,13 @@ async def trim_old_bucket_probes_worker(ctx) -> None:
         batch_id = uuid.uuid4()
         sm = get_sessionmaker()
         with sm() as db:
-            storage_maintenance.trim_old_bucket_probes_batch(
+            run_with_uow(
                 db,
-                retention_days=S.PROBES_RETENTION_DAYS,
-                batch_id=batch_id,
+                lambda uow: storage_maintenance.trim_old_bucket_probes_batch(
+                    uow,
+                    retention_days=S.PROBES_RETENTION_DAYS,
+                    batch_id=batch_id,
+                ),
             )
 
     await asyncio.to_thread(run)
@@ -67,13 +78,16 @@ async def demote_pressured_buckets_worker(ctx) -> None:
         batch_id = uuid.uuid4()
         sm = get_sessionmaker()
         with sm() as db:
-            storage_maintenance.demote_pressured_buckets_batch(
+            run_with_uow(
                 db,
-                demote_limit=S.STORAGE_DEMOTE_BATCH,
-                pressure_ratio=S.STORAGE_DEMOTION_PRESSURE_RATIO,
-                headroom_ratio=S.STORAGE_PROMOTION_HEADROOM_RATIO,
-                min_residency_hours=S.STORAGE_MIGRATION_MIN_RESIDENCY_HOURS,
-                batch_id=batch_id,
+                lambda uow: storage_maintenance.demote_pressured_buckets_batch(
+                    uow,
+                    demote_limit=S.STORAGE_DEMOTE_BATCH,
+                    pressure_ratio=S.STORAGE_DEMOTION_PRESSURE_RATIO,
+                    headroom_ratio=S.STORAGE_PROMOTION_HEADROOM_RATIO,
+                    min_residency_hours=S.STORAGE_MIGRATION_MIN_RESIDENCY_HOURS,
+                    batch_id=batch_id,
+                ),
             )
 
     await asyncio.to_thread(run)
@@ -86,13 +100,16 @@ async def promote_recently_accessed_worker(ctx) -> None:
         batch_id = uuid.uuid4()
         sm = get_sessionmaker()
         with sm() as db:
-            storage_maintenance.promote_recently_accessed_batch(
+            run_with_uow(
                 db,
-                promote_limit=S.STORAGE_PROMOTE_BATCH,
-                headroom_ratio=S.STORAGE_PROMOTION_HEADROOM_RATIO,
-                recency_days=S.STORAGE_PROMOTION_RECENCY_DAYS,
-                min_residency_hours=S.STORAGE_MIGRATION_MIN_RESIDENCY_HOURS,
-                batch_id=batch_id,
+                lambda uow: storage_maintenance.promote_recently_accessed_batch(
+                    uow,
+                    promote_limit=S.STORAGE_PROMOTE_BATCH,
+                    headroom_ratio=S.STORAGE_PROMOTION_HEADROOM_RATIO,
+                    recency_days=S.STORAGE_PROMOTION_RECENCY_DAYS,
+                    min_residency_hours=S.STORAGE_MIGRATION_MIN_RESIDENCY_HOURS,
+                    batch_id=batch_id,
+                ),
             )
 
     await asyncio.to_thread(run)
@@ -105,23 +122,14 @@ async def trim_old_audit_events_worker(ctx) -> None:
         batch_id = uuid.uuid4()
         sm = get_sessionmaker()
         with sm() as db:
-            deleted_rows = audit_event_service.trim_audit_events_older_than(
+            deleted_rows = run_with_uow(
                 db,
-                retention_days=S.EVENT_RETENTION_DAYS,
-            )
-            if deleted_rows > 0:
-                audit_event_service.create_audit_event(
-                    db,
-                    job="trim_audit_events",
-                    operation="audit_event.trimmed",
-                    status="succeeded",
+                lambda uow: retention_maintenance.trim_old_audit_events(
+                    uow,
+                    retention_days=S.EVENT_RETENTION_DAYS,
                     batch_id=batch_id,
-                    metadata={
-                        "retention_days": S.EVENT_RETENTION_DAYS,
-                        "deleted_rows": deleted_rows,
-                    },
-                )
-            db.commit()
+                ),
+            )
         log.info(
             "audit_event_retention_trimmed",
             retention_days=S.EVENT_RETENTION_DAYS,
@@ -141,20 +149,15 @@ async def abort_incomplete_multipart_uploads_worker(ctx) -> None:
         )
         sm = get_sessionmaker()
         with sm() as db:
-            deleted_rows = s3_multipart.abort_incomplete_uploads_older_than(db, cutoff)
-            if deleted_rows > 0:
-                audit_event_service.create_audit_event(
-                    db,
-                    job="abort_incomplete_multipart_uploads",
-                    operation="multipart_upload.aborted",
-                    status="succeeded",
+            deleted_rows = run_with_uow(
+                db,
+                lambda uow: retention_maintenance.abort_incomplete_multipart_uploads(
+                    uow,
+                    cutoff=cutoff,
                     batch_id=batch_id,
-                    metadata={
-                        "abort_after_hours": S.S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS,
-                        "deleted_rows": deleted_rows,
-                    },
-                )
-            db.commit()
+                    abort_after_hours=S.S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS,
+                ),
+            )
         log.info(
             "multipart_upload_retention_aborted",
             abort_after_hours=S.S3_MULTIPART_ABORT_INCOMPLETE_AFTER_HOURS,

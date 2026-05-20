@@ -7,6 +7,7 @@ import type {
   BucketCreateInput,
   BucketProbeResult,
   BucketUpdateInput,
+  DrainBucketResponse,
 } from "@/types/buckets"
 
 export const bucketQueryKey = ["buckets"] as const
@@ -90,6 +91,26 @@ export function useProbeBucket() {
         result.reachable
           ? `${result.name} probe completed`
           : `${result.name} could not be reached`
+      )
+      void queryClient.invalidateQueries({ queryKey: bucketQueryKey })
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+}
+
+export function useDrainBucket() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (bucketId: string) =>
+      apiRequest<DrainBucketResponse>(`/buckets/${bucketId}/drain`, {
+        method: "POST",
+      }),
+    onSuccess: (result) => {
+      toast.success(
+        `Drain complete: ${result.moved} moved, ${result.skipped} skipped, ${result.failed} failed`
       )
       void queryClient.invalidateQueries({ queryKey: bucketQueryKey })
     },

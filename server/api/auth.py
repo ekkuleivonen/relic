@@ -2,15 +2,16 @@ import datetime as dt
 import uuid
 from typing import Annotated
 
+from api.dependencies import UnitOfWorkDep
+from application.control_plane.auth_mutations import login as login_use_case
+from application.control_plane.auth_mutations import logout as logout_use_case
+from application.context import EventContext, request_id_from_headers
 import settings as S
-from database import DbSession
 from enums import UserRole
 from fastapi import APIRouter, Cookie, Request, Response, status
 from domain.exceptions import BadRequestError
 from pydantic import BaseModel, ConfigDict, Field
-from services import audit_events as audit_event_service
-from services import auth as auth_service
-from services.event_context import request_id_from_headers
+from application.control_plane import auth
 
 from api.dependencies import CurrentUser
 
@@ -43,38 +44,29 @@ class SessionRead(BaseModel):
 
 @router.post("/login")
 async def login(
-    payload: LoginRequest, response: Response, db: DbSession, request: Request
+    payload: LoginRequest,
+    response: Response,
+    uow: UnitOfWorkDep,
+    request: Request,
 ) -> SessionRead:
     request_id = request_id_from_headers(request.headers)
+    event_context = EventContext(request_id=request_id)
     try:
-        user = auth_service.authenticate_user(
-            db,
+        user = login_use_case(
+            uow,
             email=payload.email,
             password=payload.password,
+            event_context=event_context,
         )
     except BadRequestError:
-        audit_event_service.record_audit_event(
-            db,
-            operation="auth.login.failed",
-            status="failed",
-            request_id=request_id,
-            metadata={"email": payload.email},
-        )
         raise
     response.set_cookie(
         key=S.SESSION_COOKIE_NAME,
-        value=auth_service.create_session_token(user),
+        value=auth.create_session_token(user),
         max_age=S.SESSION_MAX_AGE_SECONDS,
         httponly=True,
         secure=S.SESSION_COOKIE_SECURE,
         samesite="lax",
-    )
-    audit_event_service.record_audit_event(
-        db,
-        operation="auth.login.succeeded",
-        actor_id=user.id,
-        request_id=request_id,
-        metadata={"email": user.email},
     )
     return SessionRead(user=SessionUserRead.model_validate(user))
 
@@ -82,23 +74,24 @@ async def login(
 @router.post("/logout")
 async def logout(
     response: Response,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     request: Request,
     session_token: Annotated[str | None, Cookie(alias=S.SESSION_COOKIE_NAME)] = None,
 ) -> Response:
-    user = auth_service.get_session_user(db, session_token)
+    user = auth.get_session_user(uow.session, session_token)
     response.delete_cookie(
         key=S.SESSION_COOKIE_NAME,
         httponly=True,
         secure=S.SESSION_COOKIE_SECURE,
         samesite="lax",
     )
-    audit_event_service.record_audit_event(
-        db,
-        operation="auth.logout",
-        actor_id=user.id if user else None,
-        request_id=request_id_from_headers(request.headers),
-        metadata={"email": user.email} if user else {},
+    logout_use_case(
+        uow,
+        user=user,
+        event_context=EventContext(
+            actor_id=user.id if user else None,
+            request_id=request_id_from_headers(request.headers),
+        ),
     )
     response.status_code = status.HTTP_204_NO_CONTENT
     return response

@@ -18,18 +18,18 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.alter_column(
-        "folders",
-        "min_tier",
-        existing_type=sa.Integer(),
-        nullable=True,
-    )
+    with op.batch_alter_table("folders") as batch_op:
+        batch_op.alter_column(
+            "min_tier",
+            existing_type=sa.Integer(),
+            nullable=True,
+        )
 
 
 def downgrade() -> None:
-    op.alter_column(
-        "folders",
-        "min_tier",
-        existing_type=sa.Integer(),
-        nullable=False,
-    )
+    with op.batch_alter_table("folders") as batch_op:
+        batch_op.alter_column(
+            "min_tier",
+            existing_type=sa.Integer(),
+            nullable=False,
+        )

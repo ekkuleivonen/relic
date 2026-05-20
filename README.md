@@ -2,9 +2,8 @@
 
 Relic is a storage control plane for organizing files across S3-compatible
 object stores. It presents a permissioned virtual filesystem to users, stores
-file bytes in registered bucket backends, extracts searchable metadata in the
-background, and gives admins tools to manage users, access, storage tiers, and
-bucket health.
+file bytes in registered bucket backends, and gives admins tools to manage
+users, access, storage tiers, and bucket health.
 
 At a high level, Relic separates logical files from physical blobs:
 
@@ -13,9 +12,8 @@ At a high level, Relic separates logical files from physical blobs:
   manage users and SigV4 access keys.
 - The backend deduplicates identical content by hash, tracks blob reference
   counts, and places bytes into tiered storage backends.
-- Background **processors** enrich files with searchable metadata (today: the
-  `meta_extract` processor kind, with more kinds planned), and a separate
-  **maintenance** path runs cleanup, bucket probing, and lifecycle migration.
+- A **maintenance** worker path runs cleanup, bucket probing, and lifecycle
+  migration.
 
 ## Current Features
 
@@ -45,26 +43,11 @@ At a high level, Relic separates logical files from physical blobs:
 - Canonical file metadata schema with size, extension, MIME type, original
   filename, tags, keywords, summary, and scalar key/value metadata.
 
-### Metadata Extraction
+### Blob metadata at ingest
 
-Uploaded and copied files are queued for asynchronous metadata extraction via
-the `meta_extract` processor kind. It currently detects or enriches
-metadata for:
-
-- Images.
-- CSV files.
-- JSON and JSONL files.
-- PDFs.
-- Parquet files.
-- Audio files.
-- Video files.
-- Office documents.
-- HTML and XHTML.
-- Archives.
-- Plain text and other readable text formats.
-
-Processor output is merged with upload-time metadata while preserving
-user-provided values where they overlap.
+MIME type and extension are detected from file bytes at upload time
+(`domain/blobs/sniff.py`). Consumer-owned JSON metadata lives on `File.meta`
+and is searchable via the control-plane search API.
 
 ### Storage
 
@@ -87,157 +70,31 @@ user-provided values where they overlap.
 - Admin screens for users, folder grants, buckets, and access keys.
 - SigV4 access keys for S3-style API access.
 
-### Event Log and Processors
+### Audit log
 
-Relic runs its background work on three concurrency tiers, separated by
-audience and write path:
+Unified `audit_events` records actor-driven admin actions and storage
+maintenance outcomes (blob purges, migrations, bucket probes, retention
+trims). The admin audit log UI filters by operation, status, request ID,
+actor, and time range.
 
-- **Hot path** — the synchronous S3 gateway and JSON API. Mutates canonical
-  tables, emits events in the same transaction, returns. Does not own any
-  async work; it only produces the triggers other tiers consume.
-- **Warm path** (`relic:processing` queue) — runs event-driven processor
-  kinds. The seeded `meta_extract` processor enriches `File.meta`
-  today; future kinds (preview, thumbnail, external sinks) land as
-  siblings.
-- **Cold path** (`relic:maintenance` queue) — runs scheduled batches such as
-  purge dereferenced blobs, bucket probes, blob rebalance, and event
-  retention trim. Invisible to external consumers.
+Retention is controlled by `EVENT_RETENTION_DAYS`; the maintenance worker
+trims old rows on its cron tick.
 
-The two queues are separate worker pools so a slow rebalance can never block
-fast metadata extraction.
-
-#### Event tables
-
-- `audit_events` (live) — actor-driven log for identity, access, bucket,
-  folder admin changes, and processor cursor changes (`processor.created`,
-  `processor.updated`, `processor.deleted`, `processor.enabled`,
-  `processor.disabled`, `processor.cursor.rewound`,
-  `processor.cursor.skipped`). Written in the same DB transaction as the
-  canonical mutation. Envelope is intentionally narrow:
-  `(id, created_at, updated_at, operation, status, actor_id,
-  request_id, meta)` — resource ids that an event refers to live inside
-  `meta`. The admin audit log UI filters by operation, status, request ID,
-  actor, and time range with per-row metadata detail.
-- `file_events` (live) — durable content activity log and the warm-path
-  outbox. Carries `file.*`, `folder.*`, and `processor.<kind>.*`
-  events. File and folder mutations write this table in the same
-  transaction as the canonical change; the per-row monotonic `offset` is the
-  replay primitive. Admins can browse the full log on the File Events page.
-- `processors` (live) — registry holding identity, config, enabled state,
-  and the `last_committed_offset` cursor for every warm-path subscriber
-  (internal processor kinds today, external sinks planned). The Processors admin
-  page surfaces cursor lag, lets admins pause/resume runs, and exposes
-  auditable rewind and skip-stuck-event actions.
-- `maintenance_events` (live) — internal-only log of cold-path resource
-  outcomes such as blob purges, migrations, bucket probes, and event
-  retention trims. Never delivered to external sinks. The Maintenance Events
-  admin page filters by job, action, status, batch ID, bucket ID, blob ID,
-  and time range.
-
-`maintenance_events` rows are emitted by `worker_maintenance` jobs. They are
-resource-level outcomes, not batch summaries; `batch_id` groups every row
-from one cron firing. The table envelope is `(id, created_at, job, action,
-status, batch_id, bucket_id, blob_id, duration_ms, meta)`. `bucket_id` is a
-nullable FK with `ON DELETE SET NULL`; `blob_id` is deliberately not a
-foreign key because purge events often describe blob rows that no longer
-exist. Current actions are:
-
-- `purge_dereferenced_blobs`: `blob.purged`, `blob.purge_failed`.
-- `rebalance_blob_storage`: `blob.migrated`, `blob.migration_skipped`,
-  `blob.migration_failed`.
-- `bucket_probe`: `bucket.probe_ok`, `bucket.probe_failed`.
-- `trim_audit_events`: `audit.trimmed`.
-- `trim_file_events`: `file_event.trimmed`.
-- `trim_maintenance_events`: `maintenance_event.trimmed`.
-
-High-volume object reads (`GET`, `HEAD`, signed-URL fetches) deliberately do
-not write event rows; their performance lives in Prometheus aggregates only.
-
-Retention across all event tables is controlled by `EVENT_RETENTION_DAYS`.
-The maintenance worker trims rows older than that age during its regular
-cron tick. The trim refuses to delete `file_events` rows past
-`min(processors.last_committed_offset)` across enabled processors, so a
-paused or rewound processor can never lose events out from under it.
-`processors` is registry data and is not subject to retention.
-
-#### Warm-path dispatcher
-
-Warm processors do not subscribe to API hooks; they subscribe to
-`file_events` through their own cursor on the `processors` table. The
-dispatcher is pull-based:
-
-1. Listens on the Postgres `file_event_emitted` channel via `LISTEN/NOTIFY`
-   for wake-up, plus a safety-net tick every `DISPATCHER_SAFETY_INTERVAL_SECONDS`.
-2. For each enabled processor, selects the oldest `file_events` row past
-   `last_committed_offset` whose `event_type` is in
-   `subscribed_event_types`. Unsubscribed events never reach a worker.
-3. Enqueues one warm-queue job with `_job_id = f"{processor_id}:{event_id}"`,
-   relying on arq's built-in dedup so a re-tick is safe.
-4. Does not advance the cursor on enqueue. The worker advances it only
-   after the processor run returns successfully, inside the same DB transaction as
-   any canonical mutation the processor made.
-
-The contract every warm processor inherits:
-
-- **Cursor-on-success.** A failing event halts its processor's cursor until
-  an admin intervenes. The escape hatch is a `processor.cursor.skipped`
-  audit row written when an admin advances the cursor past a poison-pill
-  event. Every skip is auditable; there is no silent forward-jump.
-- **Head-of-line blocking is accepted.** The trade-off for a simple,
-  durable, replayable cursor model.
-- **Idempotency over `event_id`.** Handlers must produce the same observable
-  result on a second run for the same event ID. `meta_extract` overwrites
-  `File.meta` deterministically; external sinks must use a downstream
-  idempotency key.
-- **Per-processor concurrency = 1.** Enforced by `LIMIT 1` per processor in
-  the dispatcher, by `_job_id` dedup in arq, and by `SELECT ... FOR UPDATE`
-  on the processor row inside the worker. The processing worker also pins
-  `max_jobs = 1` as defense-in-depth. Parallelism comes from running more
-  worker pods, not more concurrent jobs per worker.
-- **Processor outcome events.** Workers emit
-  `processor.<kind>.completed` or `processor.<kind>.failed` to
-  `file_events` so external consumers can react to "metadata is now ready"
-  the same way internal subscribers do.
-
-#### Processor Kinds
-
-A processor kind is the Python implementation for one `processors.kind`. Today
-the first-party kinds are:
-
-- `meta_extract` — reads bytes from object storage (capped per toolchain via
-  `*_META_EXTRACT_MAX_BYTES`), runs the matching toolchain (image, PDF,
-  CSV, JSON, parquet, audio, video, office-doc, archive, HTML, text), and
-  writes the result to `File.meta`.
-- `webhook_event_dispatch` — signs and POSTs selected `file_events` rows to a
-  configured HTTP endpoint with an idempotency key derived from the processor
-  row and event ID.
-
-New processor kinds plug in by adding a package under
-`server/processors/kinds/<kind>/` with a `BaseProcessor` subclass in
-`__init__.py` and any helper/toolchain modules beside it. First-party kinds are
-upserted from `server/seed.py`; admin-managed processor rows (future external
-sinks) are created from the API.
+See [MANIFEST.md](./MANIFEST.md) for the server layer layout.
 
 ### Operational Visibility
 
-- Admin views for audit events, file events, maintenance events, and
-  processors are live.
-- Processor admin includes enabled state, cursor lag, pause/resume, rewind,
-  and skip-stuck-event actions, with cursor changes written to `audit_events`.
+- Admin view for audit events is live.
 
-Prometheus-compatible `/metrics` is not implemented yet; it remains tracked in
-`ROADMAP.md` alongside lower-level gateway, API, processor, and maintenance
-metrics.
+Prometheus-compatible `/metrics` is not implemented yet; see `ROADMAP.md`.
 
 ### Health and Readiness
 
 - `/healthz` reports basic API process liveness.
-- `/readyz` checks database connectivity, Redis queue connectivity, processor
-  registry access, object-store probe state, and configuration warnings.
-- Readiness includes queue depth and oldest pending job age for the
-  `relic:processing` and `relic:maintenance` queues.
-- Object-store readiness uses the latest bucket probe state; the probe worker
-  remains responsible for doing remote PUT/HEAD/GET/DELETE checks.
+- `/readyz` checks database connectivity, Redis queue connectivity,
+  object-store probe state, and configuration warnings.
+- Object-store readiness uses the latest bucket probe state; the maintenance
+  worker runs remote PUT/HEAD/GET/DELETE checks.
 
 ### API and S3 Gateway
 
@@ -280,19 +137,15 @@ Relic is split into a React client, a FastAPI server, and ARQ workers:
 
 - `client/` is a Vite, React, TypeScript, Tailwind, and shadcn/ui app.
 - `server/api/` contains the HTTP API and S3 gateway routes.
-- `server/services/` contains the filesystem, object, bucket, search, access,
-  placement, audit event, file event, processor, and maintenance logic.
-- `server/processors/` contains the warm-path runtime, while
-  `server/processors/kinds/` contains first-party processor implementations
-  such as `meta_extract` and its toolchains. The arq workers and pull-based
-  dispatcher consume `file_events` and feed the warm queue.
+- `server/application/` contains use cases (control plane, gateway, maintenance).
+- `server/domain/` contains pure business rules (naming, meta, paths, sniffing).
+- `server/ports/` defines store and adapter interfaces.
+- `server/infra/` contains SQLAlchemy stores, object storage adapters, auth, cache, and maintenance.
+- `server/composition.py` wires the Unit of Work from settings.
+- See [MANIFEST.md](./MANIFEST.md) for the full architectural intent.
 - PostgreSQL stores users, folders, files, blobs, access grants, access keys,
-  bucket registrations, durable event tables, and the processor registry. The
-  dispatcher uses Postgres `LISTEN/NOTIFY` on `file_event_emitted` to wake up
-  promptly when new events land.
-- Redis backs ARQ processor and maintenance jobs. The warm `relic:processing`
-  queue and cold `relic:maintenance` queue run as separate worker pools so a
-  slow rebalance batch never delays metadata extraction.
+  bucket registrations, and audit events. SQLite is used in tests.
+- Redis backs ARQ maintenance jobs on the `relic:maintenance` queue.
 - Garage is used by the local Docker setup as two S3-compatible object stores,
   one hot and one cold.
 
@@ -303,8 +156,6 @@ The repository includes a Docker Compose stack for the full local product:
 - PostgreSQL.
 - Redis.
 - API server.
-- Processing worker for metadata extraction.
-- Dispatcher that converts new `file_events` rows into warm-queue jobs.
 - Maintenance worker for storage cleanup, bucket probes, and lifecycle jobs.
 - React client served by nginx.
 - Two Garage object-store instances.
@@ -380,25 +231,11 @@ cd server
 uv run uvicorn api.app:app --reload
 ```
 
-Run the processing worker manually:
-
-```bash
-cd server
-uv run arq processors.worker_processing.WorkerSettings
-```
-
 Run the maintenance worker manually:
 
 ```bash
 cd server
-uv run arq processors.worker_maintenance.WorkerSettings
-```
-
-Run the dispatcher manually:
-
-```bash
-cd server
-uv run python -m processors.dispatcher
+uv run arq workers.maintenance.WorkerSettings
 ```
 
 Run the live S3 gateway compatibility smoke harness:
@@ -422,7 +259,7 @@ through a native boto3 client. Use `--api-url`, `--email`, `--password`,
 Important environment variables include:
 
 - `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`,
-  `POSTGRES_PASSWORD`.
+  `POSTGRES_PASSWORD`, or `DATABASE_URL` to override the connection string.
 - `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`.
 - `ENCRYPTION_SECRET` for encrypted bucket credentials.
 - `SESSION_SECRET`, `SESSION_COOKIE_NAME`, `SESSION_MAX_AGE_SECONDS`, and
@@ -441,8 +278,7 @@ Important environment variables include:
   queues.
 - `DISPATCHER_BATCH_SIZE`, `DISPATCHER_SAFETY_INTERVAL_SECONDS`, and
   `DISPATCHER_LISTEN_BACKOFF_SECONDS` to tune the warm-path dispatcher.
-- `EVENT_RETENTION_DAYS` — single retention knob applied to every event table
-  (`audit_events`, `file_events`, and `maintenance_events`). Per-table
+- `EVENT_RETENTION_DAYS` — retention knob for `audit_events`. Per-table
   retention can be split out later if it becomes necessary.
 - Storage maintenance knobs such as `STORAGE_MAINTENANCE_PURGE_BATCH`,
   `STORAGE_MAINTENANCE_MIGRATE_BATCH`, and
@@ -452,12 +288,8 @@ Important environment variables include:
 
 Relic is an early product with substantial core behavior in place. The web
 app, JSON API, object gateway, content-hash deduplication, tiered storage
-placement, `audit_events`, `file_events`, the `processors` registry, the
-`maintenance_events` cold-path log, the `LISTEN/NOTIFY` warm-path
-dispatcher, the seeded `meta_extract` processor, `webhook_event_dispatch`,
-and production health / readiness endpoints are all live and developed
-against. Still tracked in `ROADMAP.md`: additional external activity sinks
-(SQS, Kafka, object-store), native-client S3 compatibility work,
-Prometheus metrics endpoint,
-import-from-bucket flows, quotas, retention, versioning, and richer admin
-file/blob inspection beyond the current placeholder UI pages.
+placement, unified `audit_events`, and production health / readiness
+endpoints are live. See `MANIFEST.md` for the target architecture and
+`ROADMAP.md` for planned work: external activity sinks, native-client S3
+compatibility, Prometheus metrics, import-from-bucket flows, quotas,
+retention, versioning, and richer admin file/blob inspection.

@@ -3,28 +3,16 @@ import xml.etree.ElementTree as ET
 
 import pytest
 from api.app import app
-from database import get_db
+from infra.db.engine import get_db
 from enums import Permission
 from fastapi.testclient import TestClient
-from models import Base, Blob, File, Folder, FolderAccess
-from services import s3_signing
+from infra.db.models import Base, Blob, File, Folder, FolderAccess
+from application.gateway import object_signing
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from tests.factories.models import BucketFactory, UserFactory
 
-
-@pytest.fixture()
-def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with SessionLocal() as session:
-        yield session
 
 
 @pytest.fixture()
@@ -106,7 +94,7 @@ def add_file(db_session, folder: Folder, user, filename: str, body: bytes) -> Fi
 
 
 def signed_service_get(user, query_params: dict[str, str] | None = None):
-    return s3_signing.sign_service_url(
+    return object_signing.sign_service_url(
         method="GET",
         headers={},
         user_id=user.id,
@@ -121,7 +109,7 @@ def signed_bucket_request(
     bucket: str,
     query_params: dict[str, str] | None = None,
 ):
-    return s3_signing.sign_bucket_url(
+    return object_signing.sign_bucket_url(
         method=method,
         bucket=bucket,
         headers={},

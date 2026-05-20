@@ -34,15 +34,23 @@ def upgrade() -> None:
     op.create_index('ix_bucket_probes_bucket_id_observed_at', 'bucket_probes', ['bucket_id', 'observed_at'], unique=False)
     op.create_index('ix_bucket_probes_observed_at', 'bucket_probes', ['observed_at'], unique=False)
     op.add_column('blobs', sa.Column('migrated_at', sa.DateTime(timezone=True), nullable=True))
-    op.drop_column('buckets', 'probe_latency_head_ms')
-    op.drop_column('buckets', 'probe_latency_put_ms')
-    op.drop_column('buckets', 'probe_latency_delete_ms')
-    op.drop_column('buckets', 'tier')
-    op.drop_column('buckets', 'probe_latency_get_ms')
-    op.add_column('folders', sa.Column('preferred_bucket_id', sa.Uuid(), nullable=True))
-    op.create_foreign_key(None, 'folders', 'buckets', ['preferred_bucket_id'], ['id'], ondelete='SET NULL')
-    op.drop_column('folders', 'min_tier')
-    op.drop_column('folders', 'cooldown_days')
+    with op.batch_alter_table('buckets') as batch_op:
+        batch_op.drop_column('probe_latency_head_ms')
+        batch_op.drop_column('probe_latency_put_ms')
+        batch_op.drop_column('probe_latency_delete_ms')
+        batch_op.drop_column('tier')
+        batch_op.drop_column('probe_latency_get_ms')
+    with op.batch_alter_table('folders') as batch_op:
+        batch_op.add_column(sa.Column('preferred_bucket_id', sa.Uuid(), nullable=True))
+        batch_op.create_foreign_key(
+            'folders_preferred_bucket_id_fkey',
+            'buckets',
+            ['preferred_bucket_id'],
+            ['id'],
+            ondelete='SET NULL',
+        )
+        batch_op.drop_column('min_tier')
+        batch_op.drop_column('cooldown_days')
     # ### end Alembic commands ###
 
 

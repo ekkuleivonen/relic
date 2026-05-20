@@ -4,6 +4,9 @@ import { toast } from "sonner"
 import { filesystemQueryKey } from "@/hooks/use-filesystem"
 import { ApiError, apiRequest, extractApiError, resolveServerUrl } from "@/lib/api"
 import type {
+  BulkDeleteFilesResponse,
+  BulkMoveFilesResponse,
+  BulkPatchFileMetaResponse,
   FileSystemFile,
   PresignUploadResponse,
 } from "@/types/filesystem"
@@ -203,6 +206,96 @@ export function useRenameFile() {
       }),
     onSuccess: () => {
       invalidateAll(queryClient)
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+}
+
+export function useBulkDeleteFiles() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (file_ids: string[]) =>
+      apiRequest<BulkDeleteFilesResponse>("/files/bulk-delete", {
+        method: "POST",
+        body: { file_ids },
+      }),
+    onSuccess: (result) => {
+      invalidateAll(queryClient)
+      const errorCount = result.errors.length
+      toast.success(
+        errorCount > 0
+          ? `Deleted ${result.deleted_ids.length} file(s), ${errorCount} failed`
+          : `Deleted ${result.deleted_ids.length} file(s)`
+      )
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+}
+
+export function useBulkMoveFiles() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      file_ids,
+      destination_folder_id,
+      name,
+    }: {
+      file_ids: string[]
+      destination_folder_id: string
+      name?: string | null
+    }) =>
+      apiRequest<BulkMoveFilesResponse>("/files/bulk-move", {
+        method: "POST",
+        body: {
+          file_ids,
+          destination_folder_id,
+          ...(name ? { name } : {}),
+        },
+      }),
+    onSuccess: (result) => {
+      invalidateAll(queryClient)
+      const errorCount = result.errors.length
+      toast.success(
+        errorCount > 0
+          ? `Moved ${result.moved_ids.length} file(s), ${errorCount} failed`
+          : `Moved ${result.moved_ids.length} file(s)`
+      )
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+}
+
+export function useBulkPatchFileMeta() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      file_ids,
+      meta,
+    }: {
+      file_ids: string[]
+      meta: Record<string, unknown>
+    }) =>
+      apiRequest<BulkPatchFileMetaResponse>("/files/bulk-update", {
+        method: "POST",
+        body: { file_ids, meta },
+      }),
+    onSuccess: (result) => {
+      invalidateAll(queryClient)
+      const errorCount = result.errors.length
+      toast.success(
+        errorCount > 0
+          ? `Updated ${result.patched_ids.length} file(s), ${errorCount} failed`
+          : `Updated ${result.patched_ids.length} file(s)`
+      )
     },
     onError: (error) => {
       toast.error(extractApiError(error))

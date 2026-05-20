@@ -26,16 +26,16 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.alter_column(
-        'files',
-        'parse_status',
-        new_column_name='meta_extract_status',
-    )
+    with op.batch_alter_table("files") as batch_op:
+        batch_op.alter_column(
+            "parse_status",
+            new_column_name="meta_extract_status",
+        )
 
 
 def downgrade() -> None:
-    op.alter_column(
-        'files',
-        'meta_extract_status',
-        new_column_name='parse_status',
-    )
+    with op.batch_alter_table("files") as batch_op:
+        batch_op.alter_column(
+            "meta_extract_status",
+            new_column_name="parse_status",
+        )

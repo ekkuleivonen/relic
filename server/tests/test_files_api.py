@@ -1,33 +1,23 @@
+import uuid
+
 import pytest
 from api.app import app
-from database import get_db
+from infra.db.engine import get_db
 from enums import Permission
 from fastapi.testclient import TestClient
-from models import (
+from infra.db.models import (
     Base,
     Blob,
     File,
     Folder,
     FolderAccess,
 )
-from services.auth import create_session_token
+from application.control_plane.auth import create_session_token
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from tests.factories.models import BucketFactory, UserFactory
 
-
-@pytest.fixture()
-def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with SessionLocal() as session:
-        yield session
 
 
 @pytest.fixture()
@@ -375,3 +365,162 @@ def test_rename_requires_write(
         json={"name": "feline.jpg"},
     )
     assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Single delete
+# ---------------------------------------------------------------------------
+
+
+def test_delete_file(client, db_session, user, photos_folder, physical_bucket):
+    grant(
+        db_session,
+        user,
+        photos_folder,
+        int(Permission.READ | Permission.WRITE | Permission.DELETE),
+    )
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(40).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob, name="remove.jpg"
+    )
+
+    response = client.delete(f"/api/files/{file.id}")
+    assert response.status_code == 204, response.text
+
+    db_session.refresh(blob)
+    assert blob.refcount == 0
+    assert db_session.get(type(file), file.id) is None
+
+
+def test_delete_file_returns_not_found_for_missing_id(
+    client, db_session, user, photos_folder
+):
+    grant(db_session, user, photos_folder, int(Permission.READ | Permission.DELETE))
+    missing_id = uuid.uuid4()
+
+    response = client.delete(f"/api/files/{missing_id}")
+    assert response.status_code == 404, response.text
+
+
+# ---------------------------------------------------------------------------
+# Bulk delete
+# ---------------------------------------------------------------------------
+
+
+def test_bulk_delete_removes_files_and_decrements_refcount(
+    client, db_session, user, photos_folder, physical_bucket
+):
+    grant(
+        db_session,
+        user,
+        photos_folder,
+        int(Permission.READ | Permission.WRITE | Permission.DELETE),
+    )
+    blob_a = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(20).to_bytes(32, "big")
+    )
+    blob_b = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(21).to_bytes(32, "big")
+    )
+    file_a = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob_a, name="a.jpg"
+    )
+    file_b = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob_b, name="b.jpg"
+    )
+
+    response = client.post(
+        "/api/files/bulk-delete",
+        json={"file_ids": [str(file_a.id), str(file_b.id)]},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert set(body["deleted_ids"]) == {str(file_a.id), str(file_b.id)}
+    assert body["errors"] == []
+
+    db_session.refresh(blob_a)
+    db_session.refresh(blob_b)
+    assert blob_a.refcount == 0
+    assert blob_b.refcount == 0
+
+
+def test_bulk_delete_reports_per_file_errors(
+    client, db_session, user, photos_folder, physical_bucket
+):
+    grant(
+        db_session,
+        user,
+        photos_folder,
+        int(Permission.READ | Permission.WRITE | Permission.DELETE),
+    )
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(22).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob, name="keep.jpg"
+    )
+    missing_id = uuid.uuid4()
+
+    response = client.post(
+        "/api/files/bulk-delete",
+        json={"file_ids": [str(file.id), str(missing_id)]},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["deleted_ids"] == [str(file.id)]
+    assert len(body["errors"]) == 1
+    assert body["errors"][0]["file_id"] == str(missing_id)
+
+
+def test_bulk_move_files(client, db_session, user, photos_folder, archives_folder, physical_bucket):
+    grant(
+        db_session,
+        user,
+        photos_folder,
+        int(Permission.READ | Permission.WRITE | Permission.DELETE),
+    )
+    grant(db_session, user, archives_folder, int(Permission.READ | Permission.WRITE))
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(30).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob, name="move-me.jpg"
+    )
+
+    response = client.post(
+        "/api/files/bulk-move",
+        json={
+            "file_ids": [str(file.id)],
+            "destination_folder_id": str(archives_folder.id),
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["moved_ids"] == [str(file.id)]
+    db_session.refresh(file)
+    assert file.folder_id == archives_folder.id
+
+
+def test_bulk_update_meta(client, db_session, user, photos_folder, physical_bucket):
+    grant(
+        db_session,
+        user,
+        photos_folder,
+        int(Permission.READ | Permission.WRITE | Permission.ENRICH),
+    )
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(31).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob, name="meta.jpg"
+    )
+
+    response = client.post(
+        "/api/files/bulk-update",
+        json={"file_ids": [str(file.id)], "meta": {"tags": ["updated"]}},
+    )
+    assert response.status_code == 200, response.text
+    db_session.refresh(file)
+    assert file.meta["tags"] == ["updated"]

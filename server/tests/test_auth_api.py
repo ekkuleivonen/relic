@@ -1,38 +1,10 @@
 import pytest
-from api.app import app
-from database import get_db
 from enums import UserRole
-from fastapi.testclient import TestClient
-from models import Base, User
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+from infra.db.models import User
+from sqlalchemy import select
 from utils.passwords import hash_password
 
 
-@pytest.fixture()
-def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with SessionLocal() as session:
-        yield session
-
-
-@pytest.fixture()
-def client(db_session):
-    def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
-    try:
-        yield TestClient(app)
-    finally:
-        app.dependency_overrides.clear()
 
 
 def add_user(db_session, *, role: UserRole = UserRole.ADMIN) -> User:

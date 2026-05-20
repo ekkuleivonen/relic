@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router"
 
+import { BulkFileActionsBar } from "@/components/filesystem/bulk-file-actions-bar"
 import { FileActionsProvider } from "@/components/filesystem/file-actions-provider"
 import { FolderActionsProvider } from "@/components/filesystem/folder-actions-provider"
 import { FolderEntriesTable } from "@/components/filesystem/folder-entries-table"
@@ -80,11 +81,18 @@ function FilesystemPageInner() {
     key: "name",
     dir: "asc",
   })
+  const [selectedFileIds, setSelectedFileIds] = React.useState<Set<string>>(
+    () => new Set()
+  )
+  const selectionEnabled =
+    selectedFolder !== undefined &&
+    can(selectedFolder.effective_permissions, PERM.DELETE)
 
   /* Pagination offset is driven by folder/sort and server totals; syncing via effects is intentional. */
   /* eslint-disable react-hooks/set-state-in-effect -- see comment above */
   React.useEffect(() => {
     setFileOffset(0)
+    setSelectedFileIds(new Set())
   }, [selectedFolder?.id, sort.key, sort.dir])
 
   const folderFiles = useFolderFiles(selectedFolder?.id, {
@@ -245,6 +253,34 @@ function FilesystemPageInner() {
                       onFilesOffsetChange: setFileOffset,
                       sort,
                       onSortChange: setSort,
+                      selectedFileIds,
+                      selectionEnabled,
+                      onToggleFileSelection: (fileId) => {
+                        setSelectedFileIds((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(fileId)) {
+                            next.delete(fileId)
+                          } else {
+                            next.add(fileId)
+                          }
+                          return next
+                        })
+                      },
+                      onToggleAllFiles: (fileIds, selected) => {
+                        setSelectedFileIds((prev) => {
+                          const next = new Set(prev)
+                          for (const fileId of fileIds) {
+                            if (selected) {
+                              next.add(fileId)
+                            } else {
+                              next.delete(fileId)
+                            }
+                          }
+                          return next
+                        })
+                      },
+                      onClearSelection: () => setSelectedFileIds(new Set()),
+                      currentFolder: selectedFolder,
                     })}
                   </CardContent>
                 </Card>
@@ -361,6 +397,12 @@ type ContentStateProps = {
   onFilesOffsetChange: (offset: number) => void
   sort: FolderContentsSortState
   onSortChange: (next: FolderContentsSortState) => void
+  selectedFileIds: Set<string>
+  selectionEnabled: boolean
+  onToggleFileSelection: (fileId: string) => void
+  onToggleAllFiles: (fileIds: string[], selected: boolean) => void
+  onClearSelection: () => void
+  currentFolder: FolderTreeNode | undefined
 }
 
 function renderContentState({
@@ -376,6 +418,12 @@ function renderContentState({
   onFilesOffsetChange,
   sort,
   onSortChange,
+  selectedFileIds,
+  selectionEnabled,
+  onToggleFileSelection,
+  onToggleAllFiles,
+  onClearSelection,
+  currentFolder,
 }: ContentStateProps) {
   if (isFolderMissing) {
     return (
@@ -413,10 +461,21 @@ function renderContentState({
 
   return (
     <>
+      {selectionEnabled && currentFolder ? (
+        <BulkFileActionsBar
+          selectedFileIds={[...selectedFileIds]}
+          currentFolder={currentFolder}
+          onClearSelection={onClearSelection}
+        />
+      ) : null}
       <FolderEntriesTable
         entries={entries}
         sort={sort}
         onSortChange={onSortChange}
+        selectedFileIds={selectedFileIds}
+        onToggleFileSelection={onToggleFileSelection}
+        onToggleAllFiles={onToggleAllFiles}
+        selectionEnabled={selectionEnabled}
       />
       {filesPage && filesPage.total > filesPage.limit ? (
         <OffsetPaginationBar

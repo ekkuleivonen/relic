@@ -3,34 +3,22 @@ import hashlib
 
 import pytest
 from api.app import app
-from database import get_db
+from infra.db.engine import get_db
 from enums import Permission
 from fastapi.testclient import TestClient
-from models import (
+from infra.db.models import (
     Base,
     Blob,
     File,
     Folder,
     FolderAccess,
 )
-from services.auth import create_session_token
+from application.control_plane.auth import create_session_token
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from tests.factories.models import BucketFactory, UserFactory
 
-
-@pytest.fixture()
-def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with SessionLocal() as session:
-        yield session
 
 
 @pytest.fixture()
@@ -128,7 +116,7 @@ def test_presigned_put_creates_file_and_blob(
             uploaded.append({"Bucket": Bucket, "Key": Key, "Body": Body})
 
     monkeypatch.setattr(
-        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+        "infra.object_storage.registry.boto3.client", lambda **kwargs: FakeS3Client()
     )
 
     response = presign(client, photos_folder)
@@ -182,7 +170,7 @@ def test_put_rechecks_write_permission(
             raise AssertionError("revoked upload should not reach storage")
 
     monkeypatch.setattr(
-        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+        "infra.object_storage.registry.boto3.client", lambda **kwargs: FakeS3Client()
     )
     response = presign(client, photos_folder)
     assert response.status_code == 200
@@ -232,11 +220,11 @@ def test_tampered_signed_metadata_header_fails(client, db_session, user, photos_
 def test_expired_url_fails(client, db_session, user, photos_folder, monkeypatch):
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     frozen = dt.datetime(2026, 5, 9, 0, 0, tzinfo=dt.UTC)
-    monkeypatch.setattr("services.s3_signing.now_utc", lambda: frozen)
+    monkeypatch.setattr("application.gateway.object_signing.now_utc", lambda: frozen)
     response = presign(client, photos_folder)
     signed = response.json()
     monkeypatch.setattr(
-        "services.s3_signing.now_utc",
+        "application.gateway.object_signing.now_utc",
         lambda: frozen + dt.timedelta(minutes=6),
     )
 
@@ -263,7 +251,7 @@ def test_replayed_url_hits_file_unique_constraint(
             return None
 
     monkeypatch.setattr(
-        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+        "infra.object_storage.registry.boto3.client", lambda **kwargs: FakeS3Client()
     )
     response = presign(client, photos_folder)
     signed = response.json()
@@ -317,7 +305,7 @@ def test_server_signed_and_stub_user_key_use_same_gateway_path(
             stored.append(Body)
 
     monkeypatch.setattr(
-        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+        "infra.object_storage.registry.boto3.client", lambda **kwargs: FakeS3Client()
     )
     response = presign(client, photos_folder, filename="cat.jpg")
     signed = response.json()

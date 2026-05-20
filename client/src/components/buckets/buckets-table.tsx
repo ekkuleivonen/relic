@@ -1,4 +1,4 @@
-import { ActivityIcon, PencilIcon, Trash2Icon } from "lucide-react"
+import { ActivityIcon, ArrowDownToLine, PencilIcon, Trash2Icon } from "lucide-react"
 import type { ComponentProps, ReactNode } from "react"
 
 import { Badge } from "@/components/ui/badge"
@@ -25,18 +25,22 @@ type BucketsTableProps = {
   buckets: Bucket[]
   isLoading: boolean
   probingId?: string
+  drainingId?: string
   onEdit: (bucket: Bucket) => void
   onDelete: (bucket: Bucket) => void
   onProbe: (bucket: Bucket) => void
+  onDrain: (bucket: Bucket) => void
 }
 
 export function BucketsTable({
   buckets,
   isLoading,
   probingId,
+  drainingId,
   onEdit,
   onDelete,
   onProbe,
+  onDrain,
 }: BucketsTableProps) {
   if (isLoading) {
     return (
@@ -103,6 +107,14 @@ export function BucketsTable({
                   onClick={() => onProbe(bucket)}
                 >
                   <ActivityIcon />
+                </ActionButton>
+                <ActionButton
+                  label="Drain bucket"
+                  tooltip="Migrate all blobs in this bucket to colder backends with available capacity."
+                  disabled={drainingId === bucket.id || bucket.object_count === 0}
+                  onClick={() => onDrain(bucket)}
+                >
+                  <ArrowDownToLine />
                 </ActionButton>
                 <ActionButton
                   label="Edit bucket"

@@ -6,23 +6,11 @@ from sqlalchemy.pool import StaticPool
 
 from api.app import app
 from enums import HealthStatus
-from database import get_db
-from models import Base
-from services import health as health_service
+from infra.db.engine import get_db
+from infra.db.models import Base
+from application import health
 from tests.factories.models import BucketFactory, BucketProbeFactory
 
-
-@pytest.fixture()
-def db_session():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with SessionLocal() as session:
-        yield session
 
 
 @pytest.fixture()
@@ -48,7 +36,7 @@ def stub_redis(monkeypatch):
             },
         }
 
-    monkeypatch.setattr(health_service, "check_redis_queues", check_redis_queues)
+    monkeypatch.setattr(health, "check_redis_queues", check_redis_queues)
 
 
 def test_healthz_reports_api_ok(client):
@@ -108,7 +96,7 @@ def test_readyz_returns_unavailable_for_redis_failure(client, monkeypatch):
             "error_message": "redis down",
         }
 
-    monkeypatch.setattr(health_service, "check_redis_queues", check_redis_queues)
+    monkeypatch.setattr(health, "check_redis_queues", check_redis_queues)
 
     response = client.get("/readyz")
 

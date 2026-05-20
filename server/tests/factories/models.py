@@ -2,8 +2,8 @@ import datetime as dt
 import uuid
 
 import factory
-from enums import EventStatus, Permission, UserRole
-from models import (
+from enums import EventStatus, Permission, StorageKind, UserRole
+from infra.db.models import (
     AccessKey,
     Blob,
     Bucket,
@@ -27,6 +27,7 @@ class BucketFactory(factory.Factory):
     key_id = factory.Sequence(lambda n: f"GK{n:024d}")
     secret_access_key = factory.Sequence(lambda n: f"secret-{n}")
     max_size_bytes = 1_000_000_000
+    storage_kind = StorageKind.S3
 
 
 class BucketProbeFactory(factory.Factory):

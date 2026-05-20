@@ -48,3 +48,10 @@ export type BucketProbeSample = {
   get_ms: number | null
   delete_ms: number | null
 }
+
+export type DrainBucketResponse = {
+  moved: number
+  skipped: number
+  failed: number
+  scanned: number
+}

@@ -1,7 +1,7 @@
 # Relic Hazard Log
 
 Production-readiness audit across the filesystem, storage, S3 gateway, access
-control, search, processors, maintenance, and operational surfaces.
+control, search, maintenance, and operational surfaces.
 
 ## Findings
 

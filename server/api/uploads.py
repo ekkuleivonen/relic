@@ -3,16 +3,18 @@ import uuid
 from typing import Literal
 
 import settings as S
-from database import DbSession
+from infra.db.engine import DbSession
 from enums import Permission
 from fastapi import APIRouter, Request
 from domain.exceptions import BadRequestError
 from pydantic import BaseModel, ConfigDict, Field
-from services import folder_access as folder_access_service
-from services import objects as object_service
-from services import s3_signing
+from application.control_plane import folder_access
+from application.control_plane import file_access
+from application.gateway import object_paths
+from application.gateway import object_mutations
+from application.gateway import object_signing
 
-from api.dependencies import CurrentUser
+from api.dependencies import CurrentUser, UnitOfWorkDep
 
 router = APIRouter()
 
@@ -62,18 +64,18 @@ async def presign_upload(
     db: DbSession,
     current_user: CurrentUser,
 ) -> PresignUploadResponse:
-    folder = folder_access_service.require_folder(db, payload.folder_id)
-    folder_access_service.require_folder_permission_strict(
+    folder = folder_access.require_folder(db, payload.folder_id)
+    folder_access.require_folder_permission_strict(
         db,
         current_user,
         folder.id,
         Permission.WRITE,
     )
-    bucket, key = object_service.build_bucket_and_key_for_destination(
+    bucket, key = object_paths.build_bucket_and_key_for_destination(
         db, folder=folder, filename=payload.filename
     )
     user_metadata = normalize_user_metadata(payload.meta)
-    signed = s3_signing.sign_put_url(
+    signed = object_signing.sign_put_url(
         bucket=bucket,
         key=key,
         headers={
@@ -98,11 +100,11 @@ async def presign_delete(
     db: DbSession,
     current_user: CurrentUser,
 ) -> PresignUploadResponse:
-    file = object_service.get_file_for_user(
+    file = file_access.get_file_for_user(
         db, payload.file_id, current_user, Permission.DELETE
     )
-    bucket, key = object_service.build_bucket_and_key_for_file(db, file)
-    signed = s3_signing.sign_delete_url(
+    bucket, key = object_paths.build_bucket_and_key_for_file(db, file)
+    signed = object_signing.sign_delete_url(
         bucket=bucket,
         key=key,
         user_id=current_user.id,
@@ -120,17 +122,17 @@ async def presign_delete(
 async def presign_download(
     payload: PresignDownloadRequest,
     request: Request,
-    db: DbSession,
+    uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> PresignUploadResponse:
-    file = object_service.get_file_for_user(
-        db, payload.file_id, current_user, Permission.READ
+    file = file_access.get_file_for_user(
+        uow.session, payload.file_id, current_user, Permission.READ
     )
-    bucket, key = object_service.build_bucket_and_key_for_file(db, file)
+    bucket, key = object_paths.build_bucket_and_key_for_file(uow.session, file)
     blob = file.blob
-    if blob is not None and object_service.touch_blob_access(db, blob):
-        db.commit()
-    signed = s3_signing.sign_get_url(
+    if blob is not None:
+        object_mutations.touch_blob_access(uow, blob)
+    signed = object_signing.sign_get_url(
         bucket=bucket,
         key=key,
         user_id=current_user.id,
@@ -151,21 +153,21 @@ async def presign_copy(
     db: DbSession,
     current_user: CurrentUser,
 ) -> PresignUploadResponse:
-    source_file = object_service.get_file_for_user(
+    source_file = file_access.get_file_for_user(
         db, payload.source_file_id, current_user, Permission.READ
     )
-    dest_folder = folder_access_service.require_folder(
+    dest_folder = folder_access.require_folder(
         db, payload.destination_folder_id
     )
-    folder_access_service.require_folder_permission_strict(
+    folder_access.require_folder_permission_strict(
         db, current_user, dest_folder.id, Permission.WRITE
     )
 
     dest_filename = payload.name or source_file.name
-    source_bucket, source_key = object_service.build_bucket_and_key_for_file(
+    source_bucket, source_key = object_paths.build_bucket_and_key_for_file(
         db, source_file
     )
-    dest_bucket, dest_key = object_service.build_bucket_and_key_for_destination(
+    dest_bucket, dest_key = object_paths.build_bucket_and_key_for_destination(
         db, folder=dest_folder, filename=dest_filename
     )
 
@@ -184,7 +186,7 @@ async def presign_copy(
         for name, value in user_metadata.items():
             signed_headers[f"x-amz-meta-{name}"] = value
 
-    signed = s3_signing.sign_put_url(
+    signed = object_signing.sign_put_url(
         bucket=dest_bucket,
         key=dest_key,
         headers=signed_headers,

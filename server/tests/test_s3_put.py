@@ -4,11 +4,11 @@ import uuid as uuid_module
 
 import pytest
 from api.app import app
-from database import get_db
+from infra.db.engine import get_db
 from enums import Permission, UserRole
 from fastapi.testclient import TestClient
 from domain.exceptions import ConflictError, ResourceNotFound
-from models import (
+from infra.db.models import (
     Base,
     Blob,
     Bucket,
@@ -16,8 +16,8 @@ from models import (
     Folder,
     FolderAccess,
 )
-from services import objects as object_service
-from services.placement import choose_bucket, clear_bucket_usage_cache, get_bucket_usage
+from application.gateway import object_writes
+from application.control_plane.placement import choose_bucket, clear_bucket_usage_cache, get_bucket_usage
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -27,21 +27,6 @@ from tests.factories.models import (
     BucketProbeFactory,
     UserFactory,
 )
-
-
-@pytest.fixture()
-def db_session():
-    clear_bucket_usage_cache()
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-    with SessionLocal() as session:
-        yield session
-    clear_bucket_usage_cache()
 
 
 @pytest.fixture()
@@ -171,7 +156,7 @@ def test_choose_bucket_falls_back_when_preferred_is_full(db_session):
 
 
 def test_put_object_uploads_new_blob_and_creates_file(
-    db_session, bucket_folder, monkeypatch
+    db_session, bucket_folder, monkeypatch, storage_registry
 ):
     physical_bucket = add_bucket(db_session, name="hot")
     mark_healthy(physical_bucket, db_session=db_session)
@@ -185,14 +170,15 @@ def test_put_object_uploads_new_blob_and_creates_file(
             uploaded.append({"Bucket": Bucket, "Key": Key, "Body": Body})
 
     monkeypatch.setattr(
-        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+        "infra.object_storage.registry.boto3.client", lambda **kwargs: FakeS3Client()
     )
 
     user = UserFactory.build(email="user@relic.local", role=UserRole.ADMIN)
     db_session.add(user)
     db_session.commit()
-    result = object_service.put_object(
+    result = object_writes.put_object(
         db_session,
+        storage=storage_registry,
         bucket_name="photos",
         key="2026/cat.jpg",
         body=body,
@@ -245,7 +231,7 @@ def test_put_object_uploads_new_blob_and_creates_file(
 
 
 def test_put_object_passes_inherited_preferred_bucket_to_choose_bucket(
-    db_session, root_folder, monkeypatch
+    db_session, root_folder, monkeypatch, storage_registry
 ):
     physical_cold = add_bucket(db_session, name="cold")
     mark_healthy(physical_cold, db_session=db_session)
@@ -263,14 +249,14 @@ def test_put_object_passes_inherited_preferred_bucket_to_choose_bucket(
         captured.append(preferred_bucket_id)
         return physical_cold
 
-    monkeypatch.setattr("services.objects.choose_bucket", fake_choose)
+    monkeypatch.setattr("application.gateway.object_writes.choose_bucket", fake_choose)
 
     class FakeS3Client:
         def put_object(self, Bucket, Key, Body):
             return None
 
     monkeypatch.setattr(
-        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+        "infra.object_storage.registry.boto3.client", lambda **kwargs: FakeS3Client()
     )
 
     user = UserFactory.build(email="user@relic.local", role=UserRole.ADMIN)
@@ -278,8 +264,9 @@ def test_put_object_passes_inherited_preferred_bucket_to_choose_bucket(
     db_session.commit()
 
     body = b"z"
-    object_service.put_object(
+    object_writes.put_object(
         db_session,
+        storage=storage_registry,
         bucket_name="archive",
         key="2026/a.jpg",
         body=body,
@@ -290,7 +277,9 @@ def test_put_object_passes_inherited_preferred_bucket_to_choose_bucket(
     assert captured == [physical_cold.id]
 
 
-def test_put_object_dedupes_existing_blob(db_session, bucket_folder, monkeypatch):
+def test_put_object_dedupes_existing_blob(
+    db_session, bucket_folder, monkeypatch, storage_registry
+):
     physical_bucket = add_bucket(db_session, name="hot")
     mark_healthy(physical_bucket, db_session=db_session)
     body = b"same bytes"
@@ -307,14 +296,15 @@ def test_put_object_dedupes_existing_blob(db_session, bucket_folder, monkeypatch
             raise AssertionError("duplicate content should not be uploaded")
 
     monkeypatch.setattr(
-        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+        "infra.object_storage.registry.boto3.client", lambda **kwargs: FakeS3Client()
     )
 
     user = UserFactory.build(email="user@relic.local", role=UserRole.ADMIN)
     db_session.add(user)
     db_session.commit()
-    result = object_service.put_object(
+    result = object_writes.put_object(
         db_session,
+        storage=storage_registry,
         bucket_name="photos",
         key="copy.txt",
         body=body,
@@ -331,7 +321,7 @@ def test_put_object_dedupes_existing_blob(db_session, bucket_folder, monkeypatch
 
 
 def test_put_object_overwrites_existing_file_name(
-    db_session, root_folder, bucket_folder, monkeypatch
+    db_session, root_folder, bucket_folder, monkeypatch, storage_registry
 ):
     physical_bucket = add_bucket(db_session, name="hot")
     mark_healthy(physical_bucket, db_session=db_session)
@@ -357,11 +347,12 @@ def test_put_object_overwrites_existing_file_name(
             uploaded.append({"Bucket": Bucket, "Key": Key, "Body": read_body(Body)})
 
     monkeypatch.setattr(
-        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+        "infra.object_storage.registry.boto3.client", lambda **kwargs: FakeS3Client()
     )
 
-    result = object_service.put_object(
+    result = object_writes.put_object(
         db_session,
+        storage=storage_registry,
         bucket_name="photos",
         key="cat.jpg",
         body=body,
@@ -379,14 +370,17 @@ def test_put_object_overwrites_existing_file_name(
     assert result.blob.extension == "jpg"
 
 
-def test_put_object_with_user_requires_write_permission(db_session, bucket_folder):
+def test_put_object_with_user_requires_write_permission(
+    db_session, bucket_folder, storage_registry
+):
     user = UserFactory.build(email="user@relic.local")
     db_session.add(user)
     db_session.commit()
 
     with pytest.raises(ResourceNotFound):
-        object_service.put_object(
+        object_writes.put_object(
             db_session,
+            storage=storage_registry,
             bucket_name="photos",
             key="cat.jpg",
             body=b"cat",
@@ -396,7 +390,7 @@ def test_put_object_with_user_requires_write_permission(db_session, bucket_folde
 
 
 def test_put_object_with_admin_user_bypasses_folder_access(
-    db_session, bucket_folder, monkeypatch
+    db_session, bucket_folder, monkeypatch, storage_registry
 ):
     physical_bucket = add_bucket(db_session, name="hot")
     mark_healthy(physical_bucket, db_session=db_session)
@@ -409,11 +403,12 @@ def test_put_object_with_admin_user_bypasses_folder_access(
             return None
 
     monkeypatch.setattr(
-        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+        "infra.object_storage.registry.boto3.client", lambda **kwargs: FakeS3Client()
     )
 
-    result = object_service.put_object(
+    result = object_writes.put_object(
         db_session,
+        storage=storage_registry,
         bucket_name="photos",
         key="cat.jpg",
         body=b"cat",
@@ -425,7 +420,7 @@ def test_put_object_with_admin_user_bypasses_folder_access(
 
 
 def test_put_object_with_user_allows_inherited_write(
-    db_session, bucket_folder, monkeypatch
+    db_session, bucket_folder, monkeypatch, storage_registry
 ):
     physical_bucket = add_bucket(db_session, name="hot")
     mark_healthy(physical_bucket, db_session=db_session)
@@ -446,11 +441,12 @@ def test_put_object_with_user_allows_inherited_write(
             return None
 
     monkeypatch.setattr(
-        "services.objects.boto3.client", lambda **kwargs: FakeS3Client()
+        "infra.object_storage.registry.boto3.client", lambda **kwargs: FakeS3Client()
     )
 
-    result = object_service.put_object(
+    result = object_writes.put_object(
         db_session,
+        storage=storage_registry,
         bucket_name="photos",
         key="2026/cat.jpg",
         body=b"cat",
