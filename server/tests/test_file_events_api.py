@@ -191,7 +191,7 @@ def test_delete_empty_folder_emits_folder_deleted_event(
         db_session,
         user,
         inbox,
-        int(Permission.DELETE),
+        int(Permission.READ | Permission.DELETE),
     )
 
     response = client.delete(f"/api/folders/{inbox.id}")

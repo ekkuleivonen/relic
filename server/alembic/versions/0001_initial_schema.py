@@ -214,7 +214,7 @@ def upgrade() -> None:
     sa.Column('permissions', sa.Integer(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.CheckConstraint('(permissions & 1) != 0 OR permissions = 0', name='ck_folder_access_permissions_read_required'),
+    sa.CheckConstraint('(permissions & 14) = 0 OR (permissions & 1) != 0', name='ck_folder_access_permissions_read_required'),
     sa.CheckConstraint('(permissions & ~15) = 0', name='ck_folder_access_permissions_known_bits'),
     sa.CheckConstraint('permissions > 0', name='ck_folder_access_permissions_positive'),
     sa.ForeignKeyConstraint(['actor_id'], ['users.id'], ondelete='CASCADE'),

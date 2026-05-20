@@ -35,6 +35,11 @@ def test_validate_folder_permissions_requires_read_with_write():
         validate_folder_permissions(int(Permission.WRITE))
 
 
+def test_validate_folder_permissions_requires_read_with_delete():
+    with pytest.raises(BadRequestError):
+        validate_folder_permissions(int(Permission.DELETE))
+
+
 def test_compute_effective_permissions_inherits_down_tree():
     nodes, root, child, grand = _tree()
     grants = {child: int(Permission.READ | Permission.WRITE)}

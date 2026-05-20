@@ -280,6 +280,9 @@ existing admin password.
 Wire the same env vars and secrets as the API/worker. The job needs Postgres
 connectivity only (no Redis required for migrations).
 
+See [docs/database-migrations.md](docs/database-migrations.md) for squashed-history
+cutover, production sequencing, and local Alembic workflows.
+
 ### External dependencies
 
 Relic expects these services to already exist in the cluster or network:

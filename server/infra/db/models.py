@@ -253,7 +253,8 @@ class FolderAccess(Base, TimestampMixin):
             name="ck_folder_access_permissions_known_bits",
         ),
         CheckConstraint(
-            f"(permissions & {int(Permission.READ)}) != 0 OR permissions = 0",
+            f"(permissions & {int(Permission.WRITE | Permission.DELETE | Permission.ENRICH)}) = 0 "
+            f"OR (permissions & {int(Permission.READ)}) != 0",
             name="ck_folder_access_permissions_read_required",
         ),
         UniqueConstraint("actor_id", "folder_id", name="uq_folder_access_actor_folder"),
