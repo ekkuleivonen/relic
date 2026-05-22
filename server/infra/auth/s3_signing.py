@@ -3,7 +3,7 @@ import hashlib
 import hmac
 import uuid
 from dataclasses import dataclass
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, unquote, urlencode
 
 from fastapi import Request
 from domain.exceptions import ResourceNotFound
@@ -348,7 +348,7 @@ def verify_presigned_request(request: Request) -> VerifiedRequest:
     unsigned_params = {key: value for key, value in params.items() if key != "X-Amz-Signature"}
     canonical_request = build_canonical_request(
         method=request.method,
-        canonical_uri=quote(request.url.path, safe="/~"),
+        canonical_uri=canonical_request_path(request.url.path),
         query_params=unsigned_params,
         headers=signed_headers,
         signed_header_names=signed_header_names,
@@ -426,7 +426,7 @@ def verify_authorization_header_request(request: Request, db: Session) -> Verifi
     signed_headers = collect_signed_headers(request, signed_header_names)
     canonical_request = build_canonical_request(
         method=request.method,
-        canonical_uri=quote(request.url.path, safe="/~"),
+        canonical_uri=canonical_request_path(request.url.path),
         query_params=dict(request.query_params),
         headers=signed_headers,
         signed_header_names=signed_header_names,
@@ -553,6 +553,16 @@ def normalize_headers(headers: dict[str, str]) -> dict[str, str]:
 
 def normalize_header_value(value: str) -> str:
     return " ".join(value.strip().split())
+
+
+def canonical_request_path(path: str) -> str:
+    """Normalize an incoming request path for SigV4 canonical URI comparison.
+
+    ASGI servers usually decode percent-encoding in ``request.url.path``, but
+    some proxies leave ``%20`` literal in the path string. Decoding first
+    avoids double-encoding (``%20`` → ``%2520``) during verification.
+    """
+    return quote(unquote(path), safe="/~")
 
 
 def canonical_object_uri(bucket: str, key: str) -> str:
