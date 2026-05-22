@@ -280,6 +280,47 @@ def test_native_header_put_creates_file_and_marks_key_used(
     assert fake_storage.objects[(physical_bucket.namespace, blob.bucket_key)] == body
 
 
+def test_native_header_head_and_get_echo_user_metadata(
+    client, db_session, user, photos_folder, physical_bucket, fake_storage
+):
+    grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
+    access_key = create_access_key(db_session, user)
+    body = b"native cat photo"
+    put_headers = sign_native_s3_request(
+        access_key,
+        method="PUT",
+        path="/s3/relic/photos/native-cat.jpg",
+        body=body,
+        headers={"x-amz-meta-album": "native", "x-amz-meta-source": "facet"},
+    )
+    assert (
+        client.put("/s3/relic/photos/native-cat.jpg", content=body, headers=put_headers).status_code
+        == 200
+    )
+
+    head_headers = sign_native_s3_request(
+        access_key,
+        method="HEAD",
+        path="/s3/relic/photos/native-cat.jpg",
+    )
+    head_response = client.head("/s3/relic/photos/native-cat.jpg", headers=head_headers)
+    assert head_response.status_code == 200
+    assert head_response.headers["x-amz-meta-album"] == "native"
+    assert head_response.headers["x-amz-meta-source"] == "facet"
+    assert "x-amz-meta-relic-user" not in head_response.headers
+
+    get_headers = sign_native_s3_request(
+        access_key,
+        method="GET",
+        path="/s3/relic/photos/native-cat.jpg",
+    )
+    get_response = client.get("/s3/relic/photos/native-cat.jpg", headers=get_headers)
+    assert get_response.status_code == 200
+    assert get_response.headers["x-amz-meta-album"] == "native"
+    assert get_response.headers["x-amz-meta-source"] == "facet"
+    assert "x-amz-meta-relic-user" not in get_response.headers
+
+
 def test_native_header_list_head_get_and_delete(
     client, db_session, user, photos_folder, physical_bucket, fake_storage
 ):

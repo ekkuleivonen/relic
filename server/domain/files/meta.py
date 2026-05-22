@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+S3_USER_METADATA_RESERVED_KEYS = frozenset({"relic-user"})
+
 
 def normalize_ingest_meta(user_meta: dict[str, Any] | None) -> dict[str, Any]:
     if user_meta is None:
@@ -27,3 +29,18 @@ def patch_meta(existing: dict[str, Any] | None, patch: dict[str, Any]) -> dict[s
         else:
             merged[key] = value
     return merged
+
+
+def user_metadata_as_s3_headers(meta: dict[str, Any] | None) -> dict[str, str]:
+    """Map round-trippable ``File.meta`` entries to ``x-amz-meta-*`` headers."""
+    headers: dict[str, str] = {}
+    for raw_name, value in (meta or {}).items():
+        name = raw_name.strip().lower()
+        if not name or name in S3_USER_METADATA_RESERVED_KEYS:
+            continue
+        if not isinstance(value, str):
+            continue
+        if "\n" in value or "\r" in value:
+            continue
+        headers[f"x-amz-meta-{name}"] = value
+    return headers

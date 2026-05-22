@@ -65,7 +65,16 @@ def grant(db_session, user, folder: Folder, permissions: int = int(Permission.RE
     db_session.commit()
 
 
-def add_file(db_session, folder: Folder, user, filename: str, body: bytes) -> File:
+def add_file(
+    db_session,
+    folder: Folder,
+    user,
+    filename: str,
+    body: bytes,
+    *,
+    mimetype: str = "application/octet-stream",
+    meta: dict | None = None,
+) -> File:
     physical_bucket = db_session.query(StorageBackendFactory._meta.model).first()
     if physical_bucket is None:
         physical_bucket = StorageBackendFactory.build(name="hot")
@@ -78,6 +87,7 @@ def add_file(db_session, folder: Folder, user, filename: str, body: bytes) -> Fi
         bucket_key=f"objects/{digest.hex()}",
         content_hash=digest,
         size_bytes=len(body),
+        mimetype=mimetype,
         refcount=1,
     )
     db_session.add(blob)
@@ -87,7 +97,7 @@ def add_file(db_session, folder: Folder, user, filename: str, body: bytes) -> Fi
         blob_id=blob.id,
         actor_id=user.id,
         name=filename,
-        meta={},
+        meta=meta or {},
     )
     db_session.add(file)
     db_session.commit()
@@ -261,3 +271,26 @@ def test_list_objects_v2_paginates_with_continuation_token(
     assert second_response.status_code == 200, second_response.text
     assert xml_texts(second_response, "Key") == ["photos/b.txt"]
     assert xml_texts(second_response, "IsTruncated") == ["false"]
+
+
+def test_list_objects_v2_includes_content_type(client, db_session, user, root_folder):
+    photos = add_folder(db_session, "photos", root_folder)
+    grant(db_session, user, photos)
+    add_file(
+        db_session,
+        photos,
+        user,
+        "report.csv",
+        b"a,b,c",
+        mimetype="text/csv",
+    )
+    signed = signed_bucket_request(
+        "GET",
+        user,
+        {"list-type": "2", "prefix": "photos/", "delimiter": "/"},
+    )
+
+    response = client.get(signed.url, headers=signed.headers)
+
+    assert response.status_code == 200, response.text
+    assert xml_texts(response, "ContentType") == ["text/csv"]

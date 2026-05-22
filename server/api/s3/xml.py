@@ -3,6 +3,7 @@
 import uuid
 from xml.sax.saxutils import escape
 
+from domain.files.meta import user_metadata_as_s3_headers
 from infra.gateway import object_listing
 from infra.gateway import object_multipart
 from infra.gateway.object_types import GetObjectResult
@@ -84,6 +85,7 @@ def render_list_objects_v2(page: object_listing.ListObjectsV2Page) -> str:
         f"<LastModified>{format_s3_timestamp(item.file.updated_at)}</LastModified>"
         f"<ETag>&quot;{item.file.blob.content_hash.hex()}&quot;</ETag>"
         f"<Size>{item.file.blob.size_bytes}</Size>"
+        f"<ContentType>{escape(item.file.blob.mimetype or 'application/octet-stream')}</ContentType>"
         "<StorageClass>STANDARD</StorageClass>"
         "</Contents>"
         for item in page.contents
@@ -213,9 +215,11 @@ def render_list_multipart_parts(
 
 
 def build_object_response_headers(result: GetObjectResult) -> dict[str, str]:
-    return {
+    headers = {
         "ETag": f'"{result.blob.content_hash.hex()}"',
         "Last-Modified": result.file.updated_at.strftime("%a, %d %b %Y %H:%M:%S GMT"),
         "Content-Length": str(result.blob.size_bytes),
         "Content-Type": result.blob.mimetype or "application/octet-stream",
     }
+    headers.update(user_metadata_as_s3_headers(result.file.meta))
+    return headers
