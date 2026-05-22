@@ -3,8 +3,9 @@
 Relic does not impose a schema on ``File.meta``. Upload paths pass through
 caller-supplied JSON; consumers patch fields via the files API as needed.
 
-Gateway HEAD/GET expose all non-standard S3 fields in a single
-``x-amz-meta-relic-meta`` JSON header (see ``build_relic_meta_envelope``).
+Gateway HEAD/GET expose Relic-specific fields as ``x-amz-meta-relic-*`` headers:
+lineage identifiers as flat headers and consumer ``File.meta`` as JSON in
+``x-amz-meta-relic-meta``.
 """
 
 from __future__ import annotations
@@ -13,7 +14,13 @@ import json
 import uuid
 from typing import Any
 
-from constants import S3_RELIC_META_HEADER, S3_USER_METADATA_MAX_BYTES
+from constants import (
+    S3_RELIC_BLOB_ID_HEADER,
+    S3_RELIC_FILE_ID_HEADER,
+    S3_RELIC_FOLDER_ID_HEADER,
+    S3_RELIC_META_HEADER,
+    S3_USER_METADATA_MAX_BYTES,
+)
 from domain.exceptions import BadRequestError
 from utils.logging import get_logger
 
@@ -51,19 +58,22 @@ def validate_user_metadata_ingest(meta: dict[str, str]) -> None:
             raise BadRequestError(f"Metadata name is reserved: {key.strip().lower()}")
 
 
-def build_relic_meta_envelope(
+def _metadata_header_size(name: str, value: str) -> int:
+    return len(name.encode("utf-8")) + len(value.encode("utf-8"))
+
+
+def _try_add_metadata_header(
+    headers: dict[str, str],
     *,
-    file_id: uuid.UUID,
-    blob_id: uuid.UUID,
-    folder_id: uuid.UUID,
-    meta: dict[str, Any] | None,
-) -> dict[str, Any]:
-    return {
-        "file_id": str(file_id),
-        "blob_id": str(blob_id),
-        "folder_id": str(folder_id),
-        "meta": dict(meta or {}),
-    }
+    budget: int,
+    name: str,
+    value: str,
+) -> tuple[int, bool]:
+    cost = _metadata_header_size(name, value)
+    if cost > budget:
+        return budget, False
+    headers[name] = value
+    return budget - cost, True
 
 
 def gateway_user_metadata_headers(
@@ -73,20 +83,34 @@ def gateway_user_metadata_headers(
     folder_id: uuid.UUID,
     meta: dict[str, Any] | None,
 ) -> dict[str, str]:
-    """Build the single Relic metadata header for gateway HEAD/GET responses."""
-    envelope = build_relic_meta_envelope(
-        file_id=file_id,
-        blob_id=blob_id,
-        folder_id=folder_id,
-        meta=meta,
+    """Build Relic ``x-amz-meta-relic-*`` headers for gateway HEAD/GET responses."""
+    headers: dict[str, str] = {}
+    budget = S3_USER_METADATA_MAX_BYTES
+
+    for name, value in (
+        (S3_RELIC_FILE_ID_HEADER, str(file_id)),
+        (S3_RELIC_BLOB_ID_HEADER, str(blob_id)),
+        (S3_RELIC_FOLDER_ID_HEADER, str(folder_id)),
+    ):
+        budget, added = _try_add_metadata_header(
+            headers, budget=budget, name=name, value=value
+        )
+        if not added:
+            log.warning("s3_metadata_lineage_header_dropped", header=name)
+
+    payload = dict(meta or {})
+    meta_json = json.dumps(payload, separators=(",", ":"), sort_keys=True, default=str)
+    budget, added = _try_add_metadata_header(
+        headers,
+        budget=budget,
+        name=S3_RELIC_META_HEADER,
+        value=meta_json,
     )
-    meta_json = json.dumps(envelope, separators=(",", ":"), sort_keys=True, default=str)
-    encoded_size = len(S3_RELIC_META_HEADER.encode("utf-8")) + len(meta_json.encode("utf-8"))
-    if encoded_size > S3_USER_METADATA_MAX_BYTES:
+    if not added:
         log.warning(
             "s3_metadata_json_header_dropped",
             bytes=len(meta_json.encode("utf-8")),
-            budget=S3_USER_METADATA_MAX_BYTES,
+            budget=budget,
         )
-        return {}
-    return {S3_RELIC_META_HEADER: meta_json}
+
+    return headers

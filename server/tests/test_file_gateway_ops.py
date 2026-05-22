@@ -306,12 +306,12 @@ def test_native_header_head_and_get_echo_user_metadata(
     )
     head_response = client.head("/s3/relic/photos/native-cat.jpg", headers=head_headers)
     assert head_response.status_code == 200
+    assert head_response.headers["x-amz-meta-relic-file-id"]
+    assert head_response.headers["x-amz-meta-relic-blob-id"]
+    assert head_response.headers["x-amz-meta-relic-folder-id"]
     relic_meta = json.loads(head_response.headers["x-amz-meta-relic-meta"])
-    assert relic_meta["meta"]["album"] == "native"
-    assert relic_meta["meta"]["source"] == "facet"
-    assert relic_meta["file_id"]
-    assert relic_meta["blob_id"]
-    assert relic_meta["folder_id"]
+    assert relic_meta["album"] == "native"
+    assert relic_meta["source"] == "facet"
     assert "x-amz-meta-album" not in head_response.headers
     assert "x-amz-meta-relic-user" not in head_response.headers
 
@@ -323,7 +323,8 @@ def test_native_header_head_and_get_echo_user_metadata(
     get_response = client.get("/s3/relic/photos/native-cat.jpg", headers=get_headers)
     assert get_response.status_code == 200
     get_relic_meta = json.loads(get_response.headers["x-amz-meta-relic-meta"])
-    assert get_relic_meta["meta"]["album"] == "native"
+    assert get_relic_meta["album"] == "native"
+    assert get_response.headers["x-amz-meta-relic-file-id"]
     assert "x-amz-meta-album" not in get_response.headers
     assert "x-amz-meta-relic-user" not in get_response.headers
 

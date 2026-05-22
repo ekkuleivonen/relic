@@ -5,10 +5,14 @@ import uuid
 
 import pytest
 
-from constants import S3_RELIC_META_HEADER
+from constants import (
+    S3_RELIC_BLOB_ID_HEADER,
+    S3_RELIC_FILE_ID_HEADER,
+    S3_RELIC_FOLDER_ID_HEADER,
+    S3_RELIC_META_HEADER,
+)
 from domain.exceptions import BadRequestError
 from domain.files.meta import (
-    build_relic_meta_envelope,
     gateway_user_metadata_headers,
     is_reserved_user_metadata_key,
     normalize_ingest_meta,
@@ -56,28 +60,7 @@ def test_validate_user_metadata_ingest_rejects_relic_namespace() -> None:
         validate_user_metadata_ingest({"relic-file-id": "fake"})
 
 
-def test_build_relic_meta_envelope() -> None:
-    file_id = uuid.uuid4()
-    blob_id = uuid.uuid4()
-    folder_id = uuid.uuid4()
-    meta = {"test_key": 1, "tags": ["csv"]}
-
-    envelope = build_relic_meta_envelope(
-        file_id=file_id,
-        blob_id=blob_id,
-        folder_id=folder_id,
-        meta=meta,
-    )
-
-    assert envelope == {
-        "file_id": str(file_id),
-        "blob_id": str(blob_id),
-        "folder_id": str(folder_id),
-        "meta": meta,
-    }
-
-
-def test_gateway_user_metadata_headers_only_exposes_relic_meta_json() -> None:
+def test_gateway_user_metadata_headers_exposes_lineage_and_consumer_meta() -> None:
     file_id = uuid.uuid4()
     blob_id = uuid.uuid4()
     folder_id = uuid.uuid4()
@@ -94,16 +77,13 @@ def test_gateway_user_metadata_headers_only_exposes_relic_meta_json() -> None:
         meta=meta,
     )
 
-    assert headers == {S3_RELIC_META_HEADER: json.dumps(
-        build_relic_meta_envelope(
-            file_id=file_id,
-            blob_id=blob_id,
-            folder_id=folder_id,
-            meta=meta,
-        ),
-        separators=(",", ":"),
-        sort_keys=True,
-    )}
-    parsed = json.loads(headers[S3_RELIC_META_HEADER])
-    assert parsed["file_id"] == str(file_id)
-    assert parsed["meta"] == meta
+    assert headers[S3_RELIC_FILE_ID_HEADER] == str(file_id)
+    assert headers[S3_RELIC_BLOB_ID_HEADER] == str(blob_id)
+    assert headers[S3_RELIC_FOLDER_ID_HEADER] == str(folder_id)
+    assert json.loads(headers[S3_RELIC_META_HEADER]) == meta
+    assert set(headers) == {
+        S3_RELIC_FILE_ID_HEADER,
+        S3_RELIC_BLOB_ID_HEADER,
+        S3_RELIC_FOLDER_ID_HEADER,
+        S3_RELIC_META_HEADER,
+    }
