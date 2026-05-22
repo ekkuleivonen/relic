@@ -46,7 +46,11 @@ def detect_db_capabilities(engine):
 
 @lru_cache
 def get_engine():
-    return create_engine(get_database_url(), pool_pre_ping=True)
+    from infra.db.metrics import install_db_metrics
+
+    engine = create_engine(get_database_url(), pool_pre_ping=True)
+    install_db_metrics(engine)
+    return engine
 
 
 @lru_cache

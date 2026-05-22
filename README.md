@@ -272,13 +272,13 @@ private (`kubectl create secret docker-registry …`).
 - **Probes:**
   - Liveness: `GET /healthz` — process is up.
   - Readiness: `GET /readyz` — DB, Redis, registered storage-backend probe state, optional worker heartbeat. Returns **503** until storage backends are probed (maintenance worker must be running; first probe within ~1 minute of deploy).
-- **Metrics:** `GET /metrics` (Prometheus text format, **not** under `/api`). Scrape port 8000 from the pod or via your ingress policy.
+- **Metrics:** `GET /metrics` (Prometheus text format, **not** under `/api`). Scrape port 8000 from the pod or via your ingress policy. Exposes API/gateway traffic, dependency readiness (`relic_dependency_up`), worker heartbeat age, DB pool stats, Redis command latency, auth attempts, and process metrics.
 
 #### Maintenance worker container
 
 - **Image:** server image.
 - **Command:** `arq workers.maintenance.WorkerSettings`
-- **Port:** none exposed.
+- **Port:** **9100** — Prometheus metrics (`METRICS_WORKER_PORT`, disable with `METRICS_WORKER_ENABLED=false`). Scrape separately from the API; this is where maintenance job counters, queue depth, storage probes, and business gauges (`relic_files_total`, `relic_blobs_total`, `relic_storage_bytes`) are updated.
 - **Cron:** enqueues seven jobs every minute (blob purge, storage-backend probes, tier demotion/promotion, audit/filesystem event retention trim, stale multipart abort).
 - **Heartbeat:** writes `relic:heartbeat:maintenance` in Redis. Set `MAINTENANCE_HEARTBEAT_REQUIRED=true` on the API so `/readyz` fails when the worker is absent or stale.
 

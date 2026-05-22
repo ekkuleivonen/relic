@@ -4,6 +4,7 @@ import re
 from typing import Any, BinaryIO
 
 from domain.exceptions import BadRequestError
+from infra import metrics
 from infra.db.models import StorageBackend
 from ports.storage_registry import StorageRegistry
 
@@ -28,15 +29,23 @@ def upload_blob(
     bucket: StorageBackend,
     bucket_key: str,
     body: BinaryIO,
+    operation: str = "put_object",
 ) -> None:
+    size_bytes = _body_size(body)
     adapter = storage.for_storage_backend(bucket)
     remote_bucket, key = _remote_object(bucket, bucket_key)
     adapter.put(
         namespace=remote_bucket,
         key=key,
         body=body,
-        size=_body_size(body),
+        size=size_bytes,
     )
+    metrics.observe_gateway_bytes(
+        operation=operation,
+        direction="write",
+        bytes_count=size_bytes,
+    )
+    metrics.observe_gateway_object_size(operation=operation, size_bytes=size_bytes)
 
 
 def delete_blob_bytes(
@@ -73,6 +82,7 @@ def fetch_blob_bytes(
     bucket: StorageBackend,
     bucket_key: str,
     range_header: str | None = None,
+    operation: str = "get_object",
 ) -> dict[str, Any]:
     """Return a boto-shaped response dict with ``Body`` as a readable stream."""
     adapter = storage.for_storage_backend(bucket)
@@ -87,7 +97,20 @@ def fetch_blob_bytes(
             start=start,
             end=end,
         )
+        bytes_count = end - start + 1
+        metrics.observe_gateway_bytes(
+            operation=operation,
+            direction="read",
+            bytes_count=bytes_count,
+        )
+        metrics.observe_gateway_object_size(operation=operation, size_bytes=bytes_count)
         return {**headers, "Body": body}
 
     body, content_length = adapter.open_read(namespace=remote_bucket, key=key)
+    metrics.observe_gateway_bytes(
+        operation=operation,
+        direction="read",
+        bytes_count=content_length,
+    )
+    metrics.observe_gateway_object_size(operation=operation, size_bytes=content_length)
     return {"ContentLength": str(content_length), "Body": body}

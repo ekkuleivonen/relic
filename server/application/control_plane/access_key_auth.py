@@ -5,6 +5,7 @@ import secrets
 from application.uow import UnitOfWork
 from domain.auth.bearer import parse_bearer_access_key
 from domain.exceptions import ResourceNotFound
+from infra import metrics
 from infra.db.stores import access_keys
 from ports.entities import User
 from utils.logging import get_logger
@@ -48,6 +49,7 @@ def resolve_bearer_authentication(
         return None, "invalid_secret"
 
     access_keys.mark_access_key_used(uow.session, row.access_key)
+    metrics.observe_auth_attempt(auth_type="bearer", result="success")
     return row.user, None
 
 
@@ -58,6 +60,8 @@ def record_bearer_auth_failure(
     request_id: str | None,
     reason: str,
 ) -> None:
+    result = "invalid_key" if reason in {"unknown_key", "revoked"} else "failed"
+    metrics.observe_auth_attempt(auth_type="bearer", result=result)
     parsed = parse_bearer_access_key(authorization)
     metadata: dict[str, str | None] = {"reason": reason}
     if parsed is not None:

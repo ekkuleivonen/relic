@@ -4,6 +4,7 @@ from application.context import EventContext
 from infra.db.stores import auth
 from application.uow import UnitOfWork
 from domain.exceptions import BadRequestError
+from infra import metrics
 from ports.entities import User
 
 
@@ -17,6 +18,7 @@ def login(
     try:
         user = auth.authenticate_user(uow.session, email=email, password=password)
     except BadRequestError:
+        metrics.observe_auth_attempt(auth_type="session", result="failed")
         uow.audit.emit(
             operation="auth.login.failed",
             status="failed",
@@ -24,6 +26,7 @@ def login(
             metadata={"email": email},
         )
         raise
+    metrics.observe_auth_attempt(auth_type="session", result="success")
     uow.audit.record(
         operation="auth.login.succeeded",
         event_context=event_context,

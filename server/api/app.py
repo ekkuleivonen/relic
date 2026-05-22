@@ -37,25 +37,36 @@ configure_openapi(app)
 
 @app.middleware("http")
 async def record_request_metrics(request: Request, call_next):
-    if request.url.path == "/metrics":
+    path = request.url.path
+    if path in {"/metrics", "/healthz", "/readyz"}:
         return await call_next(request)
 
+    is_s3 = path.startswith("/s3")
+    if not is_s3:
+        metrics.API_INFLIGHT.inc()
     started_at = metrics.timer_start()
-    response = await call_next(request)
-    route = getattr(request.scope.get("route"), "path", request.url.path)
-    metrics.observe_api_request(
-        method=request.method,
-        route=route,
-        status_code=response.status_code,
-        started_at=started_at,
-    )
-    if request.url.path.startswith("/s3"):
-        metrics.observe_gateway_request(
-            operation=_gateway_operation(request),
-            status_code=response.status_code,
-            started_at=started_at,
-        )
-    return response
+    status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        if not is_s3:
+            metrics.API_INFLIGHT.dec()
+        if is_s3:
+            metrics.observe_gateway_request(
+                operation=_gateway_operation(request),
+                status_code=status_code,
+                started_at=started_at,
+            )
+        else:
+            route = getattr(request.scope.get("route"), "path", path)
+            metrics.observe_api_request(
+                method=request.method,
+                route=route,
+                status_code=status_code,
+                started_at=started_at,
+            )
 
 if S.S3_CORS_ALLOWED_ORIGINS:
     app.add_middleware(

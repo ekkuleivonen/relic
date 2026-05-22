@@ -7,6 +7,8 @@ from arq.cron import cron
 from application.maintenance import retention as retention_maintenance
 from infra import metrics
 from infra.maintenance import storage as storage_maintenance
+from infra.metrics_refresh import refresh_business_gauges
+from infra.metrics_server import start_worker_metrics_server, stop_worker_metrics_server
 from infra.worker_heartbeats import touch_maintenance_heartbeat
 from application.uow_runner import run_with_uow
 from infra.arq import arq_redis_settings
@@ -21,11 +23,11 @@ log = get_logger(__name__)
 async def purge_dereferenced_blobs_worker(ctx) -> None:
     del ctx
 
-    def run() -> None:
+    def run() -> dict:
         batch_id = uuid.uuid4()
         sm = get_sessionmaker()
         with sm() as db:
-            run_with_uow(
+            return run_with_uow(
                 db,
                 lambda uow: storage_maintenance.purge_dereferenced_blobs_batch(
                     uow,
@@ -76,11 +78,11 @@ async def trim_old_storage_backend_probes_worker(ctx) -> None:
 async def demote_pressured_buckets_worker(ctx) -> None:
     del ctx
 
-    def run() -> None:
+    def run() -> dict:
         batch_id = uuid.uuid4()
         sm = get_sessionmaker()
         with sm() as db:
-            run_with_uow(
+            return run_with_uow(
                 db,
                 lambda uow: storage_maintenance.demote_pressured_storage_backends_batch(
                     uow,
@@ -98,11 +100,11 @@ async def demote_pressured_buckets_worker(ctx) -> None:
 async def promote_recently_accessed_worker(ctx) -> None:
     del ctx
 
-    def run() -> None:
+    def run() -> dict:
         batch_id = uuid.uuid4()
         sm = get_sessionmaker()
         with sm() as db:
-            run_with_uow(
+            return run_with_uow(
                 db,
                 lambda uow: storage_maintenance.promote_recently_accessed_batch(
                     uow,
@@ -182,19 +184,25 @@ async def storage_maintenance_tick(ctx) -> None:
     started_at = metrics.timer_start()
     status = "succeeded"
     redis = ctx["redis"]
+    enqueued_jobs = (
+        "purge_dereferenced_blobs_worker",
+        "refresh_all_storage_backend_probes_worker",
+        "demote_pressured_buckets_worker",
+        "promote_recently_accessed_worker",
+        "trim_old_storage_backend_probes_worker",
+        "trim_old_audit_events_worker",
+        "abort_incomplete_multipart_uploads_worker",
+    )
     try:
-        await redis.enqueue_job("purge_dereferenced_blobs_worker")
-        await redis.enqueue_job("refresh_all_storage_backend_probes_worker")
-        await redis.enqueue_job("demote_pressured_buckets_worker")
-        await redis.enqueue_job("promote_recently_accessed_worker")
-        await redis.enqueue_job("trim_old_storage_backend_probes_worker")
-        await redis.enqueue_job("trim_old_audit_events_worker")
-        await redis.enqueue_job("abort_incomplete_multipart_uploads_worker")
+        for job_name in enqueued_jobs:
+            await redis.enqueue_job(job_name)
+            metrics.observe_arq_job_enqueued(job=job_name)
         queue_depth = int(await redis.zcard(S.MAINTENANCE_QUEUE_NAME))
         metrics.set_maintenance_queue_depth(
             queue=S.MAINTENANCE_QUEUE_NAME,
             depth=queue_depth,
         )
+        refresh_business_gauges()
         log.info(
             "storage_maintenance_tick_enqueued",
             queue=S.MAINTENANCE_QUEUE_NAME,
@@ -214,14 +222,27 @@ async def storage_maintenance_tick(ctx) -> None:
 async def _run_maintenance_job(job: str, run) -> None:
     started_at = metrics.timer_start()
     status = "succeeded"
+    batch_stats = None
     try:
-        await asyncio.to_thread(run)
+        batch_stats = await asyncio.to_thread(run)
     except Exception:
         status = "failed"
         raise
     finally:
         touch_maintenance_heartbeat()
         metrics.observe_maintenance_job(job=job, status=status, started_at=started_at)
+        if isinstance(batch_stats, dict):
+            metrics.observe_maintenance_batch_result(job=job, stats=batch_stats)
+
+
+async def worker_startup(ctx) -> None:
+    del ctx
+    start_worker_metrics_server()
+
+
+async def worker_shutdown(ctx) -> None:
+    del ctx
+    stop_worker_metrics_server()
 
 
 class WorkerSettings:
@@ -243,3 +264,5 @@ class WorkerSettings:
     ]
     redis_settings = arq_redis_settings()
     queue_name = S.MAINTENANCE_QUEUE_NAME
+    on_startup = worker_startup
+    on_shutdown = worker_shutdown

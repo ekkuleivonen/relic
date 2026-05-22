@@ -150,6 +150,8 @@ MAINTENANCE_HEARTBEAT_REQUIRED: bool = env.bool(
     "MAINTENANCE_HEARTBEAT_REQUIRED",
     default=False,
 )
+METRICS_WORKER_PORT: int = env.int("METRICS_WORKER_PORT", default=9100)
+METRICS_WORKER_ENABLED: bool = env.bool("METRICS_WORKER_ENABLED", default=True)
 
 # Storage maintenance (arq cron + jobs; see workers/maintenance.py)
 EVENT_RETENTION_DAYS: int = env.int("EVENT_RETENTION_DAYS", default=90)

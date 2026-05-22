@@ -94,6 +94,8 @@ services:
     container_name: relic_worker_maintenance
     command: arq workers.maintenance.WorkerSettings
     restart: unless-stopped
+    ports:
+      - "9100:9100"
     depends_on:
       seed:
         condition: service_completed_successfully

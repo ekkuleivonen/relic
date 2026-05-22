@@ -53,6 +53,10 @@ from infra.db.stores.placement import (
 log = get_logger(__name__)
 
 
+def _backend_type_label(kind: object) -> str:
+    return kind.value if hasattr(kind, "value") else str(kind)
+
+
 @dataclass(frozen=True)
 class BlobMigrationResult:
     migrated: bool
@@ -196,10 +200,16 @@ def probe_all_storage_backends(
             }
             if result.reachable:
                 ok += 1
-                metrics.observe_storage_backend_probe(status="succeeded")
+                metrics.observe_storage_backend_probe(
+                    status="succeeded",
+                    backend_type=_backend_type_label(b.kind),
+                )
             else:
                 failed += 1
-                metrics.observe_storage_backend_probe(status="failed")
+                metrics.observe_storage_backend_probe(
+                    status="failed",
+                    backend_type=_backend_type_label(b.kind),
+                )
                 uow.audit.emit(
                     job="storage_backend_probe",
                     operation="storage_backend.probe_failed",
@@ -211,7 +221,10 @@ def probe_all_storage_backends(
                 )
         except Exception as exc:
             failed += 1
-            metrics.observe_storage_backend_probe(status="failed")
+            metrics.observe_storage_backend_probe(
+                status="failed",
+                backend_type=_backend_type_label(b.kind),
+            )
             uow.audit.emit(
                 job="storage_backend_probe",
                 operation="storage_backend.probe_failed",
@@ -335,6 +348,7 @@ def _migrate_blob_to_bucket_inner(
             storage=uow.storage,
             bucket=src,
             bucket_key=blob.bucket_key,
+            operation="maintenance_migrate",
         )
         body_io = io.BytesIO(response["Body"].read())
         remote_latency_ms += elapsed_ms(remote_started, minimum=0)
@@ -345,6 +359,7 @@ def _migrate_blob_to_bucket_inner(
             bucket=destination,
             bucket_key=blob.bucket_key,
             body=body_io,
+            operation="maintenance_migrate",
         )
         remote_latency_ms += elapsed_ms(remote_started, minimum=0)
     except Exception as exc:

@@ -274,9 +274,27 @@ def verify_signed_request(request: Request) -> VerifiedRequest:
 
 
 def verify_request(request: Request, db: Session) -> VerifiedRequest:
-    if request.headers.get("authorization"):
-        return verify_authorization_header_request(request, db)
-    return verify_presigned_request(request)
+    from infra import metrics
+
+    try:
+        if request.headers.get("authorization"):
+            result = verify_authorization_header_request(request, db)
+        else:
+            result = verify_presigned_request(request)
+    except S3SigningError as exc:
+        metrics.observe_auth_attempt(
+            auth_type="s3",
+            result=_s3_auth_result(exc),
+        )
+        raise
+    metrics.observe_auth_attempt(auth_type="s3", result="success")
+    return result
+
+
+def _s3_auth_result(exc: S3SigningError) -> str:
+    if exc.code == "InvalidAccessKeyId":
+        return "invalid_key"
+    return "failed"
 
 
 def verify_presigned_request(request: Request) -> VerifiedRequest:
