@@ -5,14 +5,15 @@ from dataclasses import dataclass
 
 from constants import S3_LISTING_DEFAULT_MAX_KEYS, S3_LISTING_MAX_KEYS_LIMIT
 from enums import Permission
-from domain.exceptions import BadRequestError, ResourceNotFound
+from domain.exceptions import BadRequestError
 from infra.db.models import File, Folder, User
+from infra.gateway.bucket import gateway_bucket_name, require_gateway_bucket
+from infra.gateway.object_paths import require_root_folder
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from infra.db.stores import folder_access
 from infra.db.stores.filesystem import collect_descendant_folder_ids
-from infra.cache.hotpath import get_or_set_request
 
 
 @dataclass(frozen=True)
@@ -42,35 +43,27 @@ class ListObjectsV2Page:
     key_count: int
 
 
+def folder_path_to_key_prefix(folder_path: str) -> str:
+    return "/".join(part for part in folder_path.split("/") if part)
+
+
+def object_key_for_file(*, folder_path: str, filename: str) -> str:
+    prefix = folder_path_to_key_prefix(folder_path)
+    return f"{prefix}/{filename}" if prefix else filename
+
+
 def list_visible_buckets(db: Session, user: User) -> list[BucketListingItem]:
+    del user
     root = require_root_folder(db)
-    permissions = folder_access.effective_permissions_by_folder(db, user)
-    folders = db.scalars(
-        select(Folder).where(Folder.parent_id == root.id).order_by(Folder.name)
-    ).all()
     return [
-        BucketListingItem(name=folder.name, created_at=folder.created_at)
-        for folder in folders
-        if permissions.get(folder.id, 0) & int(Permission.READ)
+        BucketListingItem(name=gateway_bucket_name(), created_at=root.created_at),
     ]
 
 
 def require_visible_bucket(db: Session, user: User, bucket_name: str) -> Folder:
-    root = require_root_folder(db)
-    bucket = get_or_set_request(
-        db,
-        f"visible_bucket:{bucket_name}",
-        lambda: db.scalar(
-            select(Folder).where(Folder.parent_id == root.id, Folder.name == bucket_name)
-        ),
-    )
-    if bucket is None:
-        raise ResourceNotFound("Storage backend not found")
-
-    folder_access.require_folder_permission(
-        db, user, bucket.id, Permission.READ
-    )
-    return bucket
+    del user
+    require_gateway_bucket(bucket_name)
+    return require_root_folder(db)
 
 
 def list_objects_v2(
@@ -84,16 +77,17 @@ def list_objects_v2(
     continuation_token: str | None = None,
     start_after: str | None = None,
 ) -> ListObjectsV2Page:
-    bucket = require_visible_bucket(db, user, bucket_name)
+    require_gateway_bucket(bucket_name)
     normalized_prefix = normalize_prefix(prefix)
     normalized_delimiter = normalize_delimiter(delimiter)
     page_size = normalize_max_keys(max_keys)
     offset = decode_continuation_token(continuation_token)
+    anchor = resolve_listing_folder_from_prefix(db, normalized_prefix)
 
     candidates = build_listing_candidates(
         db,
         user,
-        bucket=bucket,
+        anchor_folder=anchor,
         prefix=normalized_prefix,
         delimiter=normalized_delimiter,
         start_after=start_after or None,
@@ -132,18 +126,17 @@ def build_listing_candidates(
     db: Session,
     user: User,
     *,
-    bucket: Folder,
+    anchor_folder: Folder,
     prefix: str,
     delimiter: str | None,
     start_after: str | None,
 ) -> list[tuple[str, ObjectListingItem | str]]:
     permissions = folder_access.effective_permissions_by_folder(db, user)
-    bucket_path = folder_access.resolve_folder_path(db, bucket)
     folders, files = _load_listing_rows(
-        db, bucket=bucket, prefix=prefix, delimiter=delimiter
+        db, anchor_folder=anchor_folder, prefix=prefix, delimiter=delimiter
     )
     folder_ids = {
-        bucket.id,
+        anchor_folder.id,
         *(folder.id for folder in folders),
         *(file.folder_id for file in files),
     }
@@ -156,10 +149,7 @@ def build_listing_candidates(
         for folder in folders:
             if not permissions.get(folder.id, 0) & int(Permission.READ):
                 continue
-            folder_path = paths[folder.id]
-            if not folder_path.startswith(f"{bucket_path.rstrip('/')}/"):
-                continue
-            key_prefix = path_to_key(bucket_path, folder_path, is_folder=True)
+            key_prefix = f"{folder_path_to_key_prefix(paths[folder.id])}/"
             collapsed = collapse_common_prefix(key_prefix, prefix, delimiter)
             if (
                 start_after is not None
@@ -174,12 +164,7 @@ def build_listing_candidates(
     for file in files:
         if not permissions.get(file.folder_id, 0) & int(Permission.READ):
             continue
-        folder_path = paths[file.folder_id]
-        if folder_path != bucket_path and not folder_path.startswith(
-            f"{bucket_path.rstrip('/')}/"
-        ):
-            continue
-        key = f"{path_to_key(bucket_path, folder_path)}{file.name}"
+        key = object_key_for_file(folder_path=paths[file.folder_id], filename=file.name)
         if not key.startswith(prefix):
             continue
         if start_after is not None and key <= start_after:
@@ -206,37 +191,34 @@ def build_listing_candidates(
 def _load_listing_rows(
     db: Session,
     *,
-    bucket: Folder,
+    anchor_folder: Folder,
     prefix: str,
     delimiter: str | None,
 ) -> tuple[list[Folder], list[File]]:
-    """Load folders/files scoped to the bucket subtree (not the whole deployment)."""
-    subtree_ids = collect_descendant_folder_ids(db, bucket.id)
-    subtree_id_set = set(subtree_ids)
-
     if delimiter and (not prefix or prefix.endswith("/")):
-        listing_folder = _resolve_listing_folder(db, bucket, prefix)
         folders = list(
             db.scalars(
                 select(Folder)
-                .where(Folder.parent_id == listing_folder.id)
+                .where(Folder.parent_id == anchor_folder.id)
                 .order_by(Folder.name)
             ).all()
         )
         files = list(
             db.scalars(
                 select(File)
-                .where(File.folder_id == listing_folder.id)
+                .where(File.folder_id == anchor_folder.id)
                 .options(selectinload(File.blob))
                 .order_by(File.name)
             ).all()
         )
         return folders, files
 
+    subtree_ids = collect_descendant_folder_ids(db, anchor_folder.id)
+    subtree_id_set = set(subtree_ids)
     folders = list(
         db.scalars(
             select(Folder)
-            .where(Folder.id.in_(subtree_id_set), Folder.id != bucket.id)
+            .where(Folder.id.in_(subtree_id_set), Folder.id != anchor_folder.id)
             .order_by(Folder.name)
         ).all()
     )
@@ -251,11 +233,12 @@ def _load_listing_rows(
     return folders, files
 
 
-def _resolve_listing_folder(db: Session, bucket: Folder, prefix: str) -> Folder:
+def resolve_listing_folder_from_prefix(db: Session, prefix: str) -> Folder:
+    root = require_root_folder(db)
     if not prefix:
-        return bucket
+        return root
     parts = [part for part in prefix.split("/") if part]
-    current = bucket
+    current = root
     for part in parts:
         child = db.scalar(
             select(Folder).where(
@@ -267,17 +250,6 @@ def _resolve_listing_folder(db: Session, bucket: Folder, prefix: str) -> Folder:
             return current
         current = child
     return current
-
-
-def path_to_key(bucket_path: str, folder_path: str, *, is_folder: bool = False) -> str:
-    bucket_prefix = bucket_path.rstrip("/")
-    if folder_path == bucket_path:
-        relative = ""
-    else:
-        relative = folder_path.removeprefix(f"{bucket_prefix}/").strip("/")
-    if not relative:
-        return ""
-    return f"{relative}/"
 
 
 def collapse_common_prefix(key: str, prefix: str, delimiter: str) -> str | None:
@@ -328,14 +300,3 @@ def decode_continuation_token(token: str | None) -> int:
     if offset < 0:
         raise BadRequestError("Invalid continuation-token")
     return offset
-
-
-def require_root_folder(db: Session) -> Folder:
-    root = get_or_set_request(
-        db,
-        "root_folder",
-        lambda: db.scalar(select(Folder).where(Folder.parent_id.is_(None))),
-    )
-    if root is None:
-        raise ResourceNotFound("Root folder not found")
-    return root

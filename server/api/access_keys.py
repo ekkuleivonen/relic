@@ -58,7 +58,10 @@ class AccessKeyRead(BaseModel):
 
 class AccessKeyCreated(AccessKeyRead):
     secret_access_key: str = Field(
-        description="Shown once at creation. Use as `Bearer key_id:secret` for `/api/*`."
+        description=(
+            "Shown once at creation. Same credential for `Bearer key_id:secret` on "
+            "`/api/*` and AWS SigV4 on `/s3/*` (region `relic`, path-style)."
+        ),
     )
 
     @classmethod

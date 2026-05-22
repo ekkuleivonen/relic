@@ -141,9 +141,9 @@ def test_get_file_includes_gateway_location_for_flat_folder(
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["gateway"] == {
-        "bucket": "photos",
-        "key": "cat.jpg",
-        "object_uri": "/s3/photos/cat.jpg",
+        "bucket": "relic",
+        "key": "photos/cat.jpg",
+        "object_uri": "/s3/relic/photos/cat.jpg",
     }
 
 
@@ -171,9 +171,9 @@ def test_get_file_includes_gateway_location_for_nested_folder(
     response = client.get(f"/api/files/{file.id}")
     assert response.status_code == 200, response.text
     assert response.json()["gateway"] == {
-        "bucket": "Local Testing",
-        "key": "era-a/account-statement.csv",
-        "object_uri": "/s3/Local%20Testing/era-a/account-statement.csv",
+        "bucket": "relic",
+        "key": "Local Testing/era-a/account-statement.csv",
+        "object_uri": "/s3/relic/Local%20Testing/era-a/account-statement.csv",
     }
 
 
@@ -190,8 +190,8 @@ def test_rename_updates_gateway_key(
 
     response = client.patch(f"/api/files/{file.id}", json={"name": "feline.jpg"})
     assert response.status_code == 200, response.text
-    assert response.json()["gateway"]["key"] == "feline.jpg"
-    assert response.json()["gateway"]["object_uri"] == "/s3/photos/feline.jpg"
+    assert response.json()["gateway"]["key"] == "photos/feline.jpg"
+    assert response.json()["gateway"]["object_uri"] == "/s3/relic/photos/feline.jpg"
 
 
 def test_list_files_includes_gateway_on_each_item(
@@ -206,8 +206,8 @@ def test_list_files_includes_gateway_on_each_item(
     response = client.get(f"/api/files/?folder_id={photos_folder.id}")
     assert response.status_code == 200, response.text
     item = response.json()["items"][0]
-    assert item["gateway"]["bucket"] == "photos"
-    assert item["gateway"]["key"] == "a.jpg"
+    assert item["gateway"]["bucket"] == "relic"
+    assert item["gateway"]["key"] == "photos/a.jpg"
 
 
 # ---------------------------------------------------------------------------

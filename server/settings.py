@@ -79,6 +79,8 @@ SESSION_COOKIE_SECURE: bool = env.bool("SESSION_COOKIE_SECURE", default=False)
 
 RELIC_SIGNING_TTL_SECONDS: int = env.int("RELIC_SIGNING_TTL_SECONDS", default=300)
 RELIC_SIGNING_REGION: str = env.str("RELIC_SIGNING_REGION", default="relic")
+# Fixed virtual bucket for the S3 gateway; folder tree lives in object keys.
+RELIC_GATEWAY_BUCKET: str = env.str("RELIC_GATEWAY_BUCKET", default="relic")
 
 _SIGNING_KEY_ID: str = env.str("RELIC_SIGNING_KEY_ID", default="relic-dev")
 _SIGNING_SECRET: str = env.str(

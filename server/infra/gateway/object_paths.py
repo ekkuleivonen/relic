@@ -4,6 +4,7 @@ from pathlib import PurePosixPath
 from domain.exceptions import BadRequestError, ResourceNotFound
 from enums import Permission
 from infra.db.models import Folder, User
+from infra.gateway.bucket import gateway_bucket_name, require_gateway_bucket
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,20 @@ def normalize_key(key: str) -> str:
     return normalized_key
 
 
+def key_parts(key: str) -> list[str]:
+    normalized_key = normalize_key(key)
+    return [
+        part for part in PurePosixPath(normalized_key).parts if part not in ("", ".")
+    ]
+
+
+def require_root_folder(db: Session) -> Folder:
+    root = db.scalar(select(Folder).where(Folder.parent_id.is_(None)))
+    if root is None:
+        raise ResourceNotFound("Root folder not found")
+    return root
+
+
 def resolve_object_path(
     db: Session,
     *,
@@ -25,24 +40,12 @@ def resolve_object_path(
     key: str,
     current_user: User,
 ) -> tuple[Folder, str]:
-    normalized_key = normalize_key(key)
-    parts = [
-        part for part in PurePosixPath(normalized_key).parts if part not in ("", ".")
-    ]
+    require_gateway_bucket(bucket_name)
+    parts = key_parts(key)
     if not parts:
         raise BadRequestError("Object key must include a file name")
 
-    root = db.scalar(select(Folder).where(Folder.parent_id.is_(None)))
-    if not root:
-        raise ResourceNotFound("Root folder not found")
-
-    bucket_folder = db.scalar(
-        select(Folder).where(Folder.parent_id == root.id, Folder.name == bucket_name)
-    )
-    if not bucket_folder:
-        raise ResourceNotFound("StorageBackend folder not found")
-
-    parent = bucket_folder
+    parent = require_root_folder(db)
     for folder_name in parts[:-1]:
         parent = get_or_create_child_folder(
             db,
@@ -89,24 +92,12 @@ def resolve_existing_object_path(
     bucket_name: str,
     key: str,
 ) -> tuple[Folder | None, str]:
-    normalized_key = normalize_key(key)
-    parts = [
-        part for part in PurePosixPath(normalized_key).parts if part not in ("", ".")
-    ]
+    require_gateway_bucket(bucket_name)
+    parts = key_parts(key)
     if not parts:
         return None, ""
 
-    root = db.scalar(select(Folder).where(Folder.parent_id.is_(None)))
-    if not root:
-        return None, ""
-
-    bucket_folder = db.scalar(
-        select(Folder).where(Folder.parent_id == root.id, Folder.name == bucket_name)
-    )
-    if not bucket_folder:
-        return None, ""
-
-    parent = bucket_folder
+    parent = require_root_folder(db)
     for folder_name in parts[:-1]:
         child = db.scalar(
             select(Folder).where(
@@ -134,17 +125,22 @@ def require_existing_object_path(
     return folder, file_name
 
 
+def build_object_key_for_folder_path(*, folder_path: str, filename: str) -> str:
+    parts = [part for part in folder_path.split("/") if part]
+    if not parts:
+        raise BadRequestError("File is not under a folder")
+    return "/".join([*parts, filename])
+
+
 def build_bucket_and_key_for_file(db: Session, file) -> tuple[str, str]:
-    """Compose (bucket_name, key) the gateway uses to identify a File."""
+    """Compose (gateway_bucket, object_key) for a File."""
     folder_path = folder_access.resolve_folder_path(
         db, db.get(Folder, file.folder_id)
     )
-    parts = [part for part in folder_path.split("/") if part]
-    if not parts:
-        raise BadRequestError("File is not under a bucket folder")
-    bucket = parts[0]
-    key_parts = [*parts[1:], file.name]
-    return bucket, "/".join(key_parts)
+    return gateway_bucket_name(), build_object_key_for_folder_path(
+        folder_path=folder_path,
+        filename=file.name,
+    )
 
 
 def build_bucket_and_key_for_destination(
@@ -161,6 +157,7 @@ def build_bucket_and_key_for_destination(
         raise BadRequestError(
             "Files must be uploaded into a subfolder, not the root folder."
         )
-    bucket = parts[0]
-    key_parts = [*parts[1:], filename]
-    return bucket, "/".join(key_parts)
+    return gateway_bucket_name(), build_object_key_for_folder_path(
+        folder_path=folder_path,
+        filename=filename,
+    )

@@ -146,16 +146,18 @@ Relic separates **metadata** (`/api/*`) from **bytes** (`/s3/*`). Every
 ```json
 {
   "gateway": {
-    "bucket": "photos",
-    "key": "2024/cat.jpg",
-    "object_uri": "/s3/photos/2024/cat.jpg"
+    "bucket": "relic",
+    "key": "photos/2024/cat.jpg",
+    "object_uri": "/s3/relic/photos/2024/cat.jpg"
   }
 }
 ```
 
-**Bucket/key mapping:** `gateway.bucket` is the first segment of the containing
-folder's `path`; `gateway.key` is the remaining path segments plus the file name.
-For a file directly under a top-level folder, the key is just the filename.
+**Bucket/key mapping:** `gateway.bucket` is always the fixed gateway bucket
+(`relic` by default). `gateway.key` is the full virtual folder path from the
+root plus the file name (e.g. `photos/2024/cat.jpg`).
+
+With boto3, use `Bucket="relic"` and `Key=file["gateway"]["key"]`.
 
 **Authentication:** Use one access key in two forms:
 
@@ -166,9 +168,47 @@ For a file directly under a top-level folder, the key is just the filename.
 
 Do not send Bearer tokens to the S3 gateway — use SigV4 or presigned URLs.
 
-**Reading bytes:** Either presign (`POST /api/uploads/presign-download`) or
-issue a native SigV4 GET against `gateway.object_uri`. `blob_id` is for internal
-deduplication only; it is not an object store address.
+**Reading bytes (workers):** Native SigV4 GET is the recommended service path.
+Use **`gateway.object_uri`** as the signing URL path — it is percent-encoded for
+SigV4 (e.g. `/s3/Local%20Testing/file.csv`). Relic's canonical URI uses encoding;
+passing literal spaces in the signing URL (e.g. `/s3/Local Testing/...`) causes
+`SignatureDoesNotMatch` with botocore.
+
+`gateway.bucket` and `gateway.key` are human-readable logical names and may
+contain spaces. Do not naively join them into a signing path without encoding.
+
+Set `x-amz-content-sha256: UNSIGNED-PAYLOAD` on GET/HEAD/DELETE. Presign remains
+for browsers; it uses separate server signing keys, not your access key.
+
+Reference client (botocore):
+
+```python
+from urllib.parse import urljoin
+
+from botocore.auth import S3SigV4Auth
+from botocore.awsrequest import AWSRequest
+from botocore.credentials import Credentials
+
+RELIC_HOST = "relic.example.com"
+KEY_ID = "RK..."
+SECRET = "..."
+
+file = ...  # GET /api/files/{id}
+path = file["gateway"]["object_uri"]  # percent-encoded; required for SigV4
+
+request = AWSRequest(
+    method="GET",
+    url=urljoin(f"https://{RELIC_HOST}", path),
+    headers={"Host": RELIC_HOST, "x-amz-content-sha256": "UNSIGNED-PAYLOAD"},
+)
+S3SigV4Auth(Credentials(KEY_ID, SECRET), "s3", "relic").add_auth(request)
+
+# Issue GET with dict(request.headers) — e.g. httpx, requests, aiohttp
+```
+
+**Browsers:** `POST /api/uploads/presign-download` → replay the signed URL.
+
+`blob_id` is for internal deduplication only; it is not an object store address.
 
 ## Architecture
 
@@ -413,6 +453,7 @@ replicas require a **shared** Redis instance for cache invalidation coherence.
 
 | Variable | Default | Notes |
 |----------|---------|-------|
+| `RELIC_GATEWAY_BUCKET` | `relic` | Fixed S3 bucket name for all `/s3` object paths |
 | `RELIC_SIGNING_TTL_SECONDS` | `300` | Presigned URL lifetime |
 | `RELIC_SIGNING_REGION` | `relic` | Native SigV4 clients must use this region |
 | `RELIC_SIGNING_KEY_ID` | `relic-dev` | Fallback when `RELIC_SIGNING_KEYS` unset |

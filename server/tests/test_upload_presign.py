@@ -123,7 +123,7 @@ def test_presigned_put_creates_file_and_blob(
 
     assert response.status_code == 200
     signed = response.json()
-    assert signed["url"].startswith("/s3/photos/")
+    assert signed["url"].startswith("/s3/relic/photos/")
     assert signed["headers"]["x-amz-meta-album"] == "spring"
     assert signed["headers"]["x-amz-meta-relic-user"] == str(user.id)
 
@@ -276,7 +276,7 @@ def test_replayed_url_hits_file_unique_constraint(
 
 
 def test_unsigned_gateway_put_is_rejected(client):
-    response = client.put("/s3/photos/cat.jpg", content=b"cat")
+    response = client.put("/s3/relic/photos/cat.jpg", content=b"cat")
 
     assert response.status_code == 400
     assert "AuthorizationHeaderMalformed" in response.text

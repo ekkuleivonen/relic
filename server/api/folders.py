@@ -46,9 +46,9 @@ class FolderRead(BaseModel):
     name: str
     path: str = Field(
         description=(
-            "Full path from root (e.g. `photos/2024`). The first segment is the S3 "
-            "gateway bucket name; remaining segments plus a filename form the object "
-            "key (see `FileRead.gateway`)."
+            "Full path from root (e.g. `photos/2024`). Combined with a file name "
+            "this forms the S3 gateway object key under the fixed gateway bucket "
+            "(see `FileRead.gateway`)."
         ),
     )
     effective_permissions: int = Field(

@@ -72,9 +72,10 @@ class PresignUploadResponse(BaseModel):
 
     url: str = Field(
         description=(
-            "Path-style S3 URL relative to the Relic host "
-            "(e.g. `/s3/photos/cat.jpg?X-Amz-...`). Prepend your API base URL's "
-            "origin for an absolute URL. Same `bucket`/`key` as `FileRead.gateway`."
+            "Path-style S3 URL relative to the Relic host, percent-encoded where "
+            "needed (e.g. `/s3/Local%20Testing/file.csv?X-Amz-...`). Prepend your "
+            "API base URL's origin for an absolute URL. Same location as "
+            "`FileRead.gateway`; for native SigV4 use literal `bucket`/`key` instead."
         ),
     )
     headers: dict[str, str] = Field(

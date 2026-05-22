@@ -53,22 +53,20 @@ class FileGatewayRead(BaseModel):
 
     bucket: str = Field(
         description=(
-            "S3 gateway bucket name: the first segment of the containing folder's "
-            "`path` (e.g. `photos` for folder path `photos/2024`)."
+            "Fixed S3 gateway bucket name (default `relic`). Constant for all objects; "
+            "the virtual folder tree lives in `key`."
         ),
     )
     key: str = Field(
         description=(
-            "S3 gateway object key: remaining folder path segments plus the file "
-            "name (e.g. `2024/cat.jpg` for folder path `photos/2024` and name "
-            "`cat.jpg`; `cat.jpg` when the file sits directly under the bucket "
-            "folder)."
+            "Full virtual object key: folder path from the root plus filename "
+            "(e.g. `photos/2024/cat.jpg`, `Local Testing/era-a/file.csv`)."
         ),
     )
     object_uri: str = Field(
         description=(
-            "Path-style gateway URI for this file (e.g. `/s3/photos/2024/cat.jpg`). "
-            "URL-encoded where needed. Prepend your Relic host for absolute URLs."
+            "Percent-encoded path-style gateway URI "
+            "(e.g. `/s3/relic/photos/2024/cat.jpg`). Use in native SigV4 signing URLs."
         ),
     )
 

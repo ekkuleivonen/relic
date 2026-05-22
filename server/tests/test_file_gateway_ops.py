@@ -116,10 +116,16 @@ def sign_native_s3_request(
     path: str,
     body: bytes = b"",
     headers: dict[str, str] | None = None,
+    query_params: dict[str, str] | None = None,
 ) -> dict[str, str]:
+    from urllib.parse import urlencode
+
+    url = f"http://testserver{path}"
+    if query_params:
+        url = f"{url}?{urlencode(query_params)}"
     request = AWSRequest(
         method=method,
-        url=f"http://testserver{path}",
+        url=url,
         data=body,
         headers={"Host": "testserver", **(headers or {})},
     )
@@ -256,12 +262,12 @@ def test_native_header_put_creates_file_and_marks_key_used(
     headers = sign_native_s3_request(
         access_key,
         method="PUT",
-        path="/s3/photos/native-cat.jpg",
+        path="/s3/relic/photos/native-cat.jpg",
         body=body,
         headers={"x-amz-meta-album": "native"},
     )
 
-    response = client.put("/s3/photos/native-cat.jpg", content=body, headers=headers)
+    response = client.put("/s3/relic/photos/native-cat.jpg", content=body, headers=headers)
 
     assert response.status_code == 200, response.text
     db_session.refresh(access_key)
@@ -286,39 +292,80 @@ def test_native_header_list_head_get_and_delete(
     upload_file(client, photos_folder, filename="cat.jpg", content=b"cat photo")
     access_key = create_access_key(db_session, user)
 
+    list_query = {"list-type": "2", "prefix": "photos/"}
     list_headers = sign_native_s3_request(
         access_key,
         method="GET",
-        path="/s3/photos?list-type=2",
+        path="/s3/relic",
+        query_params=list_query,
     )
-    list_response = client.get("/s3/photos?list-type=2", headers=list_headers)
+    list_response = client.get(
+        "/s3/relic",
+        params=list_query,
+        headers=list_headers,
+    )
     assert list_response.status_code == 200, list_response.text
-    assert "<Key>cat.jpg</Key>" in list_response.text
+    assert "<Key>photos/cat.jpg</Key>" in list_response.text
 
     head_headers = sign_native_s3_request(
         access_key,
         method="HEAD",
-        path="/s3/photos/cat.jpg",
+        path="/s3/relic/photos/cat.jpg",
     )
-    assert client.head("/s3/photos/cat.jpg", headers=head_headers).status_code == 200
+    assert client.head("/s3/relic/photos/cat.jpg", headers=head_headers).status_code == 200
 
     get_headers = sign_native_s3_request(
         access_key,
         method="GET",
-        path="/s3/photos/cat.jpg",
+        path="/s3/relic/photos/cat.jpg",
     )
-    get_response = client.get("/s3/photos/cat.jpg", headers=get_headers)
+    get_response = client.get("/s3/relic/photos/cat.jpg", headers=get_headers)
     assert get_response.status_code == 200, get_response.text
     assert get_response.content == b"cat photo"
 
     delete_headers = sign_native_s3_request(
         access_key,
         method="DELETE",
-        path="/s3/photos/cat.jpg",
+        path="/s3/relic/photos/cat.jpg",
     )
-    delete_response = client.delete("/s3/photos/cat.jpg", headers=delete_headers)
+    delete_response = client.delete("/s3/relic/photos/cat.jpg", headers=delete_headers)
     assert delete_response.status_code == 204
     assert db_session.scalar(select(File).where(File.name == "cat.jpg")) is None
+
+
+def test_native_header_get_with_spaced_bucket_name(
+    client, db_session, user, root_folder, physical_bucket, fake_storage
+):
+    """Sign using gateway.object_uri (percent-encoded), not literal bucket/key."""
+    local_testing = Folder(name="Local Testing", parent_id=root_folder.id)
+    db_session.add(local_testing)
+    db_session.commit()
+    grant(
+        db_session,
+        user,
+        local_testing,
+        int(Permission.READ | Permission.WRITE),
+    )
+    upload_file(
+        client,
+        local_testing,
+        filename="file.csv",
+        content=b"comma,separated,values",
+    )
+    access_key = create_access_key(db_session, user)
+
+    # Use percent-encoded path in the signing URL (matches Relic's SigV4 canonical URI).
+    # gateway.object_uri is the right input for botocore AWSRequest URLs.
+    signing_path = "/s3/relic/Local%20Testing/file.csv"
+    get_headers = sign_native_s3_request(
+        access_key,
+        method="GET",
+        path=signing_path,
+    )
+    get_response = client.get(signing_path, headers=get_headers)
+
+    assert get_response.status_code == 200, get_response.text
+    assert get_response.content == b"comma,separated,values"
 
 
 def test_native_header_multipart_upload(
@@ -329,10 +376,12 @@ def test_native_header_multipart_upload(
     create_headers = sign_native_s3_request(
         access_key,
         method="POST",
-        path="/s3/photos/native-large.bin?uploads=",
+        path="/s3/relic/photos/native-large.bin",
+        query_params={"uploads": ""},
     )
     create_response = client.post(
-        "/s3/photos/native-large.bin?uploads=",
+        "/s3/relic/photos/native-large.bin",
+        params={"uploads": ""},
         headers=create_headers,
     )
     assert create_response.status_code == 200, create_response.text
@@ -342,16 +391,20 @@ def test_native_header_multipart_upload(
 
     uploaded_parts = []
     for part_number, content in [(1, b"native "), (2, b"multipart")]:
-        path = (
-            f"/s3/photos/native-large.bin?partNumber={part_number}&uploadId={upload_id}"
-        )
+        part_query = {"partNumber": str(part_number), "uploadId": upload_id}
         headers = sign_native_s3_request(
             access_key,
             method="PUT",
-            path=path,
+            path="/s3/relic/photos/native-large.bin",
             body=content,
+            query_params=part_query,
         )
-        response = client.put(path, content=content, headers=headers)
+        response = client.put(
+            "/s3/relic/photos/native-large.bin",
+            params=part_query,
+            content=content,
+            headers=headers,
+        )
         assert response.status_code == 200, response.text
         uploaded_parts.append((part_number, response.headers["etag"]))
 
@@ -363,15 +416,16 @@ def test_native_header_multipart_upload(
         )
         + "</CompleteMultipartUpload>"
     ).encode()
-    complete_path = f"/s3/photos/native-large.bin?uploadId={upload_id}"
     complete_headers = sign_native_s3_request(
         access_key,
         method="POST",
-        path=complete_path,
+        path="/s3/relic/photos/native-large.bin",
         body=complete_body,
+        query_params={"uploadId": upload_id},
     )
     complete_response = client.post(
-        complete_path,
+        "/s3/relic/photos/native-large.bin",
+        params={"uploadId": upload_id},
         content=complete_body,
         headers=complete_headers,
     )
@@ -395,12 +449,12 @@ def test_native_header_rejects_bad_payload_hash(
     headers = sign_native_s3_request(
         access_key,
         method="PUT",
-        path="/s3/photos/bad-hash.jpg",
+        path="/s3/relic/photos/bad-hash.jpg",
         body=b"signed body",
     )
 
     response = client.put(
-        "/s3/photos/bad-hash.jpg", content=b"tampered", headers=headers
+        "/s3/relic/photos/bad-hash.jpg", content=b"tampered", headers=headers
     )
 
     assert response.status_code == 403
@@ -414,13 +468,15 @@ def test_native_header_revoked_access_key_is_rejected(
     access_key = create_access_key(db_session, user)
     access_key.revoked_at = dt.datetime.now(dt.UTC)
     db_session.commit()
+    list_query = {"list-type": "2", "prefix": "photos/"}
     headers = sign_native_s3_request(
         access_key,
         method="GET",
-        path="/s3/photos?list-type=2",
+        path="/s3/relic",
+        query_params=list_query,
     )
 
-    response = client.get("/s3/photos?list-type=2", headers=headers)
+    response = client.get("/s3/relic", params=list_query, headers=headers)
 
     assert response.status_code == 403
     assert "InvalidAccessKeyId" in response.text
@@ -725,8 +781,8 @@ def test_presigned_head_returns_ok(
     upload_file(client, photos_folder, filename="cat.jpg", content=b"cat photo")
     signed = object_signing.sign_request_url(
         method="HEAD",
-        bucket="photos",
-        key="cat.jpg",
+        bucket="relic",
+        key="photos/cat.jpg",
         headers={},
         user_id=user.id,
         host="testserver",
@@ -743,8 +799,8 @@ def test_multipart_upload_completes_object(
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     create = object_signing.sign_request_url(
         method="POST",
-        bucket="photos",
-        key="large.bin",
+        bucket="relic",
+        key="photos/large.bin",
         headers={},
         user_id=user.id,
         host="testserver",
@@ -762,8 +818,8 @@ def test_multipart_upload_completes_object(
     for part_number, content in [(1, b"hello "), (2, b"world")]:
         signed = object_signing.sign_request_url(
             method="PUT",
-            bucket="photos",
-            key="large.bin",
+            bucket="relic",
+            key="photos/large.bin",
             headers={},
             user_id=user.id,
             host="testserver",
@@ -777,7 +833,7 @@ def test_multipart_upload_completes_object(
 
     uploads = object_signing.sign_bucket_url(
         method="GET",
-        bucket="photos",
+        bucket="relic",
         headers={},
         user_id=user.id,
         host="testserver",
@@ -791,8 +847,8 @@ def test_multipart_upload_completes_object(
 
     parts = object_signing.sign_request_url(
         method="GET",
-        bucket="photos",
-        key="large.bin",
+        bucket="relic",
+        key="photos/large.bin",
         headers={},
         user_id=user.id,
         host="testserver",
@@ -814,8 +870,8 @@ def test_multipart_upload_completes_object(
     )
     complete = object_signing.sign_request_url(
         method="POST",
-        bucket="photos",
-        key="large.bin",
+        bucket="relic",
+        key="photos/large.bin",
         headers={},
         user_id=user.id,
         host="testserver",
@@ -863,8 +919,8 @@ def test_multipart_upload_abort_removes_temp_parts(
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     create = object_signing.sign_request_url(
         method="POST",
-        bucket="photos",
-        key="large.bin",
+        bucket="relic",
+        key="photos/large.bin",
         headers={},
         user_id=user.id,
         host="testserver",
@@ -877,8 +933,8 @@ def test_multipart_upload_abort_removes_temp_parts(
     ]
     signed = object_signing.sign_request_url(
         method="PUT",
-        bucket="photos",
-        key="large.bin",
+        bucket="relic",
+        key="photos/large.bin",
         headers={},
         user_id=user.id,
         host="testserver",
@@ -895,8 +951,8 @@ def test_multipart_upload_abort_removes_temp_parts(
     )
     abort = object_signing.sign_request_url(
         method="DELETE",
-        bucket="photos",
-        key="large.bin",
+        bucket="relic",
+        key="photos/large.bin",
         headers={},
         user_id=user.id,
         host="testserver",

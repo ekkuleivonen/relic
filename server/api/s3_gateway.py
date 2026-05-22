@@ -44,14 +44,16 @@ router = APIRouter()
 _S3_DESCRIPTION = (
     "SigV4 authentication required. Not testable via Swagger Authorize — "
     "use `/api/uploads/presign*` to obtain signed URLs. "
-    "Path-style only: `/s3/{bucket}/{key}` where bucket is a top-level folder name."
+    "Path-style only: `/s3/{bucket}/{key}` where `{bucket}` is always the fixed "
+    "gateway bucket (`relic` by default) and `{key}` is the full virtual folder path "
+    "plus filename (e.g. `/s3/relic/photos/2024/cat.jpg`)."
 )
 
 
 @router.get(
     "/",
     summary="List buckets",
-    description=_S3_DESCRIPTION + " Returns XML listing visible top-level folders.",
+    description=_S3_DESCRIPTION + " Returns XML listing the gateway bucket.",
 )
 async def list_buckets(request: Request, uow: UnitOfWorkDep) -> Response:
     try:

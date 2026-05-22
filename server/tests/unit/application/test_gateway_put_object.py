@@ -53,8 +53,8 @@ def test_put_object_with_memory_storage(db_session, photos_folder):
     result = object_writes.put_object(
         db_session,
         storage=storage,
-        bucket_name="photos",
-        key="2026/cat.jpg",
+        bucket_name="relic",
+        key="photos/2026/cat.jpg",
         body=body,
         ingest_meta={"album": "spring"},
         current_user=user,
@@ -78,8 +78,8 @@ def test_put_object_deduplicates_identical_bytes(db_session, photos_folder):
     first = object_writes.put_object(
         db_session,
         storage=storage,
-        bucket_name="photos",
-        key="a.jpg",
+        bucket_name="relic",
+        key="photos/a.jpg",
         body=body,
         ingest_meta={},
         current_user=user,
@@ -87,8 +87,8 @@ def test_put_object_deduplicates_identical_bytes(db_session, photos_folder):
     second = object_writes.put_object(
         db_session,
         storage=storage,
-        bucket_name="photos",
-        key="b.jpg",
+        bucket_name="relic",
+        key="photos/b.jpg",
         body=body,
         ingest_meta={},
         current_user=user,

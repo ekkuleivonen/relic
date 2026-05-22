@@ -42,8 +42,9 @@ Business rule violations return JSON: `{{"detail": "<message>"}}`
 ## S3 gateway (`/s3/*`)
 
 S3-compatible XML API for object bytes. **Path-style only:**
-`/s3/{{bucket}}/{{key}}` where `bucket` is a top-level folder name and `key` is nested
-folders plus filename (e.g. `/s3/photos/2024/cat.jpg`).
+`/s3/{{bucket}}/{{key}}` where `bucket` is always the fixed gateway bucket
+(`relic` by default, `RELIC_GATEWAY_BUCKET`) and `key` is the full virtual
+folder path plus filename (e.g. `/s3/relic/photos/2024/cat.jpg`).
 
 Authentication is **AWS SigV4** (access key signing or presigned URLs).
 These routes are **not testable via Authorize** — use `POST /api/uploads/presign*`
@@ -65,9 +66,9 @@ Relic maps the virtual folder tree onto path-style S3 addresses:
 
 | Concept | Rule | Example |
 |---------|------|---------|
-| Gateway **bucket** | First segment of `FolderRead.path` | `photos` for path `photos/2024` |
-| Gateway **key** | Remaining path segments + file name | `2024/cat.jpg` |
-| Flat file under bucket folder | Key is the filename only | path `photos`, name `cat.jpg` → key `cat.jpg` |
+| Gateway **bucket** | Fixed (`relic` by default) | Always `relic` |
+| Gateway **key** | Full folder path from root + file name | `photos/2024/cat.jpg` |
+| Flat file under top folder | Key is folder path + filename | path `photos`, name `cat.jpg` → key `photos/cat.jpg` |
 
 Every `FileRead` includes a `gateway` object with these fields precomputed.
 Physical blob storage (deduplication, backend namespace) is internal — integrators
@@ -82,6 +83,23 @@ One access key, two wire formats:
   (region `relic`, path-style). Do not send Bearer tokens to `/s3`.
 
 Presigned URLs are optional when your client can sign SigV4 requests directly.
+
+### Native SigV4 signing (service clients)
+
+Use the **same access key** as Bearer (`key_id` + secret). Requirements:
+
+- Region: `relic` (or your deployment's `RELIC_SIGNING_REGION`)
+- Path-style only; set `x-amz-content-sha256: UNSIGNED-PAYLOAD` on GET/HEAD/DELETE
+- Use **`gateway.object_uri`** as the request path in your signing URL (percent-encoded,
+  e.g. `/s3/Local%20Testing/file.csv`). Relic's canonical SigV4 URI uses encoding;
+  signing a literal-space path (e.g. `/s3/Local Testing/...`) causes
+  `SignatureDoesNotMatch` with botocore.
+
+`gateway.bucket` and `gateway.key` are literal display strings (may contain spaces).
+They are not always safe to concatenate into a signing URL without encoding.
+
+Presign URLs use separate server signing keys (`relic-prod-1`, etc.) in the
+query string — not the integrator access key.
 """.format(cookie=S.SESSION_COOKIE_NAME)
 
 OPENAPI_TAGS: list[dict[str, str]] = [
@@ -100,9 +118,9 @@ OPENAPI_TAGS: list[dict[str, str]] = [
     {
         "name": "access-keys",
         "description": (
-            "Programmatic credentials. Keys inherit the user's folder permissions for "
-            "`/api/*` (Bearer) and `/s3/*` (SigV4). **Admin only** to create; users "
-            "can list their own keys."
+            "Programmatic credentials. One key works as Bearer on `/api/*` and "
+            "SigV4 on `/s3/*` (region `relic`, path-style). **Admin only** to "
+            "create; users can list their own keys."
         ),
     },
     {
@@ -115,8 +133,9 @@ OPENAPI_TAGS: list[dict[str, str]] = [
     {
         "name": "folders",
         "description": (
-            "Virtual filesystem tree. Top-level folder name becomes the S3 bucket "
-            "name in `/s3/{bucket}/{key}`. Requires folder permissions."
+            "Virtual filesystem tree. Folder paths map to S3 object key prefixes "
+            "under the fixed gateway bucket (`relic` by default). Requires folder "
+            "permissions."
         ),
     },
     {

@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from tests.factories.models import StorageBackendFactory, UserFactory
 
+GATEWAY_BUCKET = "relic"
 
 
 @pytest.fixture()
@@ -106,12 +107,11 @@ def signed_service_get(user, query_params: dict[str, str] | None = None):
 def signed_bucket_request(
     method: str,
     user,
-    bucket: str,
     query_params: dict[str, str] | None = None,
 ):
     return object_signing.sign_bucket_url(
         method=method,
-        bucket=bucket,
+        bucket=GATEWAY_BUCKET,
         headers={},
         user_id=user.id,
         host="testserver",
@@ -132,29 +132,31 @@ def common_prefix_texts(response) -> list[str]:
     ]
 
 
-def test_list_buckets_returns_visible_top_level_folders(
-    client, db_session, user, root_folder
-):
-    photos = add_folder(db_session, "photos", root_folder)
-    add_folder(db_session, "private", root_folder)
-    grant(db_session, user, photos)
+def test_list_buckets_returns_the_gateway_bucket(client, db_session, user, root_folder):
+    add_folder(db_session, "photos", root_folder)
     signed = signed_service_get(user)
 
     response = client.get(signed.url, headers=signed.headers)
 
     assert response.status_code == 200
-    assert xml_texts(response, "Name") == ["photos"]
+    assert xml_texts(response, "Name") == [GATEWAY_BUCKET]
 
 
-def test_head_bucket_checks_visibility(client, db_session, user, root_folder):
-    photos = add_folder(db_session, "photos", root_folder)
-    add_folder(db_session, "private", root_folder)
-    grant(db_session, user, photos)
+def test_head_bucket_accepts_only_the_gateway_bucket(
+    client, db_session, user, root_folder
+):
+    add_folder(db_session, "photos", root_folder)
+    signed = signed_bucket_request("HEAD", user)
 
-    visible = signed_bucket_request("HEAD", user, "photos")
-    hidden = signed_bucket_request("HEAD", user, "private")
+    assert client.head(signed.url, headers=signed.headers).status_code == 200
 
-    assert client.head(visible.url, headers=visible.headers).status_code == 200
+    hidden = object_signing.sign_bucket_url(
+        method="HEAD",
+        bucket="photos",
+        headers={},
+        user_id=user.id,
+        host="testserver",
+    )
     assert client.head(hidden.url, headers=hidden.headers).status_code == 404
 
 
@@ -171,15 +173,14 @@ def test_list_objects_v2_returns_contents_and_common_prefixes(
     signed = signed_bucket_request(
         "GET",
         user,
-        "photos",
-        {"list-type": "2", "delimiter": "/"},
+        {"list-type": "2", "prefix": "photos/", "delimiter": "/"},
     )
 
     response = client.get(signed.url, headers=signed.headers)
 
     assert response.status_code == 200, response.text
-    assert xml_texts(response, "Key") == ["cover.jpg"]
-    assert common_prefix_texts(response) == ["2026/"]
+    assert xml_texts(response, "Key") == ["photos/cover.jpg"]
+    assert common_prefix_texts(response) == ["photos/2026/"]
     assert xml_texts(response, "IsTruncated") == ["false"]
 
 
@@ -196,20 +197,17 @@ def test_list_objects_v2_supports_prefix_and_delimiter(
     signed = signed_bucket_request(
         "GET",
         user,
-        "photos",
-        {"list-type": "2", "prefix": "2026/", "delimiter": "/"},
+        {"list-type": "2", "prefix": "photos/2026/", "delimiter": "/"},
     )
 
     response = client.get(signed.url, headers=signed.headers)
 
     assert response.status_code == 200, response.text
-    assert xml_texts(response, "Key") == ["2026/cat.jpg"]
-    assert common_prefix_texts(response) == ["2026/raw/"]
+    assert xml_texts(response, "Key") == ["photos/2026/cat.jpg"]
+    assert common_prefix_texts(response) == ["photos/2026/raw/"]
 
 
-def test_list_objects_v2_only_lists_objects_in_the_requested_bucket(
-    client, db_session, user, root_folder
-):
+def test_list_objects_v2_scopes_by_prefix(client, db_session, user, root_folder):
     photos = add_folder(db_session, "photos", root_folder)
     archives = add_folder(db_session, "archives", root_folder)
     grant(db_session, user, photos)
@@ -219,14 +217,13 @@ def test_list_objects_v2_only_lists_objects_in_the_requested_bucket(
     signed = signed_bucket_request(
         "GET",
         user,
-        "photos",
-        {"list-type": "2"},
+        {"list-type": "2", "prefix": "photos/"},
     )
 
     response = client.get(signed.url, headers=signed.headers)
 
     assert response.status_code == 200, response.text
-    assert xml_texts(response, "Key") == ["visible.txt"]
+    assert xml_texts(response, "Key") == ["photos/visible.txt"]
 
 
 def test_list_objects_v2_paginates_with_continuation_token(
@@ -239,25 +236,28 @@ def test_list_objects_v2_paginates_with_continuation_token(
     first = signed_bucket_request(
         "GET",
         user,
-        "photos",
-        {"list-type": "2", "max-keys": "1"},
+        {"list-type": "2", "prefix": "photos/", "max-keys": "1"},
     )
 
     first_response = client.get(first.url, headers=first.headers)
 
     assert first_response.status_code == 200, first_response.text
-    assert xml_texts(first_response, "Key") == ["a.txt"]
+    assert xml_texts(first_response, "Key") == ["photos/a.txt"]
     assert xml_texts(first_response, "IsTruncated") == ["true"]
     token = xml_texts(first_response, "NextContinuationToken")[0]
     second = signed_bucket_request(
         "GET",
         user,
-        "photos",
-        {"list-type": "2", "max-keys": "1", "continuation-token": token},
+        {
+            "list-type": "2",
+            "prefix": "photos/",
+            "max-keys": "1",
+            "continuation-token": token,
+        },
     )
 
     second_response = client.get(second.url, headers=second.headers)
 
     assert second_response.status_code == 200, second_response.text
-    assert xml_texts(second_response, "Key") == ["b.txt"]
+    assert xml_texts(second_response, "Key") == ["photos/b.txt"]
     assert xml_texts(second_response, "IsTruncated") == ["false"]
