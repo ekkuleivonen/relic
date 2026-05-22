@@ -38,9 +38,12 @@ def user_metadata_as_s3_headers(meta: dict[str, Any] | None) -> dict[str, str]:
         name = raw_name.strip().lower()
         if not name or name in S3_USER_METADATA_RESERVED_KEYS:
             continue
-        if not isinstance(value, str):
+        if isinstance(value, (dict, list)) or value is None:
             continue
-        if "\n" in value or "\r" in value:
+        if not isinstance(value, (str, int, float, bool)):
             continue
-        headers[f"x-amz-meta-{name}"] = value
+        header_value = value if isinstance(value, str) else str(value)
+        if "\n" in header_value or "\r" in header_value:
+            continue
+        headers[f"x-amz-meta-{name}"] = header_value
     return headers

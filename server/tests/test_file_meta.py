@@ -45,14 +45,23 @@ def test_user_metadata_as_s3_headers_round_trips_string_values() -> None:
     }
 
 
-def test_user_metadata_as_s3_headers_skips_non_string_and_reserved_keys() -> None:
+def test_user_metadata_as_s3_headers_skips_structured_and_reserved_keys() -> None:
     headers = user_metadata_as_s3_headers(
         {
             "album": "spring",
+            "test_key": 1,
+            "enabled": True,
+            "ratio": 1.5,
             "tags": ["a"],
             "kvs": {"x": 1},
             "relic-user": "secret-user-id",
             "broken": "line\nbreak",
+            "empty": None,
         }
     )
-    assert headers == {"x-amz-meta-album": "spring"}
+    assert headers == {
+        "x-amz-meta-album": "spring",
+        "x-amz-meta-test_key": "1",
+        "x-amz-meta-enabled": "True",
+        "x-amz-meta-ratio": "1.5",
+    }
