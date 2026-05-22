@@ -71,7 +71,11 @@ class PresignUploadResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     url: str = Field(
-        description="Path-style S3 URL (e.g. `/s3/photos/cat.jpg?X-Amz-...`)."
+        description=(
+            "Path-style S3 URL relative to the Relic host "
+            "(e.g. `/s3/photos/cat.jpg?X-Amz-...`). Prepend your API base URL's "
+            "origin for an absolute URL. Same `bucket`/`key` as `FileRead.gateway`."
+        ),
     )
     headers: dict[str, str] = Field(
         description="Headers to send with the signed request (includes SigV4 params)."
@@ -151,7 +155,10 @@ async def presign_delete(
 @router.post(
     "/presign-download",
     summary="Presign download",
-    description="Return a signed GET URL to stream object bytes.",
+    description=(
+        "Return a signed GET URL to stream object bytes. The unsigned location is "
+        "also on `FileRead.gateway` (`bucket`, `key`, `object_uri`)."
+    ),
 )
 async def presign_download(
     payload: PresignDownloadRequest,

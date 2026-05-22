@@ -29,20 +29,48 @@ from constants import (
     SEARCH_MAX_FACET_TOP,
     SEARCH_MAX_LIMIT,
 )
-from ports.entities import File
+from application.uow import UnitOfWork
+from application.control_plane import browse_filesystem, presigned_access
 from application.control_plane.files import get_file as get_file_use_case
-from application.control_plane import browse_filesystem
-from domain.files.search import SearchQuery
 from application.control_plane.search_files import compute_facets, search_files
+from domain.files.search import SearchQuery
+from infra.auth.s3_signing import canonical_object_uri
+from ports.entities import File
 
 router = APIRouter()
 
 """
 File CRUD - the logical references inside folders.
 
-Note: byte upload/download lives at the S3 gateway, not here. These routes
-manage metadata records, queries, and atomic operations like move/rename.
+Byte upload/download uses the S3 gateway at ``gateway.object_uri`` (or
+``gateway.bucket`` + ``gateway.key``). These routes manage metadata records,
+queries, and atomic operations like move/rename.
 """
+
+
+class FileGatewayRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bucket: str = Field(
+        description=(
+            "S3 gateway bucket name: the first segment of the containing folder's "
+            "`path` (e.g. `photos` for folder path `photos/2024`)."
+        ),
+    )
+    key: str = Field(
+        description=(
+            "S3 gateway object key: remaining folder path segments plus the file "
+            "name (e.g. `2024/cat.jpg` for folder path `photos/2024` and name "
+            "`cat.jpg`; `cat.jpg` when the file sits directly under the bucket "
+            "folder)."
+        ),
+    )
+    object_uri: str = Field(
+        description=(
+            "Path-style gateway URI for this file (e.g. `/s3/photos/2024/cat.jpg`). "
+            "URL-encoded where needed. Prepend your Relic host for absolute URLs."
+        ),
+    )
 
 
 class FileRead(BaseModel):
@@ -50,7 +78,15 @@ class FileRead(BaseModel):
 
     id: uuid.UUID
     folder_id: uuid.UUID
-    blob_id: uuid.UUID
+    blob_id: uuid.UUID = Field(
+        description=(
+            "Internal deduplicated blob identifier. Not an S3 address — use "
+            "`gateway` for byte access via `/s3`."
+        ),
+    )
+    gateway: FileGatewayRead = Field(
+        description="S3 gateway address for streaming this file's bytes.",
+    )
     actor_id: uuid.UUID = Field(description="User who uploaded the file.")
     actor_name: str | None
     name: str
@@ -62,12 +98,18 @@ class FileRead(BaseModel):
     updated_at: dt.datetime
 
     @classmethod
-    def from_file(cls, file: File) -> "FileRead":
+    def from_file(cls, uow: UnitOfWork, file: File) -> "FileRead":
         blob = file.blob
+        bucket, key = presigned_access.bucket_and_key_for_file(uow, file)
         return cls(
             id=file.id,
             folder_id=file.folder_id,
             blob_id=file.blob_id,
+            gateway=FileGatewayRead(
+                bucket=bucket,
+                key=key,
+                object_uri=canonical_object_uri(bucket, key),
+            ),
             actor_id=file.actor_id,
             actor_name=file.actor_name,
             name=file.name,
@@ -222,7 +264,7 @@ async def list_files(
         order=order,
     )
     return FileListResponse(
-        items=[FileRead.from_file(file) for file in page.items],
+        items=[FileRead.from_file(uow, file) for file in page.items],
         total=page.total,
         limit=limit,
         offset=offset,
@@ -274,7 +316,7 @@ async def search_files_route(
     )
     results = search_files(uow, user=current_user, query=query)
     return FileSearchResponse(
-        items=[FileRead.from_file(file) for file in results.items],
+        items=[FileRead.from_file(uow, file) for file in results.items],
         total=results.total,
         limit=results.limit,
         offset=results.offset,
@@ -466,7 +508,7 @@ async def get_file(
         actor=Actor.from_user(current_user),
         file_id=file_id,
     )
-    return FileRead.from_file(file)
+    return FileRead.from_file(uow, file)
 
 
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete file")
@@ -498,7 +540,7 @@ async def patch_file_meta(
         file_id=file_id,
         patch=payload.meta,
     )
-    return FileRead.from_file(file)
+    return FileRead.from_file(uow, file)
 
 
 @router.patch("/{file_id}", summary="Rename file")
@@ -515,7 +557,7 @@ async def rename_file(
         file_id=file_id,
         name=payload.name,
     )
-    return FileRead.from_file(file)
+    return FileRead.from_file(uow, file)
 
 
 @router.post("/{file_id}/move", summary="Move file")
@@ -533,4 +575,4 @@ async def move_file(
         destination_folder_id=payload.destination_folder_id,
         name=payload.name,
     )
-    return FileRead.from_file(file)
+    return FileRead.from_file(uow, file)

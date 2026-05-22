@@ -29,10 +29,18 @@ export type Folder = {
 /** Opaque consumer-owned metadata; shape is not enforced by Relic. */
 export type FileMeta = Record<string, unknown>
 
+export type FileGateway = {
+  bucket: string
+  key: string
+  object_uri: string
+}
+
 export type FileSystemFile = {
   id: string
   folder_id: string
+  /** Internal deduplicated blob ID — use `gateway` for byte access. */
   blob_id: string
+  gateway: FileGateway
   actor_id: string
   actor_name: string | null
   name: string

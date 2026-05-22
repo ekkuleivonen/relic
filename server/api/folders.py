@@ -44,7 +44,13 @@ class FolderRead(BaseModel):
     id: uuid.UUID
     parent_id: uuid.UUID | None
     name: str
-    path: str = Field(description="Full path from root (e.g. `photos/2024`).")
+    path: str = Field(
+        description=(
+            "Full path from root (e.g. `photos/2024`). The first segment is the S3 "
+            "gateway bucket name; remaining segments plus a filename form the object "
+            "key (see `FileRead.gateway`)."
+        ),
+    )
     effective_permissions: int = Field(
         description="Caller permission bitfield: READ=1, WRITE=2, DELETE=4, ENRICH=8."
     )

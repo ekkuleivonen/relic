@@ -54,7 +54,34 @@ a REST client.
 
 1. `POST /api/uploads/presign` → signed PUT URL
 2. `PUT {{url}}` with returned headers → creates file + blob
-3. `POST /api/uploads/presign-download` → signed GET URL for download
+3. `GET /api/files/{{id}}` → metadata including `gateway` (`bucket`, `key`, `object_uri`)
+4. Stream bytes via `/s3` using one of:
+   - `POST /api/uploads/presign-download` → signed GET URL (browser-friendly)
+   - Native SigV4 `GET` on `gateway.object_uri` with the same access key (`key_id` + secret)
+
+### Gateway bucket/key mapping
+
+Relic maps the virtual folder tree onto path-style S3 addresses:
+
+| Concept | Rule | Example |
+|---------|------|---------|
+| Gateway **bucket** | First segment of `FolderRead.path` | `photos` for path `photos/2024` |
+| Gateway **key** | Remaining path segments + file name | `2024/cat.jpg` |
+| Flat file under bucket folder | Key is the filename only | path `photos`, name `cat.jpg` → key `cat.jpg` |
+
+Every `FileRead` includes a `gateway` object with these fields precomputed.
+Physical blob storage (deduplication, backend namespace) is internal — integrators
+should use `gateway`, not `blob_id`.
+
+### Service integration (access keys)
+
+One access key, two wire formats:
+
+- **`/api/*`** — `Authorization: Bearer {{key_id}}:{{secret}}`
+- **`/s3/*`** — AWS SigV4 `Authorization` header with the same credentials
+  (region `relic`, path-style). Do not send Bearer tokens to `/s3`.
+
+Presigned URLs are optional when your client can sign SigV4 requests directly.
 """.format(cookie=S.SESSION_COOKIE_NAME)
 
 OPENAPI_TAGS: list[dict[str, str]] = [
@@ -102,8 +129,9 @@ OPENAPI_TAGS: list[dict[str, str]] = [
     {
         "name": "files",
         "description": (
-            "File metadata CRUD, search, and bulk ops. Byte upload/download is via "
-            "presign + S3 gateway, not these routes."
+            "File metadata CRUD, search, and bulk ops. Each `FileRead` includes "
+            "`gateway` (`bucket`, `key`, `object_uri`) for byte access via `/s3`. "
+            "Upload/download can also use presign routes."
         ),
     },
     {

@@ -52,3 +52,13 @@ def test_openapi_app_description_documents_auth():
     schema = app.openapi()
     assert "Bearer access key" in schema["info"]["description"]
     assert "/s3/" in schema["info"]["description"]
+    assert "FileRead" in schema["info"]["description"]
+    assert "gateway" in schema["info"]["description"]
+
+
+def test_openapi_file_read_includes_gateway_schema():
+    schema = app.openapi()
+    file_read = schema["components"]["schemas"]["FileRead"]
+    assert "gateway" in file_read["properties"]
+    gateway = schema["components"]["schemas"]["FileGatewayRead"]
+    assert set(gateway["properties"]) == {"bucket", "key", "object_uri"}

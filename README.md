@@ -138,6 +138,38 @@ s3 = boto3.client(
 Access keys created before native S3 auth stored only a one-way secret hash and
 must be reissued before they can authenticate native clients.
 
+### Integrating as a service
+
+Relic separates **metadata** (`/api/*`) from **bytes** (`/s3/*`). Every
+`GET /api/files/{id}` response includes a `gateway` object:
+
+```json
+{
+  "gateway": {
+    "bucket": "photos",
+    "key": "2024/cat.jpg",
+    "object_uri": "/s3/photos/2024/cat.jpg"
+  }
+}
+```
+
+**Bucket/key mapping:** `gateway.bucket` is the first segment of the containing
+folder's `path`; `gateway.key` is the remaining path segments plus the file name.
+For a file directly under a top-level folder, the key is just the filename.
+
+**Authentication:** Use one access key in two forms:
+
+| Surface | Auth |
+|---------|------|
+| `/api/*` | `Authorization: Bearer {key_id}:{secret}` |
+| `/s3/*` | AWS SigV4 `Authorization` header (same credentials, region `relic`, path-style) |
+
+Do not send Bearer tokens to the S3 gateway — use SigV4 or presigned URLs.
+
+**Reading bytes:** Either presign (`POST /api/uploads/presign-download`) or
+issue a native SigV4 GET against `gateway.object_uri`. `blob_id` is for internal
+deduplication only; it is not an object store address.
+
 ## Architecture
 
 Relic is split into a React client, a FastAPI server, and ARQ workers:

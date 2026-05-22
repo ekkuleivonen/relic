@@ -122,6 +122,95 @@ def make_blob(db_session, *, bucket, content_hash):
 
 
 # ---------------------------------------------------------------------------
+# Gateway location on FileRead
+# ---------------------------------------------------------------------------
+
+
+def test_get_file_includes_gateway_location_for_flat_folder(
+    client, db_session, user, photos_folder, physical_bucket
+):
+    grant(db_session, user, photos_folder, int(Permission.READ))
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(50).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg"
+    )
+
+    response = client.get(f"/api/files/{file.id}")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["gateway"] == {
+        "bucket": "photos",
+        "key": "cat.jpg",
+        "object_uri": "/s3/photos/cat.jpg",
+    }
+
+
+def test_get_file_includes_gateway_location_for_nested_folder(
+    client, db_session, user, root_folder, physical_bucket
+):
+    local_testing = Folder(name="Local Testing", parent_id=root_folder.id)
+    db_session.add(local_testing)
+    db_session.commit()
+    era_a = Folder(name="era-a", parent_id=local_testing.id)
+    db_session.add(era_a)
+    db_session.commit()
+    grant(db_session, user, era_a, int(Permission.READ))
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(51).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session,
+        user=user,
+        folder=era_a,
+        blob=blob,
+        name="account-statement.csv",
+    )
+
+    response = client.get(f"/api/files/{file.id}")
+    assert response.status_code == 200, response.text
+    assert response.json()["gateway"] == {
+        "bucket": "Local Testing",
+        "key": "era-a/account-statement.csv",
+        "object_uri": "/s3/Local%20Testing/era-a/account-statement.csv",
+    }
+
+
+def test_rename_updates_gateway_key(
+    client, db_session, user, photos_folder, physical_bucket
+):
+    grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(52).to_bytes(32, "big")
+    )
+    file = make_file(
+        db_session, user=user, folder=photos_folder, blob=blob, name="cat.jpg"
+    )
+
+    response = client.patch(f"/api/files/{file.id}", json={"name": "feline.jpg"})
+    assert response.status_code == 200, response.text
+    assert response.json()["gateway"]["key"] == "feline.jpg"
+    assert response.json()["gateway"]["object_uri"] == "/s3/photos/feline.jpg"
+
+
+def test_list_files_includes_gateway_on_each_item(
+    client, db_session, user, photos_folder, physical_bucket
+):
+    grant(db_session, user, photos_folder, int(Permission.READ))
+    blob = make_blob(
+        db_session, bucket=physical_bucket, content_hash=(53).to_bytes(32, "big")
+    )
+    make_file(db_session, user=user, folder=photos_folder, blob=blob, name="a.jpg")
+
+    response = client.get(f"/api/files/?folder_id={photos_folder.id}")
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert item["gateway"]["bucket"] == "photos"
+    assert item["gateway"]["key"] == "a.jpg"
+
+
+# ---------------------------------------------------------------------------
 # Move
 # ---------------------------------------------------------------------------
 
