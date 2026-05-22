@@ -15,23 +15,19 @@ from pydantic import BaseModel, ConfigDict, Field
 
 router = APIRouter()
 
-"""
-User management. Admin-only for create/delete/list; users can read and
-update their own record.
-
-Auth model is intentionally minimal for now (password hash on User).
-Swap to OIDC/Authentik later by replacing the auth dependency, not these
-routes.
-"""
-
 
 class UserCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(min_length=1, max_length=255)
-    email: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+$")
-    password: str = Field(min_length=8)
-    role: UserRole
+    name: str = Field(min_length=1, max_length=255, description="Display name.")
+    email: str = Field(
+        min_length=3,
+        max_length=320,
+        pattern=r"^[^@\s]+@[^@\s]+$",
+        description="Unique login email.",
+    )
+    password: str = Field(min_length=8, description="Initial password (min 8 characters).")
+    role: UserRole = Field(description="Account role (`admin` or `user`).")
 
 
 class UserUpdate(BaseModel):
@@ -42,7 +38,9 @@ class UserUpdate(BaseModel):
         default=None, min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+$"
     )
     password: str | None = Field(default=None, min_length=8)
-    role: UserRole | None = None
+    role: UserRole | None = Field(
+        default=None, description="Only admins may change role."
+    )
 
 
 class UserRead(BaseModel):
@@ -56,27 +54,20 @@ class UserRead(BaseModel):
     updated_at: dt.datetime
 
 
-@router.get("/")
+@router.get("/", summary="List users")
 async def list_users(request: Request, uow: UnitOfWorkDep) -> list[UserRead]:
-    """
-    GET /users -> list all users. Admin-only.
-    Query params: ?limit=50&cursor=<id>&role=<int>
-    """
+    """List all users. Admin only."""
     return users.list_users(uow)
 
 
-@router.post("/")
+@router.post("/", summary="Create user")
 async def create_user(
     request: Request,
     payload: UserCreate,
     uow: UnitOfWorkDep,
     current_user: AdminUser,
 ) -> UserRead:
-    """
-    POST /users -> create a new user. Admin-only.
-    Body: { name, email, password, role }
-    Returns the created User without password_hash.
-    """
+    """Create a new user. Admin only. Password hash is never returned."""
     return create_user_use_case(
         uow,
         payload.model_dump(),
@@ -87,16 +78,13 @@ async def create_user(
     )
 
 
-@router.get("/{user_id}")
+@router.get("/{user_id}", summary="Get user")
 async def get_user(user_id: uuid.UUID, request: Request, uow: UnitOfWorkDep) -> UserRead:
-    """
-    GET /users/{id} -> fetch a single user.
-    Self or admin only.
-    """
+    """Fetch a single user. Self or admin."""
     return users.get_user(uow, user_id)
 
 
-@router.patch("/{user_id}")
+@router.patch("/{user_id}", summary="Update user")
 async def update_user(
     user_id: uuid.UUID,
     request: Request,
@@ -104,11 +92,7 @@ async def update_user(
     uow: UnitOfWorkDep,
     current_user: AdminUser,
 ) -> UserRead:
-    """
-    PATCH /users/{id} -> update mutable fields.
-    Body: { name?, email?, role?, password? }
-    Self can update name/email/password; only admin can change role.
-    """
+    """Update mutable fields. Self may change name/email/password; only admin may change role."""
     return update_user_use_case(
         uow,
         user_id,
@@ -120,7 +104,7 @@ async def update_user(
     )
 
 
-@router.delete("/{user_id}")
+@router.delete("/{user_id}", summary="Delete user")
 async def delete_user(
     user_id: uuid.UUID,
     request: Request,
@@ -128,9 +112,8 @@ async def delete_user(
     current_user: AdminUser,
 ) -> Response:
     """
-    DELETE /users/{id} -> hard delete. Admin-only.
-    Cascades: revoke all access keys, drop folder access rows.
-    Users with uploaded files cannot be deleted.
+    Hard delete a user. Admin only. Revokes access keys and folder grants.
+    Refuses if the user has uploaded files.
     """
     delete_user_use_case(
         uow,

@@ -44,10 +44,17 @@ class FolderRead(BaseModel):
     id: uuid.UUID
     parent_id: uuid.UUID | None
     name: str
-    path: str
-    effective_permissions: int
-    preferred_storage_backend_id: uuid.UUID | None = None
-    effective_preferred_storage_backend_id: uuid.UUID | None = None
+    path: str = Field(description="Full path from root (e.g. `photos/2024`).")
+    effective_permissions: int = Field(
+        description="Caller permission bitfield: READ=1, WRITE=2, DELETE=4, ENRICH=8."
+    )
+    preferred_storage_backend_id: uuid.UUID | None = Field(
+        default=None, description="Admin only: explicit storage backend preference."
+    )
+    effective_preferred_storage_backend_id: uuid.UUID | None = Field(
+        default=None,
+        description="Admin only: resolved backend after walking ancestors.",
+    )
 
     @classmethod
     def from_result(
@@ -82,24 +89,29 @@ class FolderRead(BaseModel):
 class FolderCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    parent_id: uuid.UUID
-    name: str = Field(min_length=1, max_length=255)
+    parent_id: uuid.UUID = Field(description="Parent folder UUID.")
+    name: str = Field(min_length=1, max_length=255, description="New folder name.")
 
 
 class FolderUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    parent_id: uuid.UUID | None = None
-    preferred_storage_backend_id: uuid.UUID | None = None
+    parent_id: uuid.UUID | None = Field(default=None, description="Move folder under a new parent.")
+    preferred_storage_backend_id: uuid.UUID | None = Field(
+        default=None,
+        description="Admin only: set preferred backend; null inherits from parent.",
+    )
 
 
 class FolderDuplicate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    destination_parent_id: uuid.UUID
-    name: str = Field(min_length=1, max_length=255)
-    recursive: bool = True
+    destination_parent_id: uuid.UUID = Field(description="Parent for the copy.")
+    name: str = Field(min_length=1, max_length=255, description="Name for the copied folder.")
+    recursive: bool = Field(
+        default=True, description="Copy descendants when true."
+    )
 
 
 class FolderTreeRead(BaseModel):
@@ -156,7 +168,7 @@ def _folder_to_tree_read(
     )
 
 
-@router.get("/tree")
+@router.get("/tree", summary="Get folder tree")
 async def get_folder_tree(
     request: Request,
     uow: UnitOfWorkDep,
@@ -164,26 +176,23 @@ async def get_folder_tree(
     root_id: uuid.UUID | None = None,
 ) -> FolderTreeRead:
     """
-    GET /folders/tree -> nested tree of all visible folders.
-    Convenience for UI navigation; equivalent to walking list_folders.
-    Query params: ?root_id=<uuid> to subtree from a specific folder.
+    Nested tree of visible folders for UI navigation.
+    Query `root_id` to subtree from a specific folder.
     """
     root = browse_filesystem.get_folder_tree(uow, current_user, root_id=root_id)
     include_storage = current_user.role == UserRole.ADMIN
     return _folder_to_tree_read(uow, root, include_storage_policy=include_storage)
 
 
-@router.get("/{folder_id}/stats")
+@router.get("/{folder_id}/stats", summary="Get folder stats")
 async def get_folder_stats(
     folder_id: uuid.UUID,
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> FolderStatsRead:
     """
-    GET /folders/{id}/stats -> recursive rollup over this folder + descendants.
-    Returns total file count, enriched (file_info section completed) count, and
-    logical size in bytes (sum of blob sizes per file row, no dedupe).
-    Caller needs READ on the folder.
+    Recursive rollup: file counts, enrichment coverage, and logical size in bytes.
+    Requires READ on the folder.
     """
     stats = browse_filesystem.get_folder_stats(
         uow, current_user, folder_id=folder_id
@@ -197,19 +206,14 @@ async def get_folder_stats(
     )
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post("/", status_code=status.HTTP_201_CREATED, summary="Create folder")
 async def create_folder(
     payload: FolderCreate,
     request: Request,
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> FolderRead:
-    """
-    POST /folders -> create a new folder under `parent_id`.
-    Body: { parent_id, name }
-    New folders inherit the ancestor preferred_storage_backend_id.
-    Caller needs WRITE on the parent.
-    """
+    """Create a folder under `parent_id`. Caller needs WRITE on the parent."""
     result = create_folder_use_case(
         uow,
         actor=Actor.from_user(current_user),
@@ -223,7 +227,7 @@ async def create_folder(
     return FolderRead.from_result(uow, result, user=current_user)
 
 
-@router.patch("/{folder_id}")
+@router.patch("/{folder_id}", summary="Update folder")
 async def update_folder(
     folder_id: uuid.UUID,
     payload: FolderUpdate,
@@ -231,11 +235,7 @@ async def update_folder(
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> FolderRead:
-    """
-    PATCH /folders/{id} -> rename, move, and/or (admins) preferred bucket.
-    Body: { name?, parent_id?, preferred_storage_backend_id? }
-    Set preferred_storage_backend_id to null to inherit from a parent.
-    """
+    """Rename, move, and/or (admins) set preferred storage backend."""
     result = update_folder_use_case(
         uow,
         actor=Actor.from_user(current_user),
@@ -252,7 +252,7 @@ async def update_folder(
     return FolderRead.from_result(uow, result, user=current_user)
 
 
-@router.delete("/{folder_id}")
+@router.delete("/{folder_id}", summary="Delete folder")
 async def delete_folder(
     folder_id: uuid.UUID,
     request: Request,
@@ -261,10 +261,7 @@ async def delete_folder(
     recursive: bool = False,
 ) -> Response:
     """
-    DELETE /folders/{id} -> delete folder.
-    Refuses if folder has files or subfolders unless ?recursive=true.
-    Recursive delete removes files and decrements refcounts on referenced blobs;
-    refcount-zero blobs are purged asynchronously by the storage maintenance worker (arq cron).
+    Delete a folder. Refuses if non-empty unless `recursive=true`.
     Cannot delete root.
     """
     delete_folder_use_case(
@@ -280,7 +277,7 @@ async def delete_folder(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/{folder_id}/copy", status_code=status.HTTP_201_CREATED)
+@router.post("/{folder_id}/copy", status_code=status.HTTP_201_CREATED, summary="Copy folder")
 async def copy_folder(
     folder_id: uuid.UUID,
     payload: FolderDuplicate,
@@ -289,11 +286,8 @@ async def copy_folder(
     current_user: CurrentUser,
 ) -> FolderRead:
     """
-    POST /folders/{id}/copy -> create a metadata-only copy of the folder
-    (and, by default, all its descendants) at a new location.
-    Body: { destination_parent_id, name, recursive?: bool = true }
-    No bytes moved; refcounts on referenced blobs are incremented.
-    Caller needs READ on source and WRITE on destination.
+    Metadata-only copy at a new location. No bytes moved; blob refcounts increment.
+    Requires READ on source and WRITE on destination.
     """
     result = duplicate_folder_use_case(
         uow,

@@ -51,10 +51,10 @@ class FileRead(BaseModel):
     id: uuid.UUID
     folder_id: uuid.UUID
     blob_id: uuid.UUID
-    actor_id: uuid.UUID
+    actor_id: uuid.UUID = Field(description="User who uploaded the file.")
     actor_name: str | None
     name: str
-    meta: dict
+    meta: dict = Field(description="Consumer-owned metadata (JSON object).")
     size_bytes: int
     mimetype: str
     extension: str
@@ -83,8 +83,13 @@ class FileRead(BaseModel):
 class MoveFileRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    destination_folder_id: uuid.UUID
-    name: str | None = Field(default=None, min_length=1, max_length=255)
+    destination_folder_id: uuid.UUID = Field(description="Target folder UUID.")
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+        description="Optional new filename in the destination folder.",
+    )
 
 
 class RenameFileRequest(BaseModel):
@@ -96,7 +101,10 @@ class RenameFileRequest(BaseModel):
 class PatchFileMetaRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    meta: dict = Field(default_factory=dict)
+    meta: dict = Field(
+        default_factory=dict,
+        description="Keys to deep-merge into the file's consumer metadata.",
+    )
 
 
 class FacetValueRead(BaseModel):
@@ -138,7 +146,9 @@ class FileListResponse(BaseModel):
 class BulkDeleteFilesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    file_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    file_ids: list[uuid.UUID] = Field(
+        min_length=1, max_length=500, description="Files to delete."
+    )
 
 
 class BulkDeleteFilesResponse(BaseModel):
@@ -153,7 +163,12 @@ class BulkMoveFilesRequest(BaseModel):
 
     file_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
     destination_folder_id: uuid.UUID
-    name: str | None = Field(default=None, min_length=1, max_length=255)
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+        description="Optional shared rename applied to all moved files.",
+    )
 
 
 class BulkMoveFilesResponse(BaseModel):
@@ -167,7 +182,10 @@ class BulkPatchFileMetaRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     file_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
-    meta: dict = Field(default_factory=dict)
+    meta: dict = Field(
+        default_factory=dict,
+        description="Metadata patch deep-merged into each file.",
+    )
 
 
 class BulkPatchFileMetaResponse(BaseModel):
@@ -177,7 +195,7 @@ class BulkPatchFileMetaResponse(BaseModel):
     errors: list[dict[str, str]]
 
 
-@router.get("/")
+@router.get("/", summary="List files")
 async def list_files(
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
@@ -192,6 +210,7 @@ async def list_files(
     sort: str = Query(default="name"),
     order: str = Query(default="asc"),
 ) -> FileListResponse:
+    """Paginated file listing for a folder. Requires READ on the folder."""
     page = browse_filesystem.list_files(
         uow,
         current_user,
@@ -210,7 +229,7 @@ async def list_files(
     )
 
 
-@router.get("/search")
+@router.get("/search", summary="Search files")
 async def search_files_route(
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
@@ -262,7 +281,7 @@ async def search_files_route(
     )
 
 
-@router.get("/facets")
+@router.get("/facets", summary="Search facets")
 async def file_facets(
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
@@ -378,12 +397,13 @@ def _dedupe(values: list[str]) -> list[str]:
     return out
 
 
-@router.post("/bulk-delete")
+@router.post("/bulk-delete", summary="Bulk delete files")
 async def bulk_delete_files(
     payload: BulkDeleteFilesRequest,
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> BulkDeleteFilesResponse:
+    """Delete up to 500 files. Partial success returns per-file errors."""
     result = bulk_delete_files_use_case(
         uow,
         actor=Actor.from_user(current_user),
@@ -395,12 +415,13 @@ async def bulk_delete_files(
     )
 
 
-@router.post("/bulk-move")
+@router.post("/bulk-move", summary="Bulk move files")
 async def bulk_move_files(
     payload: BulkMoveFilesRequest,
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> BulkMoveFilesResponse:
+    """Move up to 500 files to a destination folder."""
     result = bulk_move_files_use_case(
         uow,
         actor=Actor.from_user(current_user),
@@ -414,12 +435,13 @@ async def bulk_move_files(
     )
 
 
-@router.post("/bulk-update")
+@router.post("/bulk-update", summary="Bulk patch file metadata")
 async def bulk_update_file_meta(
     payload: BulkPatchFileMetaRequest,
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> BulkPatchFileMetaResponse:
+    """Deep-merge metadata into up to 500 files."""
     result = bulk_patch_file_meta_use_case(
         uow,
         actor=Actor.from_user(current_user),
@@ -432,12 +454,13 @@ async def bulk_update_file_meta(
     )
 
 
-@router.get("/{file_id}")
+@router.get("/{file_id}", summary="Get file")
 async def get_file(
     file_id: uuid.UUID,
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> FileRead:
+    """Fetch file metadata by ID. Requires READ on the containing folder."""
     file = get_file_use_case(
         uow,
         actor=Actor.from_user(current_user),
@@ -446,12 +469,13 @@ async def get_file(
     return FileRead.from_file(file)
 
 
-@router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete file")
 async def delete_file(
     file_id: uuid.UUID,
     uow: UnitOfWorkDep,
     current_user: CurrentUser,
 ) -> Response:
+    """Delete a file record and decrement blob refcount."""
     delete_file_use_case(
         uow,
         actor=Actor.from_user(current_user),
@@ -460,7 +484,7 @@ async def delete_file(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.patch("/{file_id}/meta")
+@router.patch("/{file_id}/meta", summary="Patch file metadata")
 async def patch_file_meta(
     file_id: uuid.UUID,
     payload: PatchFileMetaRequest,
@@ -477,7 +501,7 @@ async def patch_file_meta(
     return FileRead.from_file(file)
 
 
-@router.patch("/{file_id}")
+@router.patch("/{file_id}", summary="Rename file")
 async def rename_file(
     file_id: uuid.UUID,
     payload: RenameFileRequest,
@@ -494,7 +518,7 @@ async def rename_file(
     return FileRead.from_file(file)
 
 
-@router.post("/{file_id}/move")
+@router.post("/{file_id}/move", summary="Move file")
 async def move_file(
     file_id: uuid.UUID,
     payload: MoveFileRequest,

@@ -51,7 +51,7 @@ class FilesystemEventListResponse(BaseModel):
     )
 
 
-@router.get("/")
+@router.get("/", summary="List filesystem events")
 async def list_filesystem_events(
     uow: UnitOfWorkDep,
     current_user: CurrentUser,

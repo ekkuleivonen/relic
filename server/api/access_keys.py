@@ -20,22 +20,14 @@ from infra.db.stores.access_keys import AccessKeyRow, CreatedAccessKey
 
 router = APIRouter()
 
-"""
-Relic access keys for programmatic API access.
-
-Each key belongs to a user and inherits that user's folder permissions for:
-- JSON control plane routes (`/api/*`) via `Authorization: Bearer <key_id>:<secret>`
-- S3 gateway routes (`/s3/*`) via SigV4 request signing
-
-Secret is shown ONCE at creation, then only the encrypted value is stored.
-"""
-
 
 class AccessKeyCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    actor_id: uuid.UUID
-    name: str = Field(min_length=1, max_length=255)
+    actor_id: uuid.UUID = Field(
+        description="User the key acts as (inherits their folder permissions)."
+    )
+    name: str = Field(min_length=1, max_length=255, description="Human-readable label.")
 
 
 class AccessKeyRead(BaseModel):
@@ -65,7 +57,9 @@ class AccessKeyRead(BaseModel):
 
 
 class AccessKeyCreated(AccessKeyRead):
-    secret_access_key: str
+    secret_access_key: str = Field(
+        description="Shown once at creation. Use as `Bearer key_id:secret` for `/api/*`."
+    )
 
     @classmethod
     def from_created(cls, created: CreatedAccessKey) -> "AccessKeyCreated":
@@ -83,17 +77,13 @@ class AccessKeyCreated(AccessKeyRead):
         )
 
 
-@router.get("/")
+@router.get("/", summary="List access keys")
 async def list_access_keys(uow: UnitOfWorkDep) -> list[AccessKeyRead]:
-    """
-    GET /access-keys -> list keys.
-    Self sees own keys; admin sees all.
-    Never returns the secret, only key_id, name, last_used_at, revoked_at.
-    """
+    """List access keys. Admins see all; users see their own. Secret never returned."""
     return [AccessKeyRead.from_row(row) for row in list_access_keys_use_case(uow)]
 
 
-@router.post("/")
+@router.post("/", summary="Create access key")
 async def create_access_key(
     payload: AccessKeyCreate,
     request: Request,
@@ -101,10 +91,8 @@ async def create_access_key(
     current_user: AdminUser,
 ) -> AccessKeyCreated:
     """
-    POST /access-keys -> mint a new access key.
-    Body: { name, actor_id }
-    Returns: { id, key_id, secret_access_key, name, ... }
-    The secret is in the response body and CANNOT be retrieved later.
+    Mint a new access key. Admin only.
+    The `secret_access_key` is returned once and cannot be retrieved later.
     """
     created = create_access_key_use_case(
         uow,
@@ -118,26 +106,20 @@ async def create_access_key(
     return AccessKeyCreated.from_created(created)
 
 
-@router.get("/{key_id}")
+@router.get("/{key_id}", summary="Get access key")
 async def get_access_key(key_id: str, uow: UnitOfWorkDep) -> AccessKeyRead:
-    """
-    GET /access-keys/{id} -> metadata for one key.
-    Self for own; admin for any. Secret never included.
-    """
+    """Fetch metadata for one key. Self or admin. Secret never included."""
     return AccessKeyRead.from_row(get_access_key_by_key_id_use_case(uow, key_id))
 
 
-@router.post("/{key_id}/revoke")
+@router.post("/{key_id}/revoke", summary="Revoke access key")
 async def revoke_access_key(
     key_id: str,
     request: Request,
     uow: UnitOfWorkDep,
     current_user: AdminUser,
 ) -> AccessKeyRead:
-    """
-    POST /access-keys/{id}/revoke -> set revoked_at to now.
-    Idempotent. Revoked keys are kept for audit; use DELETE to remove.
-    """
+    """Set `revoked_at`. Idempotent. Revoked keys are kept for audit."""
     row = revoke_access_key_use_case(
         uow,
         key_id,
@@ -149,17 +131,14 @@ async def revoke_access_key(
     return AccessKeyRead.from_row(row)
 
 
-@router.delete("/{key_id}")
+@router.delete("/{key_id}", summary="Delete access key")
 async def delete_access_key(
     key_id: str,
     request: Request,
     uow: UnitOfWorkDep,
     current_user: AdminUser,
 ) -> Response:
-    """
-    DELETE /access-keys/{id} -> hard delete the key row.
-    Self for own; admin for any.
-    """
+    """Hard delete a key row. Self for own keys; admin for any."""
     delete_access_key_use_case(
         uow,
         key_id,

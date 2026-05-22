@@ -19,42 +19,74 @@ router = APIRouter()
 class PresignUploadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    folder_id: uuid.UUID
-    filename: str = Field(min_length=1, max_length=255)
-    meta: dict[str, str] = Field(default_factory=dict)
+    folder_id: uuid.UUID = Field(description="Destination folder for the new file.")
+    filename: str = Field(
+        min_length=1,
+        max_length=255,
+        description="File name (must not contain `/`).",
+    )
+    meta: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "User metadata stored on the file. Keys become `x-amz-meta-{key}` on the "
+            "signed PUT. `relic-user` is reserved."
+        ),
+    )
 
 
 class PresignDeleteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    file_id: uuid.UUID
+    file_id: uuid.UUID = Field(description="File to delete via signed DELETE.")
 
 
 class PresignDownloadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    file_id: uuid.UUID
+    file_id: uuid.UUID = Field(description="File to download via signed GET.")
 
 
 class PresignCopyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source_file_id: uuid.UUID
-    destination_folder_id: uuid.UUID
-    name: str | None = Field(default=None, min_length=1, max_length=255)
-    metadata_directive: Literal["COPY", "REPLACE"] = "COPY"
-    meta: dict[str, str] = Field(default_factory=dict)
+    source_file_id: uuid.UUID = Field(description="File to copy from.")
+    destination_folder_id: uuid.UUID = Field(description="Folder for the copy.")
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+        description="Destination filename. Defaults to source name.",
+    )
+    metadata_directive: Literal["COPY", "REPLACE"] = Field(
+        default="COPY",
+        description="S3 metadata directive for the copy PUT.",
+    )
+    meta: dict[str, str] = Field(
+        default_factory=dict,
+        description="New metadata when `metadata_directive` is REPLACE.",
+    )
 
 
 class PresignUploadResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    url: str
-    headers: dict[str, str]
-    expires_at: dt.datetime
+    url: str = Field(
+        description="Path-style S3 URL (e.g. `/s3/photos/cat.jpg?X-Amz-...`)."
+    )
+    headers: dict[str, str] = Field(
+        description="Headers to send with the signed request (includes SigV4 params)."
+    )
+    expires_at: dt.datetime = Field(description="UTC expiry of the signature.")
 
 
-@router.post("/presign")
+@router.post(
+    "/presign",
+    summary="Presign upload",
+    description=(
+        "Return a signed PUT URL under `/s3/{bucket}/{key}`. "
+        "Replay with the returned `url`, `headers`, and request body to create the file."
+    ),
+)
 async def presign_upload(
     payload: PresignUploadRequest,
     request: Request,
@@ -88,7 +120,11 @@ async def presign_upload(
     )
 
 
-@router.post("/presign-delete")
+@router.post(
+    "/presign-delete",
+    summary="Presign delete",
+    description="Return a signed DELETE URL for an existing file.",
+)
 async def presign_delete(
     payload: PresignDeleteRequest,
     request: Request,
@@ -112,7 +148,11 @@ async def presign_delete(
     )
 
 
-@router.post("/presign-download")
+@router.post(
+    "/presign-download",
+    summary="Presign download",
+    description="Return a signed GET URL to stream object bytes.",
+)
 async def presign_download(
     payload: PresignDownloadRequest,
     request: Request,
@@ -139,7 +179,14 @@ async def presign_download(
     )
 
 
-@router.post("/presign-copy")
+@router.post(
+    "/presign-copy",
+    summary="Presign copy",
+    description=(
+        "Return a signed PUT URL that performs an S3 copy from a source file. "
+        "Send the returned request with `x-amz-copy-source` in headers."
+    ),
+)
 async def presign_copy(
     payload: PresignCopyRequest,
     request: Request,

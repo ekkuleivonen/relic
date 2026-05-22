@@ -21,8 +21,13 @@ router = APIRouter()
 class LoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    email: str = Field(min_length=3, max_length=320, pattern=r"^[^@\s]+@[^@\s]+$")
-    password: str = Field(min_length=1)
+    email: str = Field(
+        min_length=3,
+        max_length=320,
+        pattern=r"^[^@\s]+@[^@\s]+$",
+        description="Account email address.",
+    )
+    password: str = Field(min_length=1, description="Account password.")
 
 
 class SessionUserRead(BaseModel):
@@ -42,7 +47,14 @@ class SessionRead(BaseModel):
     user: SessionUserRead
 
 
-@router.post("/login")
+@router.post(
+    "/login",
+    summary="Log in",
+    description=(
+        "Authenticate with email and password. Sets an HttpOnly session cookie "
+        f"(`{S.SESSION_COOKIE_NAME}`) used automatically by same-origin `/docs` requests."
+    ),
+)
 async def login(
     payload: LoginRequest,
     response: Response,
@@ -71,7 +83,11 @@ async def login(
     return SessionRead(user=SessionUserRead.model_validate(user))
 
 
-@router.post("/logout")
+@router.post(
+    "/logout",
+    summary="Log out",
+    description="Clear the session cookie. Safe to call when not authenticated.",
+)
 async def logout(
     response: Response,
     uow: UnitOfWorkDep,
@@ -97,6 +113,10 @@ async def logout(
     return response
 
 
-@router.get("/session")
+@router.get(
+    "/session",
+    summary="Get current session",
+    description="Return the authenticated user. Requires session cookie or Bearer access key.",
+)
 async def get_session(current_user: CurrentUser) -> SessionRead:
     return SessionRead(user=SessionUserRead.model_validate(current_user))

@@ -7,8 +7,17 @@ from composition import build_uow
 from infra.db.engine import DbSession
 from enums import UserRole
 from fastapi import Cookie, Depends, Header, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from application.control_plane import session_auth
 from ports.entities import User
+
+bearer_scheme = HTTPBearer(
+    auto_error=False,
+    description=(
+        "Relic access key: paste `key_id:secret` as the token "
+        "(Swagger adds the Bearer prefix)."
+    ),
+)
 
 
 def get_uow(db: DbSession) -> Generator[UnitOfWork, None, None]:
@@ -27,9 +36,14 @@ def require_user(
     uow: Annotated[UnitOfWork, Depends(get_uow)],
     session_token: Annotated[str | None, Cookie(alias=S.SESSION_COOKIE_NAME)] = None,
     authorization: Annotated[str | None, Header()] = None,
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None, Depends(bearer_scheme)
+    ] = None,
     x_request_id: Annotated[str | None, Header(alias="X-Request-ID")] = None,
     x_correlation_id: Annotated[str | None, Header(alias="X-Correlation-ID")] = None,
 ) -> User:
+    if authorization is None and credentials is not None:
+        authorization = f"Bearer {credentials.credentials}"
     request_id = x_request_id or x_correlation_id
     user, audited_failure = session_auth.get_authenticated_user(
         uow,

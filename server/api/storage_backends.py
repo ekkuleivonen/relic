@@ -119,26 +119,20 @@ class StorageBackendProbeSample(BaseModel):
     delete_ms: int | None
 
 
-@router.get("/")
+@router.get("/", summary="List storage backends")
 async def list_storage_backends(request: Request, uow: UnitOfWorkDep) -> list[StorageBackendRead]:
-    """
-    GET /buckets -> list all configured storage_backends.
-    Includes blob-derived usage and the rolling-average probe latency.
-    """
+    """List configured blob backends with usage and probe latency. Admin only."""
     return storage_backends.list_storage_backend_reads(uow)
 
 
-@router.post("/")
+@router.post("/", summary="Create storage backend")
 async def create_storage_backend(
     request: Request,
     payload: StorageBackendCreate,
     uow: UnitOfWorkDep,
     current_user: AdminUser,
 ) -> StorageBackendRead:
-    """
-    POST /buckets -> register a new bucket backend.
-    Body: { name, endpoint, region, bucket, key_id, secret_access_key, max_size_bytes }
-    """
+    """Register a new S3 or filesystem blob backend. Admin only."""
     bucket = create_storage_backend_use_case(
         uow,
         payload.model_dump(),
@@ -150,15 +144,15 @@ async def create_storage_backend(
     return storage_backends.get_storage_backend_read(uow, bucket.id)
 
 
-@router.get("/{storage_backend_id}")
+@router.get("/{storage_backend_id}", summary="Get storage backend")
 async def get_storage_backend(
     storage_backend_id: uuid.UUID, request: Request, uow: UnitOfWorkDep
 ) -> StorageBackendRead:
-    """GET /buckets/{id} -> single bucket with usage and rolling-average latency."""
+    """Fetch one backend with usage and rolling-average latency. Admin only."""
     return storage_backends.get_storage_backend_read(uow, storage_backend_id)
 
 
-@router.patch("/{storage_backend_id}")
+@router.patch("/{storage_backend_id}", summary="Update storage backend")
 async def update_storage_backend(
     storage_backend_id: uuid.UUID,
     request: Request,
@@ -166,7 +160,7 @@ async def update_storage_backend(
     uow: UnitOfWorkDep,
     current_user: AdminUser,
 ) -> StorageBackendRead:
-    """PATCH /buckets/{id} -> update mutable fields."""
+    """Update mutable backend fields. Admin only."""
     existing = storage_backends.get_storage_backend(uow, storage_backend_id)
     values = payload.model_dump(exclude_unset=True)
 
@@ -192,7 +186,7 @@ async def update_storage_backend(
     return storage_backends.get_storage_backend_read(uow, storage_backend_id)
 
 
-@router.delete("/{storage_backend_id}")
+@router.delete("/{storage_backend_id}", summary="Delete storage backend")
 async def delete_storage_backend(
     storage_backend_id: uuid.UUID,
     request: Request,
@@ -200,9 +194,8 @@ async def delete_storage_backend(
     current_user: AdminUser,
 ) -> Response:
     """
-    DELETE /buckets/{id} -> remove a bucket backend.
-    Refuses if any Blobs still reference it; migrate them out first.
-    Returns 409 with blob count if the constraint blocks.
+    Remove a backend. Refuses if blobs still reference it (409 with count).
+    Admin only.
     """
     delete_storage_backend_use_case(
         uow,
@@ -215,7 +208,7 @@ async def delete_storage_backend(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/{storage_backend_id}/probe")
+@router.post("/{storage_backend_id}/probe", summary="Probe storage backend")
 async def probe_storage_backend(
     storage_backend_id: uuid.UUID,
     request: Request,
@@ -223,9 +216,7 @@ async def probe_storage_backend(
     current_user: AdminUser,
 ) -> StorageBackendProbeRead:
     """
-    POST /buckets/{id}/probe -> trigger sequential PUT/HEAD/GET/DELETE probes.
-    Writes a fresh row into storage_backend_probes; the placement ranking averages the
-    most recent N successful probes.
+    Run PUT/HEAD/GET/DELETE probes and record latency sample. Admin only.
     """
     probe_storage_backend_use_case(uow, storage_backend_id)
     return StorageBackendProbeRead(**storage_backends.get_storage_backend_read(uow, storage_backend_id))
@@ -240,14 +231,14 @@ class DrainStorageBackendResponse(BaseModel):
     scanned: int
 
 
-@router.post("/{storage_backend_id}/drain")
+@router.post("/{storage_backend_id}/drain", summary="Drain storage backend")
 async def drain_storage_backend(
     storage_backend_id: uuid.UUID,
     request: Request,
     uow: UnitOfWorkDep,
     current_user: AdminUser,
 ) -> DrainStorageBackendResponse:
-    """POST /buckets/{id}/drain -> migrate all blobs to colder buckets with capacity."""
+    """Migrate all blobs to other backends with capacity. Admin only."""
     result = drain_storage_backend_use_case(
         uow,
         storage_backend_id=storage_backend_id,
@@ -264,7 +255,7 @@ async def drain_storage_backend(
     )
 
 
-@router.get("/{storage_backend_id}/probes")
+@router.get("/{storage_backend_id}/probes", summary="List probe samples")
 async def list_storage_backend_probes(
     storage_backend_id: uuid.UUID,
     request: Request,
@@ -272,7 +263,7 @@ async def list_storage_backend_probes(
     current_user: AdminUser,
     limit: int = Query(default=20, ge=1, le=200),
 ) -> list[StorageBackendProbeSample]:
-    """GET /buckets/{id}/probes -> recent probe samples (newest first)."""
+    """Recent probe samples for a backend, newest first. Admin only."""
     storage_backends.get_storage_backend(uow, storage_backend_id)
     rows = list(
         uow.session.scalars(

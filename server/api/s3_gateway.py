@@ -41,16 +41,18 @@ from ports.entities import User
 
 router = APIRouter()
 
-"""
-Proxies S3 requests to the underlying storage_backends.
-
-Path-style routing only (e.g. PUT /{bucket}/{key}). StorageBackend maps to a top-level
-Folder; key maps to nested Folders + final File.name. Authentication is SigV4
-against AccessKey rows.
-"""
+_S3_DESCRIPTION = (
+    "SigV4 authentication required. Not testable via Swagger Authorize — "
+    "use `/api/uploads/presign*` to obtain signed URLs. "
+    "Path-style only: `/s3/{bucket}/{key}` where bucket is a top-level folder name."
+)
 
 
-@router.get("/")
+@router.get(
+    "/",
+    summary="List buckets",
+    description=_S3_DESCRIPTION + " Returns XML listing visible top-level folders.",
+)
 async def list_buckets(request: Request, uow: UnitOfWorkDep) -> Response:
     try:
         user = load_signed_user(request, uow.session)
@@ -68,7 +70,11 @@ async def list_buckets(request: Request, uow: UnitOfWorkDep) -> Response:
     return Response(content=body, status_code=200, media_type="application/xml")
 
 
-@router.head("/{bucket}")
+@router.head(
+    "/{bucket}",
+    summary="Head bucket",
+    description=_S3_DESCRIPTION,
+)
 async def head_bucket(bucket: str, request: Request, uow: UnitOfWorkDep) -> Response:
     try:
         user = load_signed_user(request, uow.session)
@@ -83,7 +89,11 @@ async def head_bucket(bucket: str, request: Request, uow: UnitOfWorkDep) -> Resp
     return Response(status_code=200)
 
 
-@router.get("/{bucket}")
+@router.get(
+    "/{bucket}",
+    summary="List objects or multipart uploads",
+    description=_S3_DESCRIPTION + " Use `?list-type=2` for ListObjectsV2 or `?uploads` for multipart listing.",
+)
 async def list_objects_v2(bucket: str, request: Request, uow: UnitOfWorkDep) -> Response:
     query = request.query_params
     if "uploads" in query:
@@ -164,7 +174,11 @@ async def list_objects_v2(bucket: str, request: Request, uow: UnitOfWorkDep) -> 
     )
 
 
-@router.post("/{bucket}/{key:path}")
+@router.post(
+    "/{bucket}/{key:path}",
+    summary="Create or complete multipart upload",
+    description=_S3_DESCRIPTION + " `?uploads` starts upload; `?uploadId=` completes it.",
+)
 async def multipart_post(
     bucket: str, key: str, request: Request, uow: UnitOfWorkDep
 ) -> Response:
@@ -212,7 +226,11 @@ async def multipart_post(
     )
 
 
-@router.put("/{bucket}/{key:path}")
+@router.put(
+    "/{bucket}/{key:path}",
+    summary="Put object, upload part, or copy object",
+    description=_S3_DESCRIPTION,
+)
 async def put_object(
     bucket: str, key: str, request: Request, uow: UnitOfWorkDep
 ) -> Response:
@@ -308,7 +326,11 @@ def _handle_copy_object(
     )
 
 
-@router.head("/{bucket}/{key:path}")
+@router.head(
+    "/{bucket}/{key:path}",
+    summary="Head object",
+    description=_S3_DESCRIPTION,
+)
 async def head_object(
     bucket: str, key: str, request: Request, uow: UnitOfWorkDep
 ) -> Response:
@@ -329,7 +351,11 @@ async def head_object(
     return Response(status_code=200, headers=build_object_response_headers(result))
 
 
-@router.get("/{bucket}/{key:path}")
+@router.get(
+    "/{bucket}/{key:path}",
+    summary="Get object or list multipart parts",
+    description=_S3_DESCRIPTION + " Supports Range requests and `?uploadId=` for part listing.",
+)
 async def get_object(
     bucket: str, key: str, request: Request, uow: UnitOfWorkDep
 ) -> Response:
@@ -381,7 +407,11 @@ async def get_object(
     )
 
 
-@router.delete("/{bucket}/{key:path}")
+@router.delete(
+    "/{bucket}/{key:path}",
+    summary="Delete object or abort multipart upload",
+    description=_S3_DESCRIPTION,
+)
 async def delete_object(
     bucket: str, key: str, request: Request, uow: UnitOfWorkDep
 ) -> Response:

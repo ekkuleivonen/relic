@@ -2,7 +2,7 @@ import datetime as dt
 import uuid
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.users import UserRead
 from api.dependencies import UnitOfWorkDep
@@ -60,19 +60,25 @@ class AuditEventListResponse(BaseModel):
     offset: int
 
 
-@router.get("/")
+@router.get("/", summary="List audit events")
 async def list_audit_events(
     uow: UnitOfWorkDep,
-    operation: str | None = None,
-    status: str | None = None,
-    actor_id: uuid.UUID | None = None,
-    request_id: str | None = None,
-    job: str | None = None,
-    batch_id: uuid.UUID | None = None,
-    storage_backend_id: uuid.UUID | None = None,
-    blob_id: uuid.UUID | None = None,
-    created_after: dt.datetime | None = None,
-    created_before: dt.datetime | None = None,
+    operation: str | None = Query(default=None, description="Filter by operation name."),
+    status: str | None = Query(default=None, description="Filter by status."),
+    actor_id: uuid.UUID | None = Query(default=None, description="Filter by actor."),
+    request_id: str | None = Query(default=None, description="Filter by request ID."),
+    job: str | None = Query(default=None, description="Filter by background job name."),
+    batch_id: uuid.UUID | None = Query(default=None, description="Filter by batch ID."),
+    storage_backend_id: uuid.UUID | None = Query(
+        default=None, description="Filter by storage backend."
+    ),
+    blob_id: uuid.UUID | None = Query(default=None, description="Filter by blob."),
+    created_after: dt.datetime | None = Query(
+        default=None, description="Inclusive lower bound on created_at."
+    ),
+    created_before: dt.datetime | None = Query(
+        default=None, description="Exclusive upper bound on created_at."
+    ),
     limit: int = Query(
         default=AUDIT_EVENT_DEFAULT_LIMIT,
         ge=1,
@@ -80,6 +86,7 @@ async def list_audit_events(
     ),
     offset: int = Query(default=0, ge=0),
 ) -> AuditEventListResponse:
+    """Paginated audit log with optional filters. Admin only."""
     page = audit_events.list_audit_events(
         uow.session,
         operation=operation,
@@ -101,5 +108,3 @@ async def list_audit_events(
         limit=page.limit,
         offset=page.offset,
     )
-
-

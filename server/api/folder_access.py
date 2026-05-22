@@ -16,20 +16,19 @@ from infra.db.stores.folder_access_types import FolderAccessRow
 
 router = APIRouter()
 
-"""
-Folder access management. Admin-only.
-
-A FolderAccess row grants an actor permissions on a folder; permissions
-recurse to descendant folders. There is one row per (actor, folder).
-"""
-
 
 class FolderAccessGrant(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    actor_id: uuid.UUID
-    folder_id: uuid.UUID
-    permissions: int = Field(gt=0)
+    actor_id: uuid.UUID = Field(description="User receiving the grant.")
+    folder_id: uuid.UUID = Field(description="Folder the grant applies to.")
+    permissions: int = Field(
+        gt=0,
+        description=(
+            "Permission bitfield: READ=1, WRITE=2, DELETE=4, ENRICH=8. "
+            "Combine with bitwise OR. Inherits to descendant folders."
+        ),
+    )
 
 
 class FolderAccessRead(BaseModel):
@@ -56,28 +55,21 @@ class FolderAccessRead(BaseModel):
         )
 
 
-@router.get("/")
+@router.get("/", summary="List folder access grants")
 async def list_folder_access(uow: UnitOfWorkDep) -> list[FolderAccessRead]:
-    """
-    GET /folder-access -> all grants across the filesystem.
-    Returns a flat list with embedded user info and resolved folder paths.
-    """
+    """List all explicit folder grants with resolved paths. Admin only."""
     rows = list_folder_access_use_case(uow)
     return [FolderAccessRead.from_row(row) for row in rows]
 
 
-@router.post("/")
+@router.post("/", summary="Grant folder access")
 async def create_folder_access(
     payload: FolderAccessGrant,
     request: Request,
     uow: UnitOfWorkDep,
     current_user: AdminUser,
 ) -> FolderAccessRead:
-    """
-    POST /folder-access -> grant a user permissions on a folder.
-    Body: { actor_id, folder_id, permissions }
-    Idempotent: an existing row for the same (actor, folder) is updated.
-    """
+    """Grant or update permissions on a folder. Idempotent per (actor, folder). Admin only."""
     row = grant_folder_access_use_case(
         uow,
         actor_id=payload.actor_id,
@@ -91,17 +83,14 @@ async def create_folder_access(
     return FolderAccessRead.from_row(row)
 
 
-@router.delete("/{access_id}")
+@router.delete("/{access_id}", summary="Revoke folder access")
 async def delete_folder_access(
     access_id: uuid.UUID,
     request: Request,
     uow: UnitOfWorkDep,
     current_user: AdminUser,
 ) -> Response:
-    """
-    DELETE /folder-access/{access_id} -> revoke an explicit grant.
-    Inherited permissions from ancestor folders remain in effect.
-    """
+    """Revoke an explicit grant. Inherited ancestor permissions remain. Admin only."""
     revoke_folder_access_use_case(
         uow,
         access_id=access_id,

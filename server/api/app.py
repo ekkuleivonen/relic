@@ -1,4 +1,5 @@
 from api.dependencies import UnitOfWorkDep
+from api.openapi import API_DESCRIPTION, OPENAPI_TAGS, configure_openapi
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -25,10 +26,13 @@ from .users import router as users_router
 
 app = FastAPI(
     title="Relic API",
-    description="API for the Relic system",
+    description=API_DESCRIPTION,
     version="0.1.0",
+    openapi_tags=OPENAPI_TAGS,
+    swagger_ui_parameters={"persistAuthorization": True},
 )
 register_exception_handlers(app)
+configure_openapi(app)
 
 
 @app.middleware("http")
@@ -129,13 +133,15 @@ app.include_router(
 app.include_router(s3_gateway_router, prefix="/s3", tags=["s3"])
 
 
-@app.get("/healthz")
+@app.get("/healthz", tags=["health"], summary="Liveness probe")
 def healthz():
+    """Return process liveness. No authentication required."""
     return health.health_response()
 
 
-@app.get("/readyz")
+@app.get("/readyz", tags=["health"], summary="Readiness probe")
 async def readyz(uow: UnitOfWorkDep):
+    """Return dependency readiness (Postgres, Redis, storage backends). No authentication required."""
     payload = await health.readiness_response(uow.session)
     if payload["status"] != HealthStatus.OK.value:
         return JSONResponse(
