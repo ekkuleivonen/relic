@@ -1,12 +1,19 @@
 """Tests for opaque file meta helpers."""
 
+import json
+import uuid
+
 import pytest
 
+from constants import S3_RELIC_META_HEADER
 from domain.exceptions import BadRequestError
 from domain.files.meta import (
+    build_relic_meta_envelope,
+    gateway_user_metadata_headers,
+    is_reserved_user_metadata_key,
     normalize_ingest_meta,
     patch_meta,
-    user_metadata_as_s3_headers,
+    validate_user_metadata_ingest,
 )
 
 
@@ -37,31 +44,66 @@ def test_patch_meta_replaces_scalar_and_list_values() -> None:
     assert updated["note"] == "changed"
 
 
-def test_user_metadata_as_s3_headers_round_trips_string_values() -> None:
-    headers = user_metadata_as_s3_headers({"album": "spring", "Source": "facet"})
-    assert headers == {
-        "x-amz-meta-album": "spring",
-        "x-amz-meta-source": "facet",
-    }
+def test_is_reserved_user_metadata_key() -> None:
+    assert is_reserved_user_metadata_key("relic-user")
+    assert is_reserved_user_metadata_key("relic-file-id")
+    assert is_reserved_user_metadata_key("x-amz-meta-relic-meta")
+    assert not is_reserved_user_metadata_key("source")
 
 
-def test_user_metadata_as_s3_headers_skips_structured_and_reserved_keys() -> None:
-    headers = user_metadata_as_s3_headers(
-        {
-            "album": "spring",
-            "test_key": 1,
-            "enabled": True,
-            "ratio": 1.5,
-            "tags": ["a"],
-            "kvs": {"x": 1},
-            "relic-user": "secret-user-id",
-            "broken": "line\nbreak",
-            "empty": None,
-        }
+def test_validate_user_metadata_ingest_rejects_relic_namespace() -> None:
+    with pytest.raises(BadRequestError, match="reserved"):
+        validate_user_metadata_ingest({"relic-file-id": "fake"})
+
+
+def test_build_relic_meta_envelope() -> None:
+    file_id = uuid.uuid4()
+    blob_id = uuid.uuid4()
+    folder_id = uuid.uuid4()
+    meta = {"test_key": 1, "tags": ["csv"]}
+
+    envelope = build_relic_meta_envelope(
+        file_id=file_id,
+        blob_id=blob_id,
+        folder_id=folder_id,
+        meta=meta,
     )
-    assert headers == {
-        "x-amz-meta-album": "spring",
-        "x-amz-meta-test_key": "1",
-        "x-amz-meta-enabled": "True",
-        "x-amz-meta-ratio": "1.5",
+
+    assert envelope == {
+        "file_id": str(file_id),
+        "blob_id": str(blob_id),
+        "folder_id": str(folder_id),
+        "meta": meta,
     }
+
+
+def test_gateway_user_metadata_headers_only_exposes_relic_meta_json() -> None:
+    file_id = uuid.uuid4()
+    blob_id = uuid.uuid4()
+    folder_id = uuid.uuid4()
+    meta = {
+        "test_key": 1,
+        "tags": ["csv", "finance"],
+        "kvs": {"owner": "facet"},
+    }
+
+    headers = gateway_user_metadata_headers(
+        file_id=file_id,
+        blob_id=blob_id,
+        folder_id=folder_id,
+        meta=meta,
+    )
+
+    assert headers == {S3_RELIC_META_HEADER: json.dumps(
+        build_relic_meta_envelope(
+            file_id=file_id,
+            blob_id=blob_id,
+            folder_id=folder_id,
+            meta=meta,
+        ),
+        separators=(",", ":"),
+        sort_keys=True,
+    )}
+    parsed = json.loads(headers[S3_RELIC_META_HEADER])
+    assert parsed["file_id"] == str(file_id)
+    assert parsed["meta"] == meta

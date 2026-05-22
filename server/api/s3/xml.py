@@ -3,7 +3,7 @@
 import uuid
 from xml.sax.saxutils import escape
 
-from domain.files.meta import user_metadata_as_s3_headers
+from domain.files.meta import gateway_user_metadata_headers
 from infra.gateway import object_listing
 from infra.gateway import object_multipart
 from infra.gateway.object_types import GetObjectResult
@@ -221,5 +221,12 @@ def build_object_response_headers(result: GetObjectResult) -> dict[str, str]:
         "Content-Length": str(result.blob.size_bytes),
         "Content-Type": result.blob.mimetype or "application/octet-stream",
     }
-    headers.update(user_metadata_as_s3_headers(result.file.meta))
+    headers.update(
+        gateway_user_metadata_headers(
+            file_id=result.file.id,
+            blob_id=result.blob.id,
+            folder_id=result.file.folder_id,
+            meta=result.file.meta,
+        )
+    )
     return headers

@@ -5,6 +5,7 @@ from typing import Literal
 import settings as S
 from fastapi import APIRouter, Request
 from domain.exceptions import BadRequestError
+from domain.files.meta import is_reserved_user_metadata_key
 from pydantic import BaseModel, ConfigDict, Field
 from application.context import Actor
 from application.control_plane import presigned_access
@@ -254,7 +255,7 @@ def normalize_user_metadata(meta: dict[str, str]) -> dict[str, str]:
         name = raw_name.removeprefix("x-amz-meta-").strip().lower()
         if not name:
             raise BadRequestError("Metadata names cannot be empty")
-        if name == "relic-user":
+        if is_reserved_user_metadata_key(name):
             raise BadRequestError("Metadata name is reserved")
         if "\n" in value or "\r" in value:
             raise BadRequestError("Metadata values cannot contain newlines")

@@ -11,6 +11,7 @@ from urllib.parse import unquote
 import settings as S
 from constants import S3_LISTING_DEFAULT_MAX_KEYS, S3_USER_BINDING_HEADER
 from domain.exceptions import BadRequestError
+from domain.files.meta import validate_user_metadata_ingest
 from ports.storage_policy import enforce_max_object_bytes
 from fastapi import Request
 from sqlalchemy.orm import Session
@@ -121,12 +122,14 @@ async def spool_request_body(request: Request) -> SpoolResult:
 
 def extract_user_metadata(request: Request) -> dict[str, str]:
     prefix = "x-amz-meta-"
-    return {
+    meta = {
         header_name.removeprefix(prefix): header_value
         for header_name, header_value in request.headers.items()
         if header_name.startswith(prefix)
         and header_name != S3_USER_BINDING_HEADER
     }
+    validate_user_metadata_ingest(meta)
+    return meta
 
 
 def parse_complete_multipart_body(
