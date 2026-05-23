@@ -1,3 +1,6 @@
+import asyncio
+from contextlib import asynccontextmanager
+
 from api.dependencies import UnitOfWorkDep
 from api.openapi import API_DESCRIPTION, OPENAPI_TAGS, configure_openapi
 from fastapi import Depends, FastAPI, Request, status
@@ -9,6 +12,7 @@ from constants import API_PREFIX
 from enums import HealthStatus
 import infra.health as health
 import infra.metrics as metrics
+from infra.arq import close_arq_redis
 from .access_keys import router as access_keys_router
 from .auth import router as auth_router
 from .storage_backends import router as storage_backends_router
@@ -24,12 +28,20 @@ from .s3_gateway import router as s3_gateway_router
 from .uploads import router as uploads_router
 from .users import router as users_router
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    yield
+    await close_arq_redis()
+
+
 app = FastAPI(
     title="Relic API",
     description=API_DESCRIPTION,
     version="0.1.0",
     openapi_tags=OPENAPI_TAGS,
     swagger_ui_parameters={"persistAuthorization": True},
+    lifespan=lifespan,
 )
 register_exception_handlers(app)
 configure_openapi(app)
@@ -163,9 +175,10 @@ async def readyz(uow: UnitOfWorkDep):
 
 
 @app.get("/metrics", include_in_schema=False)
-def prometheus_metrics():
+async def prometheus_metrics():
+    body = await asyncio.to_thread(metrics.metrics_body)
     return Response(
-        content=metrics.metrics_body(),
+        content=body,
         media_type=metrics.metrics_content_type(),
     )
 

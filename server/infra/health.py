@@ -1,17 +1,15 @@
-import inspect
 import time
 from typing import Any
 
-from arq import create_pool
 from arq.connections import ArqRedis
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 import settings as S
 from enums import HealthStatus
+from infra.arq import get_arq_redis
 from infra.db.models import StorageBackend
 from infra.db.stores.placement import storage_backend_is_reachable
-from infra.arq import arq_redis_settings
 from infra.worker_heartbeats import maintenance_heartbeat_status
 
 
@@ -50,10 +48,7 @@ def check_database(db: Session) -> dict[str, Any]:
 
 async def check_redis_queues() -> dict[str, Any]:
     try:
-        redis = await create_pool(
-            arq_redis_settings(),
-            default_queue_name=S.MAINTENANCE_QUEUE_NAME,
-        )
+        redis = await get_arq_redis()
     except Exception as exc:
         return failed_check(exc)
 
@@ -66,8 +61,6 @@ async def check_redis_queues() -> dict[str, Any]:
         }
     except Exception as exc:
         return failed_check(exc)
-    finally:
-        await close_redis(redis)
 
     return {"status": HealthStatus.OK.value, "queues": queues}
 
@@ -83,15 +76,6 @@ async def queue_snapshot(redis: ArqRedis, queue_name: str) -> dict[str, Any]:
         "depth": depth,
         "oldest_pending_age_seconds": oldest_age_seconds,
     }
-
-
-async def close_redis(redis: ArqRedis) -> None:
-    close = getattr(redis, "close", None)
-    if close is None:
-        return
-    result = close()
-    if inspect.isawaitable(result):
-        await result
 
 
 def check_object_stores(db: Session) -> dict[str, Any]:
