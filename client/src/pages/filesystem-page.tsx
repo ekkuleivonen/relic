@@ -99,13 +99,18 @@ function FilesystemPageInner() {
     setSelectedFileIds(new Set())
   }, [selectedFolder?.id, sort.key, sort.dir])
 
-  const folderFiles = useFolderFiles(selectedFolder?.id, {
+  /* Root is structural-only and never holds files; skip the listing call so it can't 400. */
+  const filesFolderId =
+    selectedFolder !== undefined && isRootFolder(selectedFolder)
+      ? undefined
+      : selectedFolder?.id
+  const folderFiles = useFolderFiles(filesFolderId, {
     offset: fileOffset,
     sort: sort.key,
     dir: sort.dir,
     limit: FOLDER_FILES_PAGE_SIZE,
   })
-  const folderStats = useFolderStats(selectedFolder?.id)
+  const folderStats = useFolderStats(filesFolderId)
 
   React.useEffect(() => {
     const page = folderFiles.data
