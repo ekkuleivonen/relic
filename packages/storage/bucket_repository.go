@@ -259,7 +259,83 @@ func (s *BucketStore) ListBuckets(ctx context.Context, params ListBucketsParams)
 }
 
 func (s *BucketStore) UpdateBucket(ctx context.Context, params UpdateBucketParams) (Bucket, error) {
-	return Bucket{}, ErrNotImplemented
+	var providerConfig *string
+	if params.ProviderConfig != nil {
+		encoded, err := encodeProviderConfig(*params.ProviderConfig)
+		if err != nil {
+			return Bucket{}, err
+		}
+		value := string(encoded)
+		providerConfig = &value
+	}
+
+	var pluginSettings *string
+	if params.PluginSettings != nil {
+		encoded, err := encodePluginSettings(*params.PluginSettings)
+		if err != nil {
+			return Bucket{}, err
+		}
+		value := string(encoded)
+		pluginSettings = &value
+	}
+
+	var (
+		credentialKeyID      *string
+		credentialAlgorithm  *string
+		credentialNonce      any
+		credentialCiphertext any
+	)
+	if params.EncryptedCredentials != nil {
+		credentialKeyID = &params.EncryptedCredentials.KeyID
+		algorithm := string(params.EncryptedCredentials.Algorithm)
+		credentialAlgorithm = &algorithm
+		credentialNonce = params.EncryptedCredentials.Nonce
+		credentialCiphertext = params.EncryptedCredentials.Ciphertext
+	}
+
+	return scanBucket(s.runner.QueryRow(ctx, `
+		UPDATE buckets
+		SET
+			name = COALESCE($2, name),
+			endpoint_url = COALESCE($3, endpoint_url),
+			region = COALESCE($4, region),
+			prefix = COALESCE($5, prefix),
+			provider_config = COALESCE($6::jsonb, provider_config),
+			credential_key_id = COALESCE($7, credential_key_id),
+			credential_algorithm = COALESCE($8, credential_algorithm),
+			credential_nonce = COALESCE($9::bytea, credential_nonce),
+			credential_ciphertext = COALESCE($10::bytea, credential_ciphertext),
+			plugin_settings = COALESCE($11::jsonb, plugin_settings),
+			updated_at = now()
+		WHERE id = $1
+		RETURNING
+			id,
+			name,
+			provider,
+			endpoint_url,
+			region,
+			bucket_name,
+			prefix,
+			provider_config,
+			credential_key_id,
+			credential_algorithm,
+			credential_nonce,
+			credential_ciphertext,
+			plugin_settings,
+			created_at,
+			updated_at
+	`, params.ID,
+		params.Name,
+		params.EndpointURL,
+		params.Region,
+		params.Prefix,
+		providerConfig,
+		credentialKeyID,
+		credentialAlgorithm,
+		credentialNonce,
+		credentialCiphertext,
+		pluginSettings,
+	))
 }
 
 func (s *BucketStore) DeleteBucket(ctx context.Context, id string) error {

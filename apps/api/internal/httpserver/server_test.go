@@ -35,7 +35,7 @@ func TestNewConfiguresServer(t *testing.T) {
 }
 
 func TestHealthz(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
 	rec := httptest.NewRecorder()
 
 	Handler(testDeps()).ServeHTTP(rec, req)
@@ -66,7 +66,7 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestOpenAPI(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/openapi.json", nil)
 	rec := httptest.NewRecorder()
 
 	Handler(testDeps()).ServeHTTP(rec, req)
@@ -108,12 +108,12 @@ func TestOpenAPI(t *testing.T) {
 		t.Fatal("description is empty")
 	}
 
-	if _, ok := spec.Paths["/healthz"]; !ok {
-		t.Fatal("OpenAPI spec does not include /healthz")
+	if _, ok := spec.Paths["/api/healthz"]; !ok {
+		t.Fatal("OpenAPI spec does not include /api/healthz")
 	}
 
-	if len(spec.Servers) == 0 || spec.Servers[0].URL != "/" {
-		t.Fatalf("servers = %#v, want first URL /", spec.Servers)
+	if len(spec.Servers) == 0 || spec.Servers[0].URL != "/api" {
+		t.Fatalf("servers = %#v, want first URL /api", spec.Servers)
 	}
 
 	if len(spec.Tags) == 0 || spec.Tags[0].Name != "System" {
@@ -122,7 +122,7 @@ func TestOpenAPI(t *testing.T) {
 }
 
 func TestDocs(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/docs", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/docs", nil)
 	rec := httptest.NewRecorder()
 
 	Handler(testDeps()).ServeHTTP(rec, req)

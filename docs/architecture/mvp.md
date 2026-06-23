@@ -96,12 +96,12 @@ Auth should be enforced at the API boundary and carried through application serv
 Required operations:
 
 ```http
-GET    /buckets
-POST   /buckets
-GET    /buckets/:id
-PATCH  /buckets/:id
-DELETE /buckets/:id
-POST   /buckets/:id/import
+GET    /api/buckets
+POST   /api/buckets
+GET    /api/buckets/:id
+PATCH  /api/buckets/:id
+DELETE /api/buckets/:id
+POST   /api/buckets/:id/import
 ```
 
 Bucket creation should accept provider details, credentials, prefix or scope, non-secret provider config, and plugin settings. Read responses must never return plaintext credential secrets.
@@ -127,7 +127,7 @@ Example S3-compatible provider config:
 For the MVP, manual import is the only special bucket lifecycle action:
 
 ```http
-POST /buckets/:id/import
+POST /api/buckets/:id/import
 ```
 
 This creates an import job and updates catalog state as the job runs.
@@ -361,15 +361,15 @@ Implement:
 
 Status:
 
-* Done: `POST /buckets`.
-* Done: `GET /buckets`.
-* Done: `GET /buckets/:id`.
+* Done: `POST /api/buckets`.
+* Done: `GET /api/buckets`.
+* Done: `GET /api/buckets/:id`.
+* Done: `PATCH /api/buckets/:id`.
 * Done: Bucket API is registered in generated OpenAPI docs.
 * Done: Bucket create encrypts credentials before calling storage.
 * Done: Bucket read responses redact credentials.
-* Pending: `PATCH /buckets/:id`.
-* Pending: `DELETE /buckets/:id`.
-* Pending: `POST /buckets/:id/import`.
+* Pending: `DELETE /api/buckets/:id`.
+* Pending: `POST /api/buckets/:id/import`.
 * Pending: Optional credential validation against the provider before saving.
 
 Operations:

@@ -8,11 +8,11 @@ import (
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
 )
 
-func Register(api huma.API, _ deps.Dependencies) {
+func Register(api huma.API, _ deps.Dependencies, basePath string) {
 	huma.Register(api, huma.Operation{
 		OperationID: "healthz",
 		Method:      http.MethodGet,
-		Path:        "/healthz",
+		Path:        basePath + "/healthz",
 		Summary:     "Check API health",
 		Tags:        []string{"System"},
 	}, func(ctx context.Context, input *healthInput) (*healthOutput, error) {

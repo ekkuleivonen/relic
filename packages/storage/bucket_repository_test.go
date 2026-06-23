@@ -114,6 +114,86 @@ func TestBucketStoreGetMissing(t *testing.T) {
 	}
 }
 
+func TestBucketStoreUpdate(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	buckets := store.Buckets()
+	created, err := buckets.CreateBucket(ctx, CreateBucketParams{
+		Name:        "update-source-" + time.Now().Format("20060102150405.000000000"),
+		Provider:    BucketProviderS3,
+		EndpointURL: "https://wrong.example.test",
+		Region:      "us-east-1",
+		BucketName:  "example-data",
+		Prefix:      "old/",
+		ProviderConfig: BucketProviderConfig{
+			"s3": map[string]any{
+				"force_path_style": false,
+			},
+		},
+		EncryptedCredentials: secrets.Envelope{
+			KeyID:      "local-dev",
+			Algorithm:  secrets.AlgorithmXChaCha20Poly1305,
+			Nonce:      []byte("012345678901234567890123"),
+			Ciphertext: []byte("encrypted-credentials"),
+		},
+		PluginSettings: BucketPluginSettingsMap{},
+	})
+	if err != nil {
+		t.Fatalf("CreateBucket returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.pool.Exec(context.Background(), "DELETE FROM buckets WHERE id = $1", created.ID)
+	})
+
+	name := "updated-bucket"
+	endpointURL := "https://s3.correct.example.test"
+	region := "eu-west-1"
+	prefix := "new/"
+	providerConfig := BucketProviderConfig{
+		"s3": map[string]any{
+			"force_path_style": true,
+			"signing_region":   region,
+		},
+	}
+
+	updated, err := buckets.UpdateBucket(ctx, UpdateBucketParams{
+		ID:             created.ID,
+		Name:           &name,
+		EndpointURL:    &endpointURL,
+		Region:         &region,
+		Prefix:         &prefix,
+		ProviderConfig: &providerConfig,
+	})
+	if err != nil {
+		t.Fatalf("UpdateBucket returned error: %v", err)
+	}
+
+	if updated.Name != name {
+		t.Fatalf("updated name = %q, want %q", updated.Name, name)
+	}
+	if updated.EndpointURL != endpointURL {
+		t.Fatalf("updated endpoint URL = %q, want %q", updated.EndpointURL, endpointURL)
+	}
+	if updated.Region != region {
+		t.Fatalf("updated region = %q, want %q", updated.Region, region)
+	}
+	if updated.Prefix != prefix {
+		t.Fatalf("updated prefix = %q, want %q", updated.Prefix, prefix)
+	}
+	if updated.BucketName != created.BucketName {
+		t.Fatalf("updated bucket name = %q, want %q", updated.BucketName, created.BucketName)
+	}
+	s3Config, ok := updated.ProviderConfig["s3"].(map[string]any)
+	if !ok {
+		t.Fatalf("updated provider config = %#v, want s3 object", updated.ProviderConfig)
+	}
+	if forcePathStyle, ok := s3Config["force_path_style"].(bool); !ok || !forcePathStyle {
+		t.Fatalf("force_path_style = %#v, want true", s3Config["force_path_style"])
+	}
+}
+
 func testStore(t *testing.T, ctx context.Context) (*Store, func()) {
 	t.Helper()
 

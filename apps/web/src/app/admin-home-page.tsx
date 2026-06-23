@@ -3,6 +3,7 @@ import {
   ListFilterIcon,
   RefreshCwIcon,
 } from "lucide-react"
+import { Link } from "react-router"
 
 import { useTheme } from "@/components/theme-provider"
 import { Badge } from "@/components/ui/badge"
@@ -67,9 +68,11 @@ export function AdminHomePage() {
               administration loop.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <Button size="lg">Buckets UI next</Button>
+              <Button size="lg" asChild>
+                <Link to="/buckets">Buckets UI next</Link>
+              </Button>
               <Button size="lg" variant="outline" asChild>
-                <a href="/docs">View API docs</a>
+                <a href="/api/docs">View API docs</a>
               </Button>
             </div>
           </div>

@@ -11,6 +11,8 @@ import (
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/system"
 )
 
+const apiBasePath = "/api"
+
 func New(dependencies deps.Dependencies) *http.Server {
 	return &http.Server{
 		Addr:              dependencies.Config.HTTPAddr,
@@ -25,8 +27,8 @@ func New(dependencies deps.Dependencies) *http.Server {
 func Handler(dependencies deps.Dependencies) http.Handler {
 	mux := http.NewServeMux()
 	api := humago.New(mux, apiConfig())
-	buckets.Register(api, dependencies)
-	system.Register(api, dependencies)
+	buckets.Register(api, dependencies, apiBasePath)
+	system.Register(api, dependencies, apiBasePath)
 
 	return mux
 }
@@ -34,12 +36,12 @@ func Handler(dependencies deps.Dependencies) http.Handler {
 func apiConfig() huma.Config {
 	cfg := huma.DefaultConfig("Relic API", "0.1.0")
 	cfg.Info.Description = "Metadata and discovery API for object storage."
-	cfg.OpenAPIPath = "/openapi"
-	cfg.DocsPath = "/docs"
-	cfg.SchemasPath = "/schemas"
+	cfg.OpenAPIPath = apiBasePath + "/openapi"
+	cfg.DocsPath = apiBasePath + "/docs"
+	cfg.SchemasPath = apiBasePath + "/schemas"
 	cfg.Servers = []*huma.Server{
 		{
-			URL:         "/",
+			URL:         apiBasePath,
 			Description: "Current Relic API server",
 		},
 	}

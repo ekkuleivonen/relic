@@ -12,11 +12,11 @@ import (
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
-func Register(api huma.API, dependencies deps.Dependencies) {
+func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 	huma.Register(api, huma.Operation{
 		OperationID: "create-bucket",
 		Method:      http.MethodPost,
-		Path:        "/buckets",
+		Path:        basePath + "/buckets",
 		Summary:     "Create bucket",
 		Tags:        []string{"Buckets"},
 	}, func(ctx context.Context, input *createBucketInput) (*bucketOutput, error) {
@@ -55,7 +55,7 @@ func Register(api huma.API, dependencies deps.Dependencies) {
 	huma.Register(api, huma.Operation{
 		OperationID: "list-buckets",
 		Method:      http.MethodGet,
-		Path:        "/buckets",
+		Path:        basePath + "/buckets",
 		Summary:     "List buckets",
 		Tags:        []string{"Buckets"},
 	}, func(ctx context.Context, input *listBucketsInput) (*listBucketsOutput, error) {
@@ -83,7 +83,7 @@ func Register(api huma.API, dependencies deps.Dependencies) {
 	huma.Register(api, huma.Operation{
 		OperationID: "get-bucket",
 		Method:      http.MethodGet,
-		Path:        "/buckets/{id}",
+		Path:        basePath + "/buckets/{id}",
 		Summary:     "Get bucket",
 		Tags:        []string{"Buckets"},
 	}, func(ctx context.Context, input *getBucketInput) (*bucketOutput, error) {
@@ -92,6 +92,55 @@ func Register(api huma.API, dependencies deps.Dependencies) {
 		}
 
 		bucket, err := dependencies.Storage.Buckets().GetBucket(ctx, input.ID)
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, huma.Error404NotFound("bucket not found")
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		return &bucketOutput{Body: bucketResponseFromStorage(bucket)}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "update-bucket",
+		Method:      http.MethodPatch,
+		Path:        basePath + "/buckets/{id}",
+		Summary:     "Update bucket",
+		Tags:        []string{"Buckets"},
+	}, func(ctx context.Context, input *updateBucketInput) (*bucketOutput, error) {
+		if dependencies.Storage == nil {
+			return nil, huma.Error500InternalServerError("bucket dependencies are not configured")
+		}
+
+		params := storage.UpdateBucketParams{
+			ID:             input.ID,
+			Name:           input.Body.Name,
+			EndpointURL:    input.Body.EndpointURL,
+			Region:         input.Body.Region,
+			Prefix:         input.Body.Prefix,
+			ProviderConfig: input.Body.ProviderConfig,
+			PluginSettings: input.Body.PluginSettings,
+		}
+
+		if input.Body.Credentials != nil {
+			if dependencies.Secrets == nil {
+				return nil, huma.Error500InternalServerError("bucket dependencies are not configured")
+			}
+
+			credentials, err := json.Marshal(input.Body.Credentials)
+			if err != nil {
+				return nil, huma.Error400BadRequest("credentials must be valid JSON")
+			}
+
+			envelope, err := dependencies.Secrets.Encrypt(ctx, credentials)
+			if err != nil {
+				return nil, err
+			}
+			params.EncryptedCredentials = &envelope
+		}
+
+		bucket, err := dependencies.Storage.Buckets().UpdateBucket(ctx, params)
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, huma.Error404NotFound("bucket not found")
 		}
@@ -127,6 +176,21 @@ type listBucketsInput struct {
 
 type getBucketInput struct {
 	ID string `path:"id" example:"bucket_0123456789abcdef0123456789abcdef"`
+}
+
+type updateBucketInput struct {
+	ID   string `path:"id" example:"bucket_0123456789abcdef0123456789abcdef"`
+	Body updateBucketBody
+}
+
+type updateBucketBody struct {
+	Name           *string                          `json:"name,omitempty" example:"production-data"`
+	EndpointURL    *string                          `json:"endpoint_url,omitempty" example:"https://s3.amazonaws.com"`
+	Region         *string                          `json:"region,omitempty" example:"us-east-1"`
+	Prefix         *string                          `json:"prefix,omitempty" example:"raw/"`
+	ProviderConfig *storage.BucketProviderConfig    `json:"provider_config,omitempty"`
+	Credentials    *map[string]any                  `json:"credentials,omitempty"`
+	PluginSettings *storage.BucketPluginSettingsMap `json:"plugin_settings,omitempty"`
 }
 
 type bucketOutput struct {

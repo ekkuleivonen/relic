@@ -1156,15 +1156,15 @@ For early development, auth may be disabled by default. If `AUTH_ENABLED=true` b
 ## Buckets
 
 ```http
-GET    /buckets
-POST   /buckets
+GET    /api/buckets
+POST   /api/buckets
 
-GET    /buckets/:id
-PATCH  /buckets/:id
-DELETE /buckets/:id
+GET    /api/buckets/:id
+PATCH  /api/buckets/:id
+DELETE /api/buckets/:id
 
-POST   /buckets/:id/import
-POST   /buckets/:id/reconcile
+POST   /api/buckets/:id/import
+POST   /api/buckets/:id/reconcile
 ```
 
 ---
