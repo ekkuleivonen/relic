@@ -1,0 +1,22 @@
+---
+alwaysApply: true
+---
+
+**Use shadcn UI components — no custom UI**
+Any missing component can be added with `npx shadcn@latest add <component>`. If this fails, STOP, and ask me to install it.
+
+**Use standardized hooks + React Query**
+No `useEffect` for backend fetching — use React Query (`@tanstack/react-query`).
+Move logic to reusable hooks to avoid component file growth.
+
+**Keep components small, avoid duplicate code**
+Keep component files small. Use composition and reusable well-designed components.
+
+**Mutations must show errors**
+Every `useMutation` call must have an `onError` handler that shows a `toast.error()` with the extracted message. Use `extractApiError` from `lib/api.ts`.
+
+**Types in `types/` — no inline type sprawl**
+Shared types/interfaces go in `src/types/<domain>.ts`. Component-local `Props` types are fine, but API response shapes must not be defined inline.
+
+**Named exports only**
+Use `export function` / `export const` — no `export default` (except `App.tsx`).

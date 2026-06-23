@@ -280,6 +280,18 @@ Status:
 
 Create a DB access layer for Postgres persistence.
 
+Status:
+
+* Done: `packages/storage` wraps Postgres access behind a shared `Store`.
+* Done: HTTP dependencies receive `*storage.Store` instead of raw `*pgxpool.Pool`.
+* Done: Transaction helper shape exists through `Store.WithTx`.
+* Done: Bucket repository contract exists.
+* Done: Bucket create, get, and list are implemented behind the storage layer.
+* Done: JSONB helper primitives exist for future centralized JSONB handling.
+* Pending: Bucket update and delete persistence.
+* Pending: Object, content, and job repositories.
+* Pending: Broader integration tests for future repositories.
+
 Rules:
 
 * Application code must go through the DB abstraction.
@@ -302,6 +314,18 @@ Create initial tables for:
 
 The `buckets` table should include bucket identity, provider-neutral connection and scope fields, encrypted credentials, `provider_config` JSONB, and `plugin_settings` JSONB. Scheduled import, background verification, and reconciliation settings should remain plugin-owned rather than hardcoded bucket columns.
 
+Status:
+
+* Done: `golang-migrate` migration runner is wired into API startup.
+* Done: Initial `buckets` migration exists.
+* Done: `buckets` includes provider-neutral connection and scope fields.
+* Done: `buckets` stores encrypted credential envelope fields.
+* Done: `buckets` includes `provider_config` JSONB for non-secret adapter-specific options.
+* Done: `buckets` includes `plugin_settings` JSONB for plugin-owned behavior.
+* Pending: `objects` table.
+* Pending: `contents` table for verified duplicate content.
+* Pending: `jobs` table.
+
 The `objects` table should include:
 
 * `attributes` JSONB for provider, user, plugin, workflow, and core attributes.
@@ -315,6 +339,17 @@ Do not overbuild the schema for plugins, relations, or collections yet.
 
 Implement and test credential encryption before bucket CRUD:
 
+Status:
+
+* Done: `packages/secrets` defines a `Manager` interface and encrypted `Envelope`.
+* Done: Static XChaCha20-Poly1305 key manager exists.
+* Done: Encryption key ID and key material are loaded from config.
+* Done: Bucket creation encrypts credential JSON before persistence.
+* Done: Bucket responses omit plaintext credentials and encrypted credential envelopes.
+* Done: Credential encryption behavior is covered by tests.
+* Pending: Provider-facing decrypt path when scanner/import needs credentials.
+* Pending: Full redaction checks for future logs, jobs, and events.
+
 * Encrypt credentials before persistence.
 * Decrypt only inside backend services that need provider access.
 * Redact credentials from API responses and logs.
@@ -323,6 +358,21 @@ Implement and test credential encryption before bucket CRUD:
 ### 5. Bucket CRUD API
 
 Implement:
+
+Status:
+
+* Done: `POST /buckets`.
+* Done: `GET /buckets`.
+* Done: `GET /buckets/:id`.
+* Done: Bucket API is registered in generated OpenAPI docs.
+* Done: Bucket create encrypts credentials before calling storage.
+* Done: Bucket read responses redact credentials.
+* Pending: `PATCH /buckets/:id`.
+* Pending: `DELETE /buckets/:id`.
+* Pending: `POST /buckets/:id/import`.
+* Pending: Optional credential validation against the provider before saving.
+
+Operations:
 
 * Create bucket.
 * List buckets.
