@@ -14,6 +14,7 @@ import (
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
 	"github.com/ekkuleivonen/relic/packages/db"
+	"github.com/ekkuleivonen/relic/packages/secrets"
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
@@ -44,8 +45,14 @@ func run() error {
 		return err
 	}
 
+	secretManager, err := secrets.NewStaticKeyManager(cfg.EncryptionKeyID, cfg.EncryptionKey)
+	if err != nil {
+		return err
+	}
+
 	srv := httpserver.New(deps.Dependencies{
 		Config:  cfg,
+		Secrets: secretManager,
 		Storage: store,
 	})
 	errCh := make(chan error, 1)

@@ -87,6 +87,8 @@ Go implementation direction:
 * Store API tokens hashed, not plaintext.
 * Accept machine tokens as bearer tokens.
 
+API tokens should use one-way token handling, not reversible credential encryption. Relic should generate high-entropy tokens, store a lookup prefix for candidate row lookup, and store an Argon2id hash envelope for verification. Plaintext API tokens should only be shown once at creation time.
+
 Auth should be enforced at the API boundary and carried through application services as caller context. Route handlers should not manually reimplement auth checks.
 
 ### Bucket API
@@ -150,6 +152,21 @@ Requirements:
 * Keep encryption keys outside the database.
 * Make local/self-hosted setup straightforward.
 * Support future key rotation.
+
+MVP configuration:
+
+```text
+ENCRYPTION_KEY_ID=local-dev
+ENCRYPTION_KEY_BASE64=<32-byte base64 key>
+```
+
+Generate a local key with:
+
+```sh
+openssl rand -base64 32
+```
+
+The API process should decode `ENCRYPTION_KEY_BASE64`, require exactly 32 bytes, construct a `secrets.Manager`, and inject that manager into services that need to encrypt or decrypt credentials. Storage must only persist `secrets.Envelope` values and must not read encryption configuration or perform encryption itself.
 
 ### Import Job Lifecycle
 

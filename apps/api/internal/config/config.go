@@ -2,11 +2,14 @@ package config
 
 import (
 	"bufio"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 const (
@@ -15,11 +18,12 @@ const (
 )
 
 type Config struct {
-	HTTPAddr      string
-	DatabaseURL   string
-	AuthEnabled   bool
-	EncryptionKey string
-	LogLevel      string
+	HTTPAddr        string
+	DatabaseURL     string
+	AuthEnabled     bool
+	EncryptionKeyID string
+	EncryptionKey   []byte
+	LogLevel        string
 }
 
 type lookupFunc func(string) (string, bool)
@@ -50,16 +54,26 @@ func LoadFromLookup(lookup lookupFunc) (Config, error) {
 		return Config{}, errors.New("AUTH_ENABLED=true is not implemented yet")
 	}
 
+	encryptionKeyBase64 := stringEnv(lookup, "ENCRYPTION_KEY_BASE64", "")
+	encryptionKey, err := encryptionKeyEnv(encryptionKeyBase64)
+	if err != nil {
+		return Config{}, err
+	}
+
 	cfg := Config{
-		HTTPAddr:      stringEnv(lookup, "HTTP_ADDR", defaultHTTPAddr),
-		DatabaseURL:   stringEnv(lookup, "DATABASE_URL", ""),
-		AuthEnabled:   authEnabled,
-		EncryptionKey: stringEnv(lookup, "ENCRYPTION_KEY", ""),
-		LogLevel:      stringEnv(lookup, "LOG_LEVEL", defaultLogLevel),
+		HTTPAddr:        stringEnv(lookup, "HTTP_ADDR", defaultHTTPAddr),
+		DatabaseURL:     stringEnv(lookup, "DATABASE_URL", ""),
+		AuthEnabled:     authEnabled,
+		EncryptionKeyID: stringEnv(lookup, "ENCRYPTION_KEY_ID", ""),
+		EncryptionKey:   encryptionKey,
+		LogLevel:        stringEnv(lookup, "LOG_LEVEL", defaultLogLevel),
 	}
 
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("DATABASE_URL is required")
+	}
+	if cfg.EncryptionKeyID == "" {
+		return Config{}, errors.New("ENCRYPTION_KEY_ID is required")
 	}
 
 	return cfg, nil
@@ -86,6 +100,22 @@ func boolEnv(lookup lookupFunc, key string, fallback bool) (bool, error) {
 	}
 
 	return parsed, nil
+}
+
+func encryptionKeyEnv(value string) ([]byte, error) {
+	if value == "" {
+		return nil, errors.New("ENCRYPTION_KEY_BASE64 is required")
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		return nil, fmt.Errorf("parse ENCRYPTION_KEY_BASE64: %w", err)
+	}
+	if len(decoded) != chacha20poly1305.KeySize {
+		return nil, fmt.Errorf("parse ENCRYPTION_KEY_BASE64: decoded key is %d bytes, want %d", len(decoded), chacha20poly1305.KeySize)
+	}
+
+	return decoded, nil
 }
 
 func loadDotEnv(path string) (map[string]string, error) {

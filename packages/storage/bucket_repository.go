@@ -3,6 +3,8 @@ package storage
 import (
 	"context"
 	"time"
+
+	"github.com/ekkuleivonen/relic/packages/secrets"
 )
 
 type BucketRepository interface {
@@ -29,7 +31,7 @@ type Bucket struct {
 	Region               string
 	BucketName           string
 	Prefix               string
-	EncryptedCredentials EncryptedCredentials
+	EncryptedCredentials secrets.Envelope
 	PluginSettings       BucketPluginSettingsMap
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
@@ -40,11 +42,6 @@ type BucketProvider string
 const (
 	BucketProviderS3 BucketProvider = "s3"
 )
-
-type EncryptedCredentials struct {
-	KeyID      string
-	Ciphertext []byte
-}
 
 type BucketPluginSettingsMap map[string]BucketPluginSettings
 
@@ -60,7 +57,7 @@ type CreateBucketParams struct {
 	Region               string
 	BucketName           string
 	Prefix               string
-	EncryptedCredentials EncryptedCredentials
+	EncryptedCredentials secrets.Envelope
 	PluginSettings       BucketPluginSettingsMap
 }
 
@@ -76,7 +73,7 @@ type UpdateBucketParams struct {
 	EndpointURL          *string
 	Region               *string
 	Prefix               *string
-	EncryptedCredentials *EncryptedCredentials
+	EncryptedCredentials *secrets.Envelope
 	PluginSettings       *BucketPluginSettingsMap
 }
 
