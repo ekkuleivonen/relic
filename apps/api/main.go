@@ -14,6 +14,7 @@ import (
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
 	"github.com/ekkuleivonen/relic/packages/db"
+	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -38,9 +39,14 @@ func run() error {
 	defer database.Close()
 	slog.Info("database connected")
 
+	store, err := storage.New(database)
+	if err != nil {
+		return err
+	}
+
 	srv := httpserver.New(deps.Dependencies{
-		Config: cfg,
-		DB:     database,
+		Config:  cfg,
+		Storage: store,
 	})
 	errCh := make(chan error, 1)
 

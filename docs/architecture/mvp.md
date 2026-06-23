@@ -102,15 +102,37 @@ DELETE /buckets/:id
 POST   /buckets/:id/import
 ```
 
-Bucket creation should accept provider details, credentials, and initial sync settings. Read responses must never return plaintext credential secrets.
+Bucket creation should accept provider details, credentials, prefix or scope, and plugin settings. Read responses must never return plaintext credential secrets.
 
-Per-bucket sync settings should include:
+For the MVP, manual import is the only special bucket lifecycle action:
 
-* Scan interval.
-* Background sampling interval.
-* Drift detection interval.
+```http
+POST /buckets/:id/import
+```
 
-Intervals should support being disabled or set to manual-only. These settings may not all be active in the MVP, but the bucket contract should reserve the shape early.
+This creates an import job and updates catalog state as the job runs.
+
+Ongoing behavior should be represented as plugin-owned settings, not as special bucket subsystems. The bucket contract should reserve a JSONB-friendly plugin settings shape:
+
+```json
+{
+  "plugins": {
+    "background_verification": {
+      "enabled": true,
+      "settings": {
+        "interval": "24h",
+        "sample_rate": 0.01
+      }
+    },
+    "duplicate_detection": {
+      "enabled": false,
+      "settings": {}
+    }
+  }
+}
+```
+
+Future scheduled imports, background verification, and reconciliation can become plugin settings once those concepts are sharper.
 
 ### Credential Encryption
 
@@ -243,7 +265,7 @@ Create initial tables for:
 * `contents`, for verified duplicate content
 * `jobs`
 
-The `buckets` table should include per-bucket sync settings for scan interval, background sampling interval, and drift detection interval.
+The `buckets` table should include bucket identity, provider connection config, encrypted credentials, prefix or scope, and `plugin_settings` JSONB. Scheduled import, background verification, and reconciliation settings should remain plugin-owned rather than hardcoded bucket columns.
 
 The `objects` table should include:
 
@@ -270,11 +292,11 @@ Implement:
 * Create bucket.
 * List buckets.
 * Get bucket.
-* Update bucket settings.
+* Update bucket connection config and plugin settings.
 * Delete bucket.
 
 Bucket creation should optionally validate credentials against the provider before saving.
-Bucket update should allow changing sync intervals without replacing credentials.
+Bucket update should allow changing plugin settings without replacing credentials.
 
 ### 6. S3-Compatible Scanner
 
