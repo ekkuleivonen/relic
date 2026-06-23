@@ -208,13 +208,15 @@ Keep provider-specific details out of route handlers and core domain logic.
 
 Create the Go backend foundation:
 
-* Config loading.
-* HTTP server.
-* Health endpoint.
-* Auth middleware hook with `AUTH_ENABLED=false` by default.
-* Structured logging.
-* Database connection.
-* Basic request/response error handling.
+Status:
+
+* Done: Config loading.
+* Done: HTTP server.
+* Done: Health endpoint.
+* Done: `AUTH_ENABLED=false` by default, with `AUTH_ENABLED=true` failing clearly until implemented.
+* Done: Structured startup/shutdown logging with Go `slog`.
+* Pending: Database connection.
+* Pending: Basic request/response error handling.
 
 ### 2. Database Access Layer
 
