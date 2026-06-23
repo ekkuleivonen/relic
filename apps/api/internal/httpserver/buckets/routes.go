@@ -1,0 +1,172 @@
+package buckets
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"time"
+
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
+	"github.com/ekkuleivonen/relic/packages/storage"
+)
+
+func Register(api huma.API, dependencies deps.Dependencies) {
+	huma.Register(api, huma.Operation{
+		OperationID: "create-bucket",
+		Method:      http.MethodPost,
+		Path:        "/buckets",
+		Summary:     "Create bucket",
+		Tags:        []string{"Buckets"},
+	}, func(ctx context.Context, input *createBucketInput) (*bucketOutput, error) {
+		if dependencies.Storage == nil || dependencies.Secrets == nil {
+			return nil, huma.Error500InternalServerError("bucket dependencies are not configured")
+		}
+
+		credentials, err := json.Marshal(input.Body.Credentials)
+		if err != nil {
+			return nil, huma.Error400BadRequest("credentials must be valid JSON")
+		}
+
+		envelope, err := dependencies.Secrets.Encrypt(ctx, credentials)
+		if err != nil {
+			return nil, err
+		}
+
+		bucket, err := dependencies.Storage.Buckets().CreateBucket(ctx, storage.CreateBucketParams{
+			Name:                 input.Body.Name,
+			Provider:             storage.BucketProvider(input.Body.Provider),
+			EndpointURL:          input.Body.EndpointURL,
+			Region:               input.Body.Region,
+			BucketName:           input.Body.BucketName,
+			Prefix:               input.Body.Prefix,
+			ProviderConfig:       input.Body.ProviderConfig,
+			EncryptedCredentials: envelope,
+			PluginSettings:       input.Body.PluginSettings,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return &bucketOutput{Body: bucketResponseFromStorage(bucket)}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "list-buckets",
+		Method:      http.MethodGet,
+		Path:        "/buckets",
+		Summary:     "List buckets",
+		Tags:        []string{"Buckets"},
+	}, func(ctx context.Context, input *listBucketsInput) (*listBucketsOutput, error) {
+		if dependencies.Storage == nil {
+			return nil, huma.Error500InternalServerError("bucket dependencies are not configured")
+		}
+
+		buckets, err := dependencies.Storage.Buckets().ListBuckets(ctx, storage.ListBucketsParams{
+			Provider: storage.BucketProvider(input.Provider),
+			Limit:    input.Limit,
+			Offset:   input.Offset,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		body := listBucketsBody{Buckets: make([]bucketResponse, 0, len(buckets))}
+		for _, bucket := range buckets {
+			body.Buckets = append(body.Buckets, bucketResponseFromStorage(bucket))
+		}
+
+		return &listBucketsOutput{Body: body}, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "get-bucket",
+		Method:      http.MethodGet,
+		Path:        "/buckets/{id}",
+		Summary:     "Get bucket",
+		Tags:        []string{"Buckets"},
+	}, func(ctx context.Context, input *getBucketInput) (*bucketOutput, error) {
+		if dependencies.Storage == nil {
+			return nil, huma.Error500InternalServerError("bucket dependencies are not configured")
+		}
+
+		bucket, err := dependencies.Storage.Buckets().GetBucket(ctx, input.ID)
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, huma.Error404NotFound("bucket not found")
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		return &bucketOutput{Body: bucketResponseFromStorage(bucket)}, nil
+	})
+}
+
+type createBucketInput struct {
+	Body createBucketBody
+}
+
+type createBucketBody struct {
+	Name           string                          `json:"name" example:"production-data"`
+	Provider       string                          `json:"provider" example:"s3"`
+	EndpointURL    string                          `json:"endpoint_url" example:"https://s3.amazonaws.com"`
+	Region         string                          `json:"region" example:"us-east-1"`
+	BucketName     string                          `json:"bucket_name" example:"example-bucket"`
+	Prefix         string                          `json:"prefix" example:"raw/"`
+	ProviderConfig storage.BucketProviderConfig    `json:"provider_config"`
+	Credentials    map[string]any                  `json:"credentials"`
+	PluginSettings storage.BucketPluginSettingsMap `json:"plugin_settings"`
+}
+
+type listBucketsInput struct {
+	Provider string `query:"provider" example:"s3"`
+	Limit    int    `query:"limit" example:"100"`
+	Offset   int    `query:"offset" example:"0"`
+}
+
+type getBucketInput struct {
+	ID string `path:"id" example:"bucket_0123456789abcdef0123456789abcdef"`
+}
+
+type bucketOutput struct {
+	Body bucketResponse
+}
+
+type listBucketsOutput struct {
+	Body listBucketsBody
+}
+
+type listBucketsBody struct {
+	Buckets []bucketResponse `json:"buckets"`
+}
+
+type bucketResponse struct {
+	ID             string                          `json:"id" example:"bucket_0123456789abcdef0123456789abcdef"`
+	Name           string                          `json:"name" example:"production-data"`
+	Provider       storage.BucketProvider          `json:"provider" example:"s3"`
+	EndpointURL    string                          `json:"endpoint_url" example:"https://s3.amazonaws.com"`
+	Region         string                          `json:"region" example:"us-east-1"`
+	BucketName     string                          `json:"bucket_name" example:"example-bucket"`
+	Prefix         string                          `json:"prefix" example:"raw/"`
+	ProviderConfig storage.BucketProviderConfig    `json:"provider_config"`
+	PluginSettings storage.BucketPluginSettingsMap `json:"plugin_settings"`
+	CreatedAt      time.Time                       `json:"created_at"`
+	UpdatedAt      time.Time                       `json:"updated_at"`
+}
+
+func bucketResponseFromStorage(bucket storage.Bucket) bucketResponse {
+	return bucketResponse{
+		ID:             bucket.ID,
+		Name:           bucket.Name,
+		Provider:       bucket.Provider,
+		EndpointURL:    bucket.EndpointURL,
+		Region:         bucket.Region,
+		BucketName:     bucket.BucketName,
+		Prefix:         bucket.Prefix,
+		ProviderConfig: bucket.ProviderConfig,
+		PluginSettings: bucket.PluginSettings,
+		CreatedAt:      bucket.CreatedAt,
+		UpdatedAt:      bucket.UpdatedAt,
+	}
+}

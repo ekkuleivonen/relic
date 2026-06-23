@@ -104,7 +104,25 @@ DELETE /buckets/:id
 POST   /buckets/:id/import
 ```
 
-Bucket creation should accept provider details, credentials, prefix or scope, and plugin settings. Read responses must never return plaintext credential secrets.
+Bucket creation should accept provider details, credentials, prefix or scope, non-secret provider config, and plugin settings. Read responses must never return plaintext credential secrets.
+
+Bucket fields should be split by ownership:
+
+* Top-level bucket fields are Relic's provider-neutral connection and scope model: provider, endpoint URL, region, bucket name, and prefix.
+* `provider_config` is for non-secret adapter-specific options that Relic does not interpret generically, such as S3 path-style addressing, compatibility flags, TLS options, or provider-specific signing details.
+* Credentials are secret material and must be encrypted separately from provider config.
+* `plugin_settings` is for plugin-owned ongoing behavior.
+
+Example S3-compatible provider config:
+
+```json
+{
+  "s3": {
+    "force_path_style": true,
+    "signing_region": "us-east-1"
+  }
+}
+```
 
 For the MVP, manual import is the only special bucket lifecycle action:
 
@@ -282,7 +300,7 @@ Create initial tables for:
 * `contents`, for verified duplicate content
 * `jobs`
 
-The `buckets` table should include bucket identity, provider connection config, encrypted credentials, prefix or scope, and `plugin_settings` JSONB. Scheduled import, background verification, and reconciliation settings should remain plugin-owned rather than hardcoded bucket columns.
+The `buckets` table should include bucket identity, provider-neutral connection and scope fields, encrypted credentials, `provider_config` JSONB, and `plugin_settings` JSONB. Scheduled import, background verification, and reconciliation settings should remain plugin-owned rather than hardcoded bucket columns.
 
 The `objects` table should include:
 

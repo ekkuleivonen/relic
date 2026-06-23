@@ -6,6 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/buckets"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/system"
 )
@@ -24,6 +25,7 @@ func New(dependencies deps.Dependencies) *http.Server {
 func Handler(dependencies deps.Dependencies) http.Handler {
 	mux := http.NewServeMux()
 	api := humago.New(mux, apiConfig())
+	buckets.Register(api, dependencies)
 	system.Register(api, dependencies)
 
 	return mux
@@ -45,6 +47,10 @@ func apiConfig() huma.Config {
 		{
 			Name:        "System",
 			Description: "Operational endpoints for health, readiness, and diagnostics.",
+		},
+		{
+			Name:        "Buckets",
+			Description: "Bucket connection and catalog import endpoints.",
 		},
 	}
 

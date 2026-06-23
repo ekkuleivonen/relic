@@ -33,7 +33,13 @@ func run() error {
 		return err
 	}
 
-	database, err := db.Connect(context.Background(), cfg.DatabaseURL)
+	ctx := context.Background()
+	if err := storage.RunMigrations(ctx, cfg.DatabaseURL, ""); err != nil {
+		return err
+	}
+	slog.Info("database migrations complete")
+
+	database, err := db.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
 	}
