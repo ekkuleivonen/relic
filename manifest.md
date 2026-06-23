@@ -345,6 +345,55 @@ Relic provides structure.
 
 ---
 
+# Primitive Composition Principle
+
+Relic features should be built as use cases of Relic's own primitives.
+
+Avoid creating one-off subsystems when the same behavior can be expressed through:
+
+* Objects.
+* Attributes.
+* Relations.
+* Collections.
+* Events.
+* Jobs.
+* Plugins.
+* Workflows.
+
+This keeps the product coherent.
+
+Example:
+
+Duplicate detection should not be a special side system.
+
+It should be implemented as a metadata-producing plugin:
+
+1. Read provider attributes such as `provider.etag`, `provider.size`, and object identity.
+2. Search for objects with matching candidate signals.
+3. Write plugin-owned attributes such as:
+
+```yaml
+plugin.duplicate_detection.potential_duplicates:
+  - object_id_1
+  - object_id_2
+  - object_id_3
+```
+
+After verification, the plugin may write additional attributes or relations:
+
+```yaml
+plugin.duplicate_detection.verified_duplicate: true
+plugin.duplicate_detection.verified_content_sha256: "..."
+```
+
+```text
+duplicate_of
+```
+
+The feature is still "duplicate detection" from the user's perspective, but internally it is just Relic primitives composed together.
+
+---
+
 # Core Metadata Categories
 
 ## Core Metadata
@@ -354,17 +403,73 @@ Produced by Relic.
 Example:
 
 ```yaml
-core.mime_type
-core.size
-core.sha256
-core.etag
+core.object_id
+core.bucket_id
+core.first_seen_at
+core.last_seen_at
+core.deleted
 ```
 
-Objective.
+Relic bookkeeping.
 
-Reconstructable.
+Catalog invariants.
 
-Machine-verifiable.
+Not provider claims.
+
+---
+
+## Provider Metadata
+
+Observed from the connected storage provider.
+
+S3-compatible object storage supports native metadata in more than one place:
+
+* Object/system headers.
+* User metadata headers.
+* Object tags.
+
+Capturing this should be part of Relic's core offering.
+
+However, provider-native metadata should preserve its provider provenance instead of being blended into `core.*`.
+
+Example:
+
+```yaml
+provider.etag
+provider.size
+provider.last_modified
+provider.header.content_type
+provider.header.cache_control
+provider.header.content_disposition
+provider.metadata.project
+provider.metadata.owner
+provider.metadata.source
+provider.tag.environment
+provider.tag.retention
+```
+
+Provider metadata is evidence, not truth.
+
+Relic should not blindly promote provider-reported values into `core.*`.
+
+For example, S3 `Content-Type` is often supplied by upload clients and can be wrong. It should be stored as:
+
+```yaml
+provider.header.content_type
+```
+
+If Relic later determines a MIME type by inspecting bytes, that result should be written by the component that performed the work, such as:
+
+```yaml
+plugin.mime_detector.mime_type
+plugin.mime_detector.confidence
+```
+
+The distinction:
+
+* `core.*` is Relic-owned bookkeeping and catalog invariants.
+* `provider.*` is what the storage provider reported.
+* `plugin.*` is derived, detected, or enriched metadata.
 
 ---
 
@@ -375,9 +480,9 @@ Produced by plugins.
 Example:
 
 ```yaml
-ai.document_type
-ai.language
-ai.contains_faces
+plugin.ai_classifier.document_type
+plugin.ai_classifier.language
+plugin.ai_classifier.contains_faces
 ```
 
 Opinionated.
@@ -412,15 +517,51 @@ Not derivable from bytes.
 
 Every attribute belongs to a namespace.
 
-Examples:
+Namespace shape:
 
 ```text
 core.*
-user.*
-ai.*
-github.*
-jira.*
-plugin.*
+provider.<attribute_name>
+provider.header.<header_name>
+provider.metadata.<metadata_key>
+provider.tag.<tag_key>
+provider.<provider_name>.<provider_specific_attribute>
+user.<attribute_name>
+user.<attribute_name>.*
+plugin.<plugin_name>.<attribute_name>
+plugin.<plugin_name>.<attribute_name>.*
+workflow.<workflow_name>.<attribute_name>
+workflow.<workflow_name>.<attribute_name>.*
+```
+
+Rules:
+
+* `core.*` is reserved for Relic bookkeeping and catalog invariants.
+* `provider.*` is for metadata observed from a storage provider.
+* Common provider-reported fields should be flattened, such as `provider.etag` and `provider.size`.
+* Provider-specific fields may include the provider name deeper in the namespace, such as `provider.s3.storage_class`.
+* `user.*` is for user-owned metadata.
+* `plugin.<plugin_name>.*` is for metadata produced by a specific plugin.
+* `workflow.<workflow_name>.*` is for metadata produced by a specific workflow.
+* Plugin and workflow names in namespaces should be stable identifiers, not mutable display names.
+
+Examples:
+
+```text
+core.object_id
+core.first_seen_at
+provider.etag
+provider.size
+provider.header.cache_control
+provider.metadata.project
+provider.metadata.source
+provider.tag.environment
+user.owner
+user.review.status
+plugin.duplicate_detection.potential_duplicates
+plugin.duplicate_detection.verified_content_sha256
+workflow.retention_review.notified_at
+workflow.legal_hold.approved_by
 ```
 
 Benefits:
@@ -454,7 +595,24 @@ Bucket:
   last_event_at
 
   sync_status
+
+  sync_settings:
+    scan_interval
+    sampling_interval
+    drift_detection_interval
 ```
+
+Bucket sync behavior should be configurable per bucket.
+
+Different buckets have different cost, size, volatility, and correctness requirements. A small active bucket may tolerate frequent scans and sampling. A huge archive bucket may need conservative schedules.
+
+Settings:
+
+* `scan_interval`: how often Relic should run scheduled inventory scans.
+* `sampling_interval`: how often Relic should sample objects for background verification.
+* `drift_detection_interval`: how often Relic should look for evidence that the catalog has diverged from storage.
+
+Intervals should support being disabled or set to manual-only.
 
 Credentials should be stored encrypted in Relic's database.
 
@@ -481,6 +639,8 @@ External secret managers may be supported later for larger deployments, but encr
 
 Represents physical content.
 
+Content records are created after duplicate candidates are verified.
+
 ```yaml
 Content:
   id
@@ -492,7 +652,18 @@ Content:
   created_at
 ```
 
-Used for deduplication.
+Used for confirmed deduplication.
+
+Relic should not hash every object during initial import. Object storage listings already provide enough cheap metadata to find likely duplicates.
+
+Initial duplicate detection should be two-phase:
+
+1. Group objects by `provider.etag + provider.size`.
+2. Flag matching groups as potential duplicates.
+3. Compute SHA-256 only for potential duplicate groups.
+4. Link verified matches to the same content record.
+
+This avoids reading every object body while still allowing Relic to confirm duplicates when it matters.
 
 ---
 
@@ -509,10 +680,8 @@ Object:
 
   content_id
 
-  size
-  etag
-
-  mime_type
+  attributes
+  attribute_provenance
 
   created_at
   modified_at
@@ -527,6 +696,59 @@ Objects reference content.
 
 Multiple objects may reference identical content.
 
+The `content_id` may be empty until Relic has verified a duplicate candidate group by hashing object bytes.
+
+Object attributes should be stored as a JSONB document.
+
+Example:
+
+```json
+{
+  "core": {
+    "object_id": "object_123",
+    "first_seen_at": "2026-06-23T00:00:00Z"
+  },
+  "provider": {
+    "etag": "\"abc123\"",
+    "size": 1048576,
+    "last_modified": "2026-06-22T12:00:00Z",
+    "metadata": {
+      "source": "wikipedia.org"
+    }
+  },
+  "plugin": {
+    "duplicate_detection": {
+      "potential_duplicates": ["object_456"]
+    }
+  },
+  "user": {
+    "owner": "finance"
+  }
+}
+```
+
+Object attribute provenance should also be stored as a compact JSONB document.
+
+Every mutation that writes attributes should produce a job or run record, including user edits. Attribute provenance then maps attribute paths or path prefixes to the job that produced them.
+
+Example:
+
+```json
+{
+  "provider": "job.import_123",
+  "plugin.duplicate_detection": "job.plugin_456",
+  "user.owner": "job.user_update_223"
+}
+```
+
+Resolution rule:
+
+1. Look for an exact path, such as `user.owner`.
+2. If none exists, walk up prefixes, such as `plugin.duplicate_detection`, then `plugin`.
+3. If none exists, fall back to object-level import or creation provenance if available.
+
+This keeps provenance row counts bound to object counts while still making attribute provenance explainable.
+
 ---
 
 ## Attribute
@@ -537,12 +759,7 @@ Attribute:
 
   object_id
 
-  source_type
-  source_name
-
-  namespace
-
-  key
+  path
 
   value
 
@@ -550,9 +767,28 @@ Attribute:
 
   confidence
 
+  created_by_type
+  created_by_id
+  created_by_name
+  created_by_version
+  created_by_job_id
+
   created_at
   updated_at
 ```
+
+For the MVP, the hot query surface may be the `Object.attributes` JSONB document rather than one row per attribute.
+
+Attribute provenance should be stored in `Object.attribute_provenance` rather than one row per attribute.
+
+```yaml
+Object.attribute_provenance:
+  provider: job.import_123
+  plugin.duplicate_detection: job.plugin_456
+  user.owner: job.user_update_223
+```
+
+The namespace is not enough provenance by itself. It says who owns the meaning of an attribute. It does not say which user, plugin version, workflow run, or import job produced the current value. The referenced job carries that context.
 
 ---
 
@@ -602,6 +838,16 @@ Allows:
 
 Objects may relate to one another.
 
+Relic should not define a fixed set of relation types.
+
+The relation type is defined by whoever creates the relation:
+
+* A user.
+* A plugin.
+* A workflow.
+
+Relic stores the relation and provides querying, visualization, and governance around it. Relic does not decide what relation types are valid unless an optional registry or validation rule is configured.
+
 ```yaml
 Relation:
   id
@@ -610,9 +856,18 @@ Relation:
   target_object
 
   relation_type
+
+  created_by_type
+  created_by_id
+  created_by_name
+  created_by_version
+  created_by_job_id
+
+  created_at
+  updated_at
 ```
 
-Examples:
+Example relation types:
 
 ```text
 duplicate_of
@@ -632,10 +887,18 @@ Not folders.
 
 Not physical groups.
 
+Collections may be created by:
+
+* Users.
+* Plugins.
+* Workflows.
+
+Relic should not assume that collections are only manually curated UI objects. A plugin might create a collection for suspected duplicates, or a workflow might create a collection for objects that need review.
+
 Example:
 
 ```sql
-core.mime_type = 'application/pdf'
+plugin.mime_detector.mime_type = 'application/pdf'
 AND user.owner = 'finance'
 ```
 
@@ -652,10 +915,33 @@ Collection:
 
   owner
 
+  created_by_type
+  created_by_id
+  created_by_name
+  created_by_version
+  created_by_job_id
+
   created_at
+  updated_at
 ```
 
-Collections update automatically.
+Collections update automatically because membership is derived from the stored query, not from manually maintained object lists.
+
+Default behavior:
+
+* Store the collection query.
+* Evaluate the query when collection objects are requested.
+* Newly matching objects appear without any explicit "add to collection" operation.
+* Objects that stop matching disappear without any explicit "remove from collection" operation.
+
+For expensive or frequently used collections, Relic may maintain a materialized membership cache:
+
+* Object, attribute, relation, and plugin events mark affected collections dirty.
+* Background jobs recompute dirty collections.
+* Reads can use cached membership when fresh enough.
+* The query remains the source of truth.
+
+This keeps collections declarative while still allowing performance optimizations later.
 
 ---
 
@@ -755,6 +1041,113 @@ Attributes
 Relic stores the result.
 
 Plugins do not modify storage.
+
+Plugins may also define actions and triggers for workflows.
+
+---
+
+# Workflows
+
+Workflows, flows, or automations are user-defined or plugin-defined chains of triggers and actions.
+
+They should be first-class Relic primitives rather than bespoke feature code.
+
+Workflow:
+
+```yaml
+Workflow:
+  id
+
+  name
+  description
+
+  enabled
+
+  trigger
+  actions
+
+  owner
+
+  created_at
+  updated_at
+```
+
+Triggers describe when a workflow runs.
+
+Examples:
+
+```text
+cron
+interval
+object_discovered
+attribute_added
+attribute_changed
+plugin_completed
+job_completed
+user_action
+webhook_received
+```
+
+Actions describe what the workflow does.
+
+Examples:
+
+```text
+run_plugin
+add_attribute
+delete_objects
+dedupe_objects
+move_object
+call_webhook
+create_collection
+start_job
+```
+
+Workflows should operate through Relic's own APIs and primitives.
+
+For example:
+
+* A duplicate detection plugin can flag potential duplicates.
+* A user can define a workflow that triggers when verified duplicates are found.
+* The workflow can notify a webhook, create a review collection, or run a dedupe action.
+
+Actions that modify object storage should be explicit, permissioned, auditable, and reversible where possible.
+
+---
+
+# Auth Model
+
+Relic should support both human and machine access.
+
+Human access:
+
+* Humans authenticate through OIDC.
+* Humans use the web UI.
+* Humans can create API tokens for machines.
+
+Machine access:
+
+* Machines authenticate with API keys or API tokens.
+* API tokens should be created by authenticated humans.
+* API tokens should be stored hashed, not plaintext.
+* API tokens should be accepted as bearer tokens.
+
+Likely flow:
+
+1. Human logs into Relic through OIDC.
+2. Human creates an API token.
+3. Human gives the token to a machine, script, service, or integration.
+4. Machine accesses Relic APIs using that token.
+
+Every API endpoint should be designed as authenticated by default, except explicitly public operational endpoints such as health checks.
+
+Auth should be configurable:
+
+```text
+AUTH_ENABLED=false
+```
+
+For early development, auth may be disabled by default. If `AUTH_ENABLED=true` before auth is implemented, Relic should fail clearly with a "not implemented" error rather than silently running with partial auth.
 
 ---
 
@@ -876,6 +1269,21 @@ GET /events
 GET /plugins
 
 POST /plugins/:id/run
+```
+
+---
+
+## Workflows
+
+```http
+GET    /workflows
+POST   /workflows
+
+GET    /workflows/:id
+PATCH  /workflows/:id
+DELETE /workflows/:id
+
+POST   /workflows/:id/run
 ```
 
 ---
