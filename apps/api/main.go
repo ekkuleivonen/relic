@@ -12,6 +12,7 @@ import (
 
 	"github.com/ekkuleivonen/relic/apps/api/internal/config"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver"
+	"github.com/ekkuleivonen/relic/packages/db"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -28,6 +29,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	database, err := db.Connect(context.Background(), cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+	slog.Info("database connected")
 
 	srv := httpserver.New(cfg)
 	errCh := make(chan error, 1)

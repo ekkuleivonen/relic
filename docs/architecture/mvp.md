@@ -215,7 +215,7 @@ Status:
 * Done: Health endpoint.
 * Done: `AUTH_ENABLED=false` by default, with `AUTH_ENABLED=true` failing clearly until implemented.
 * Done: Structured startup/shutdown logging with Go `slog`.
-* Pending: Database connection.
+* Done: Database connection.
 * Pending: Basic request/response error handling.
 
 ### 2. Database Access Layer

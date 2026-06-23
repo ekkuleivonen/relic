@@ -3,7 +3,9 @@ package config
 import "testing"
 
 func TestLoadFromLookupDefaults(t *testing.T) {
-	cfg, err := LoadFromLookup(mapLookup(nil))
+	cfg, err := LoadFromLookup(mapLookup(map[string]string{
+		"DATABASE_URL": "postgres://relic:relic@localhost:5432/relic",
+	}))
 	if err != nil {
 		t.Fatalf("LoadFromLookup returned error: %v", err)
 	}
@@ -53,6 +55,7 @@ func TestLoadFromLookupOverrides(t *testing.T) {
 func TestLoadFromLookupRejectsAuthEnabled(t *testing.T) {
 	_, err := LoadFromLookup(mapLookup(map[string]string{
 		"AUTH_ENABLED": "true",
+		"DATABASE_URL": "postgres://relic:relic@localhost:5432/relic",
 	}))
 	if err == nil {
 		t.Fatal("LoadFromLookup returned nil error")
@@ -62,7 +65,15 @@ func TestLoadFromLookupRejectsAuthEnabled(t *testing.T) {
 func TestLoadFromLookupRejectsInvalidBool(t *testing.T) {
 	_, err := LoadFromLookup(mapLookup(map[string]string{
 		"AUTH_ENABLED": "sometimes",
+		"DATABASE_URL": "postgres://relic:relic@localhost:5432/relic",
 	}))
+	if err == nil {
+		t.Fatal("LoadFromLookup returned nil error")
+	}
+}
+
+func TestLoadFromLookupRequiresDatabaseURL(t *testing.T) {
+	_, err := LoadFromLookup(mapLookup(nil))
 	if err == nil {
 		t.Fatal("LoadFromLookup returned nil error")
 	}
