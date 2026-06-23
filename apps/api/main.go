@@ -12,6 +12,7 @@ import (
 
 	"github.com/ekkuleivonen/relic/apps/api/internal/config"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
 	"github.com/ekkuleivonen/relic/packages/db"
 )
 
@@ -37,7 +38,10 @@ func run() error {
 	defer database.Close()
 	slog.Info("database connected")
 
-	srv := httpserver.New(cfg)
+	srv := httpserver.New(deps.Dependencies{
+		Config: cfg,
+		DB:     database,
+	})
 	errCh := make(chan error, 1)
 
 	go func() {

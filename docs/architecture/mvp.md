@@ -213,10 +213,11 @@ Status:
 * Done: Config loading.
 * Done: HTTP server.
 * Done: Health endpoint.
+* Done: Generated OpenAPI and docs through Huma.
 * Done: `AUTH_ENABLED=false` by default, with `AUTH_ENABLED=true` failing clearly until implemented.
 * Done: Structured startup/shutdown logging with Go `slog`.
 * Done: Database connection.
-* Pending: Basic request/response error handling.
+* Done: Basic request/response error handling.
 
 ### 2. Database Access Layer
 

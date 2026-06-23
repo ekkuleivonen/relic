@@ -4,13 +4,16 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ekkuleivonen/relic/apps/api/internal/config"
+	"github.com/danielgtaylor/huma/v2"
+	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/system"
 )
 
-func New(cfg config.Config) *http.Server {
+func New(dependencies deps.Dependencies) *http.Server {
 	return &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           Handler(),
+		Addr:              dependencies.Config.HTTPAddr,
+		Handler:           Handler(dependencies),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -18,15 +21,32 @@ func New(cfg config.Config) *http.Server {
 	}
 }
 
-func Handler() http.Handler {
+func Handler(dependencies deps.Dependencies) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", healthz)
+	api := humago.New(mux, apiConfig())
+	system.Register(api, dependencies)
 
 	return mux
 }
 
-func healthz(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(`{"status":"ok","service":"relic-api"}` + "\n"))
+func apiConfig() huma.Config {
+	cfg := huma.DefaultConfig("Relic API", "0.1.0")
+	cfg.Info.Description = "Metadata and discovery API for object storage."
+	cfg.OpenAPIPath = "/openapi"
+	cfg.DocsPath = "/docs"
+	cfg.SchemasPath = "/schemas"
+	cfg.Servers = []*huma.Server{
+		{
+			URL:         "/",
+			Description: "Current Relic API server",
+		},
+	}
+	cfg.Tags = []*huma.Tag{
+		{
+			Name:        "System",
+			Description: "Operational endpoints for health, readiness, and diagnostics.",
+		},
+	}
+
+	return cfg
 }
