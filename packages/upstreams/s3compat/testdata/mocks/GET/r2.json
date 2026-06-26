@@ -1,0 +1,25 @@
+{
+  "upstream": "r2",
+  "operation": "GetObject",
+  "source": "https://developers.cloudflare.com/r2/api/s3/api/",
+  "request": {
+    "method": "GET",
+    "path": "/photos/a.jpg",
+    "query": {}
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      ["Date", "Wed, 26 Jun 2026 01:00:00 GMT"],
+      ["ETag", "\"6f5902ac237024bdd0c176cb93063dc4\""],
+      ["Content-Length", "9"],
+      ["Content-Type", "image/jpeg"],
+      ["Last-Modified", "Wed, 26 Jun 2026 01:00:00 GMT"],
+      ["x-amz-meta-source", "camera"],
+      ["Accept-Ranges", "bytes"],
+      ["Server", "cloudflare"],
+      ["CF-Ray", "7b8c9d0e1f2a3456-NRT"]
+    ],
+    "body_base64": "cjItaW1hZ2UK"
+  }
+}

@@ -24,7 +24,7 @@ export function BucketsTable({ buckets }: BucketsTableProps) {
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
-            <TableHead>Provider</TableHead>
+            <TableHead>Upstream</TableHead>
             <TableHead>Bucket</TableHead>
             <TableHead>Region</TableHead>
             <TableHead>Prefix</TableHead>
@@ -42,7 +42,7 @@ export function BucketsTable({ buckets }: BucketsTableProps) {
                 </div>
               </TableCell>
               <TableCell>
-                <Badge variant="outline">{bucket.provider}</Badge>
+                <Badge variant="outline">{bucket.upstream}</Badge>
               </TableCell>
               <TableCell>{bucket.bucket_name}</TableCell>
               <TableCell>{bucket.region}</TableCell>

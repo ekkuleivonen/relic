@@ -1,0 +1,28 @@
+{
+  "upstream": "b2",
+  "operation": "GetObject",
+  "source": "https://www.backblaze.com/docs/cloud-storage-call-the-s3-compatible-api",
+  "request": {
+    "method": "GET",
+    "path": "/photos/a.jpg",
+    "query": {}
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      ["Accept-Ranges", "bytes"],
+      ["Last-Modified", "Fri, 28 Jan 2022 23:12:33 GMT"],
+      ["ETag", "\"85f30635602dc09bd85957a6e82a2c21\""],
+      ["Cache-Control", "max-age=0, no-cache, no-store"],
+      ["x-amz-request-id", "56aa38410aaebdd"],
+      ["x-amz-version-id", "4_z6145af89f355ac2f74ed0c1b_f416a807037a7ee2a_d20220128_m231233_c004_v0402000_t0056"],
+      ["x-amz-id-2", "aMa41BGZMOZMztjUfY9JmpzRnZLRjZmIQ"],
+      ["Content-Type", "image/jpeg"],
+      ["Content-Length", "9"],
+      ["Date", "Fri, 28 Jan 2022 23:14:48 GMT"],
+      ["Keep-Alive", "timeout=5"],
+      ["Connection", "keep-alive"]
+    ],
+    "body_base64": "YjItaW1hZ2UK"
+  }
+}

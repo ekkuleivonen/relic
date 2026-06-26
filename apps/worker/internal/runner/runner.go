@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/jobs"
+	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 

@@ -1,0 +1,26 @@
+{
+  "upstream": "aws",
+  "operation": "ListObjects",
+  "source": "https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjects.html",
+  "request": {
+    "method": "GET",
+    "path": "/",
+    "query": {
+      "prefix": "photos/",
+      "marker": "",
+      "max-keys": "2"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      ["x-amz-id-2", "Example7qoYGN7uMuFuYS6m7a4l"],
+      ["x-amz-request-id", "TX234S0F24A06C7"],
+      ["Content-Type", "application/xml"],
+      ["Transfer-Encoding", "chunked"],
+      ["Date", "Wed, 26 Jun 2026 01:00:00 GMT"],
+      ["Server", "AmazonS3"]
+    ],
+    "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\n  <Name>relic-fixtures</Name>\n  <Prefix>photos/</Prefix>\n  <Marker></Marker>\n  <MaxKeys>2</MaxKeys>\n  <IsTruncated>false</IsTruncated>\n  <Contents>\n    <Key>photos/a.jpg</Key>\n    <LastModified>2026-06-26T01:00:00.000Z</LastModified>\n    <ETag>&quot;fba9dede5f27731c9771645a39863328&quot;</ETag>\n    <Size>434234</Size>\n    <StorageClass>STANDARD</StorageClass>\n  </Contents>\n  <Contents>\n    <Key>photos/b.jpg</Key>\n    <LastModified>2026-06-26T01:01:00.000Z</LastModified>\n    <ETag>&quot;30a6ec7e1a9ad79c203d05a589c8b400&quot;</ETag>\n    <Size>77</Size>\n    <StorageClass>STANDARD</StorageClass>\n  </Contents>\n</ListBucketResult>"
+  }
+}

@@ -23,7 +23,7 @@ func TestObjectStoreUpsertGetList(t *testing.T) {
 		Key:       "photos/a.jpg",
 		VersionID: "v1",
 		Attributes: ObjectAttributes{
-			"provider": map[string]any{
+			"upstream": map[string]any{
 				"etag":          "\"abc123\"",
 				"size":          123456,
 				"last_modified": "2026-06-01T00:00:00Z",
@@ -33,7 +33,7 @@ func TestObjectStoreUpsertGetList(t *testing.T) {
 			},
 		},
 		AttributeProvenance: ObjectAttributeProvenance{
-			"provider": "jobrun_test",
+			"upstream": "jobrun_test",
 		},
 		SeenAt: &seenAt,
 	})
@@ -46,8 +46,8 @@ func TestObjectStoreUpsertGetList(t *testing.T) {
 	if created.BucketID != bucket.ID {
 		t.Fatalf("created bucket ID = %q, want %q", created.BucketID, bucket.ID)
 	}
-	if created.AttributeProvenance["provider"] != "jobrun_test" {
-		t.Fatalf("created provenance = %#v, want provider provenance", created.AttributeProvenance)
+	if created.AttributeProvenance["upstream"] != "jobrun_test" {
+		t.Fatalf("created provenance = %#v, want upstream provenance", created.AttributeProvenance)
 	}
 
 	got, err := objects.GetObject(ctx, created.ID)
@@ -78,7 +78,7 @@ func TestObjectStoreUpsertGetList(t *testing.T) {
 		Key:       "photos/a.jpg",
 		VersionID: "v1",
 		Attributes: ObjectAttributes{
-			"provider": map[string]any{
+			"upstream": map[string]any{
 				"etag": "\"def456\"",
 				"size": 654321,
 				"header": map[string]any{
@@ -87,7 +87,7 @@ func TestObjectStoreUpsertGetList(t *testing.T) {
 			},
 		},
 		AttributeProvenance: ObjectAttributeProvenance{
-			"provider": "jobrun_update",
+			"upstream": "jobrun_update",
 		},
 		SeenAt: &laterSeenAt,
 	})
@@ -103,8 +103,8 @@ func TestObjectStoreUpsertGetList(t *testing.T) {
 	if !updated.LastSeenAt.Equal(laterSeenAt) {
 		t.Fatalf("updated last seen = %v, want %v", updated.LastSeenAt, laterSeenAt)
 	}
-	if updated.AttributeProvenance["provider"] != "jobrun_update" {
-		t.Fatalf("updated provenance = %#v, want provider update provenance", updated.AttributeProvenance)
+	if updated.AttributeProvenance["upstream"] != "jobrun_update" {
+		t.Fatalf("updated provenance = %#v, want upstream update provenance", updated.AttributeProvenance)
 	}
 }
 
@@ -195,7 +195,7 @@ func createObjectTestBucket(t *testing.T, ctx context.Context, store *Store) Buc
 
 	bucket, err := store.Buckets().CreateBucket(ctx, CreateBucketParams{
 		Name:        "object-test-" + time.Now().Format("20060102150405.000000000"),
-		Provider:    BucketProviderS3,
+		Upstream:    BucketUpstreamS3,
 		EndpointURL: "https://s3.example.test",
 		Region:      "us-east-1",
 		BucketName:  "object-test-data",

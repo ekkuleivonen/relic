@@ -6,30 +6,30 @@ import (
 )
 
 func TestJSONBPath(t *testing.T) {
-	path, err := NewJSONBPath("provider", "etag")
+	path, err := NewJSONBPath("upstream", "etag")
 	if err != nil {
 		t.Fatalf("NewJSONBPath returned error: %v", err)
 	}
 
-	if got, want := path.Dot(), "provider.etag"; got != want {
+	if got, want := path.Dot(), "upstream.etag"; got != want {
 		t.Fatalf("Dot = %q, want %q", got, want)
 	}
 
 	parts := path.TextArray()
 	parts[0] = "mutated"
-	if got, want := path.Dot(), "provider.etag"; got != want {
+	if got, want := path.Dot(), "upstream.etag"; got != want {
 		t.Fatalf("TextArray mutated path: got %q, want %q", got, want)
 	}
 }
 
 func TestJSONBPathRejectsEmptySegments(t *testing.T) {
-	if _, err := NewJSONBPath("provider", ""); err == nil {
+	if _, err := NewJSONBPath("upstream", ""); err == nil {
 		t.Fatal("NewJSONBPath returned nil error")
 	}
 }
 
 func TestNewJSONBSetEncodesValue(t *testing.T) {
-	path, err := NewJSONBPath("provider", "size")
+	path, err := NewJSONBPath("upstream", "size")
 	if err != nil {
 		t.Fatalf("NewJSONBPath returned error: %v", err)
 	}

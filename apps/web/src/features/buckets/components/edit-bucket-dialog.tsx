@@ -49,11 +49,11 @@ export function EditBucketDialog({
       endpoint_url: form.endpointUrl,
       region: form.region,
       prefix: form.prefix,
-      provider_config: {
-        ...bucket.provider_config,
+      upstream_config: {
+        ...bucket.upstream_config,
         s3: {
-          ...(isRecord(bucket.provider_config.s3)
-            ? bucket.provider_config.s3
+          ...(isRecord(bucket.upstream_config.s3)
+            ? bucket.upstream_config.s3
             : {}),
           force_path_style: form.forcePathStyle,
           signing_region: form.region,
@@ -249,8 +249,8 @@ export function EditBucketDialog({
 }
 
 function formStateFromBucket(bucket: Bucket) {
-  const s3Config = isRecord(bucket.provider_config.s3)
-    ? bucket.provider_config.s3
+  const s3Config = isRecord(bucket.upstream_config.s3)
+    ? bucket.upstream_config.s3
     : {}
 
   return {

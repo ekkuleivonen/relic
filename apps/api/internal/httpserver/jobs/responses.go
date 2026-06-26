@@ -24,7 +24,7 @@ type JobRunResponse struct {
 	LockedAt        *time.Time            `json:"locked_at,omitempty"`
 	StartedAt       *time.Time            `json:"started_at,omitempty"`
 	FinishedAt      *time.Time            `json:"finished_at,omitempty"`
-	ErrorMessage    string                `json:"error_message,omitempty" example:"provider credentials rejected"`
+	ErrorMessage    string                `json:"error_message,omitempty" example:"upstream credentials rejected"`
 	CreatedAt       time.Time             `json:"created_at"`
 	UpdatedAt       time.Time             `json:"updated_at"`
 }

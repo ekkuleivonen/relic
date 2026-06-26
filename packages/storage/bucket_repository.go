@@ -32,25 +32,25 @@ func NewBucketStore(runner Runner) *BucketStore {
 type Bucket struct {
 	ID                   string
 	Name                 string
-	Provider             BucketProvider
+	Upstream             BucketUpstream
 	EndpointURL          string
 	Region               string
 	BucketName           string
 	Prefix               string
-	ProviderConfig       BucketProviderConfig
+	UpstreamConfig       BucketUpstreamConfig
 	EncryptedCredentials secrets.Envelope
 	PluginSettings       BucketPluginSettingsMap
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 }
 
-type BucketProvider string
+type BucketUpstream string
 
 const (
-	BucketProviderS3 BucketProvider = "s3"
+	BucketUpstreamS3 BucketUpstream = "s3"
 )
 
-type BucketProviderConfig map[string]any
+type BucketUpstreamConfig map[string]any
 
 type BucketPluginSettingsMap map[string]BucketPluginSettings
 
@@ -61,18 +61,18 @@ type BucketPluginSettings struct {
 
 type CreateBucketParams struct {
 	Name                 string
-	Provider             BucketProvider
+	Upstream             BucketUpstream
 	EndpointURL          string
 	Region               string
 	BucketName           string
 	Prefix               string
-	ProviderConfig       BucketProviderConfig
+	UpstreamConfig       BucketUpstreamConfig
 	EncryptedCredentials secrets.Envelope
 	PluginSettings       BucketPluginSettingsMap
 }
 
 type ListBucketsParams struct {
-	Provider BucketProvider
+	Upstream BucketUpstream
 	Limit    int
 	Offset   int
 }
@@ -83,7 +83,7 @@ type UpdateBucketParams struct {
 	EndpointURL          *string
 	Region               *string
 	Prefix               *string
-	ProviderConfig       *BucketProviderConfig
+	UpstreamConfig       *BucketUpstreamConfig
 	EncryptedCredentials *secrets.Envelope
 	PluginSettings       *BucketPluginSettingsMap
 }
@@ -98,7 +98,7 @@ func (s *BucketStore) CreateBucket(ctx context.Context, params CreateBucketParam
 	if err != nil {
 		return Bucket{}, err
 	}
-	providerConfig, err := encodeProviderConfig(params.ProviderConfig)
+	upstreamConfig, err := encodeUpstreamConfig(params.UpstreamConfig)
 	if err != nil {
 		return Bucket{}, err
 	}
@@ -107,12 +107,12 @@ func (s *BucketStore) CreateBucket(ctx context.Context, params CreateBucketParam
 		INSERT INTO buckets (
 			id,
 			name,
-			provider,
+			upstream,
 			endpoint_url,
 			region,
 			bucket_name,
 			prefix,
-			provider_config,
+			upstream_config,
 			credential_key_id,
 			credential_algorithm,
 			credential_nonce,
@@ -123,12 +123,12 @@ func (s *BucketStore) CreateBucket(ctx context.Context, params CreateBucketParam
 		RETURNING
 			id,
 			name,
-			provider,
+			upstream,
 			endpoint_url,
 			region,
 			bucket_name,
 			prefix,
-			provider_config,
+			upstream_config,
 			credential_key_id,
 			credential_algorithm,
 			credential_nonce,
@@ -138,12 +138,12 @@ func (s *BucketStore) CreateBucket(ctx context.Context, params CreateBucketParam
 			updated_at
 	`, id,
 		params.Name,
-		string(params.Provider),
+		string(params.Upstream),
 		params.EndpointURL,
 		params.Region,
 		params.BucketName,
 		params.Prefix,
-		providerConfig,
+		upstreamConfig,
 		params.EncryptedCredentials.KeyID,
 		params.EncryptedCredentials.Algorithm,
 		params.EncryptedCredentials.Nonce,
@@ -157,12 +157,12 @@ func (s *BucketStore) GetBucket(ctx context.Context, id string) (Bucket, error) 
 		SELECT
 			id,
 			name,
-			provider,
+			upstream,
 			endpoint_url,
 			region,
 			bucket_name,
 			prefix,
-			provider_config,
+			upstream_config,
 			credential_key_id,
 			credential_algorithm,
 			credential_nonce,
@@ -192,17 +192,17 @@ func (s *BucketStore) ListBuckets(ctx context.Context, params ListBucketsParams)
 		rows pgx.Rows
 		err  error
 	)
-	if params.Provider == "" {
+	if params.Upstream == "" {
 		rows, err = s.runner.Query(ctx, `
 			SELECT
 				id,
 				name,
-				provider,
+				upstream,
 				endpoint_url,
 				region,
 				bucket_name,
 				prefix,
-				provider_config,
+				upstream_config,
 				credential_key_id,
 				credential_algorithm,
 				credential_nonce,
@@ -219,12 +219,12 @@ func (s *BucketStore) ListBuckets(ctx context.Context, params ListBucketsParams)
 			SELECT
 				id,
 				name,
-				provider,
+				upstream,
 				endpoint_url,
 				region,
 				bucket_name,
 				prefix,
-				provider_config,
+				upstream_config,
 				credential_key_id,
 				credential_algorithm,
 				credential_nonce,
@@ -233,10 +233,10 @@ func (s *BucketStore) ListBuckets(ctx context.Context, params ListBucketsParams)
 				created_at,
 				updated_at
 			FROM buckets
-			WHERE provider = $1
+			WHERE upstream = $1
 			ORDER BY created_at DESC, id DESC
 			LIMIT $2 OFFSET $3
-		`, string(params.Provider), limit, offset)
+		`, string(params.Upstream), limit, offset)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("list buckets: %w", err)
@@ -259,14 +259,14 @@ func (s *BucketStore) ListBuckets(ctx context.Context, params ListBucketsParams)
 }
 
 func (s *BucketStore) UpdateBucket(ctx context.Context, params UpdateBucketParams) (Bucket, error) {
-	var providerConfig *string
-	if params.ProviderConfig != nil {
-		encoded, err := encodeProviderConfig(*params.ProviderConfig)
+	var upstreamConfig *string
+	if params.UpstreamConfig != nil {
+		encoded, err := encodeUpstreamConfig(*params.UpstreamConfig)
 		if err != nil {
 			return Bucket{}, err
 		}
 		value := string(encoded)
-		providerConfig = &value
+		upstreamConfig = &value
 	}
 
 	var pluginSettings *string
@@ -300,7 +300,7 @@ func (s *BucketStore) UpdateBucket(ctx context.Context, params UpdateBucketParam
 			endpoint_url = COALESCE($3, endpoint_url),
 			region = COALESCE($4, region),
 			prefix = COALESCE($5, prefix),
-			provider_config = COALESCE($6::jsonb, provider_config),
+			upstream_config = COALESCE($6::jsonb, upstream_config),
 			credential_key_id = COALESCE($7, credential_key_id),
 			credential_algorithm = COALESCE($8, credential_algorithm),
 			credential_nonce = COALESCE($9::bytea, credential_nonce),
@@ -311,12 +311,12 @@ func (s *BucketStore) UpdateBucket(ctx context.Context, params UpdateBucketParam
 		RETURNING
 			id,
 			name,
-			provider,
+			upstream,
 			endpoint_url,
 			region,
 			bucket_name,
 			prefix,
-			provider_config,
+			upstream_config,
 			credential_key_id,
 			credential_algorithm,
 			credential_nonce,
@@ -329,7 +329,7 @@ func (s *BucketStore) UpdateBucket(ctx context.Context, params UpdateBucketParam
 		params.EndpointURL,
 		params.Region,
 		params.Prefix,
-		providerConfig,
+		upstreamConfig,
 		credentialKeyID,
 		credentialAlgorithm,
 		credentialNonce,
@@ -345,20 +345,20 @@ func (s *BucketStore) DeleteBucket(ctx context.Context, id string) error {
 func scanBucket(row pgx.Row) (Bucket, error) {
 	var (
 		bucket              Bucket
-		provider            string
-		providerConfigBytes []byte
+		upstream            string
+		upstreamConfigBytes []byte
 		pluginSettingsBytes []byte
 	)
 
 	err := row.Scan(
 		&bucket.ID,
 		&bucket.Name,
-		&provider,
+		&upstream,
 		&bucket.EndpointURL,
 		&bucket.Region,
 		&bucket.BucketName,
 		&bucket.Prefix,
-		&providerConfigBytes,
+		&upstreamConfigBytes,
 		&bucket.EncryptedCredentials.KeyID,
 		&bucket.EncryptedCredentials.Algorithm,
 		&bucket.EncryptedCredentials.Nonce,
@@ -374,14 +374,14 @@ func scanBucket(row pgx.Row) (Bucket, error) {
 		return Bucket{}, fmt.Errorf("scan bucket: %w", err)
 	}
 
-	bucket.Provider = BucketProvider(provider)
-	if len(providerConfigBytes) == 0 {
-		bucket.ProviderConfig = BucketProviderConfig{}
-	} else if err := json.Unmarshal(providerConfigBytes, &bucket.ProviderConfig); err != nil {
-		return Bucket{}, fmt.Errorf("decode bucket provider config: %w", err)
+	bucket.Upstream = BucketUpstream(upstream)
+	if len(upstreamConfigBytes) == 0 {
+		bucket.UpstreamConfig = BucketUpstreamConfig{}
+	} else if err := json.Unmarshal(upstreamConfigBytes, &bucket.UpstreamConfig); err != nil {
+		return Bucket{}, fmt.Errorf("decode bucket upstream config: %w", err)
 	}
-	if bucket.ProviderConfig == nil {
-		bucket.ProviderConfig = BucketProviderConfig{}
+	if bucket.UpstreamConfig == nil {
+		bucket.UpstreamConfig = BucketUpstreamConfig{}
 	}
 
 	if len(pluginSettingsBytes) == 0 {
@@ -398,14 +398,14 @@ func scanBucket(row pgx.Row) (Bucket, error) {
 	return bucket, nil
 }
 
-func encodeProviderConfig(config BucketProviderConfig) ([]byte, error) {
+func encodeUpstreamConfig(config BucketUpstreamConfig) ([]byte, error) {
 	if config == nil {
-		config = BucketProviderConfig{}
+		config = BucketUpstreamConfig{}
 	}
 
 	encoded, err := json.Marshal(config)
 	if err != nil {
-		return nil, fmt.Errorf("encode bucket provider config: %w", err)
+		return nil, fmt.Errorf("encode bucket upstream config: %w", err)
 	}
 
 	return encoded, nil

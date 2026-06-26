@@ -37,12 +37,12 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 
 		bucket, err := dependencies.Storage.Buckets().CreateBucket(ctx, storage.CreateBucketParams{
 			Name:                 input.Body.Name,
-			Provider:             storage.BucketProvider(input.Body.Provider),
+			Upstream:             storage.BucketUpstream(input.Body.Upstream),
 			EndpointURL:          input.Body.EndpointURL,
 			Region:               input.Body.Region,
 			BucketName:           input.Body.BucketName,
 			Prefix:               input.Body.Prefix,
-			ProviderConfig:       input.Body.ProviderConfig,
+			UpstreamConfig:       input.Body.UpstreamConfig,
 			EncryptedCredentials: envelope,
 			PluginSettings:       input.Body.PluginSettings,
 		})
@@ -65,7 +65,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 		}
 
 		buckets, err := dependencies.Storage.Buckets().ListBuckets(ctx, storage.ListBucketsParams{
-			Provider: storage.BucketProvider(input.Provider),
+			Upstream: storage.BucketUpstream(input.Upstream),
 			Limit:    input.Limit,
 			Offset:   input.Offset,
 		})
@@ -120,7 +120,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			EndpointURL:    input.Body.EndpointURL,
 			Region:         input.Body.Region,
 			Prefix:         input.Body.Prefix,
-			ProviderConfig: input.Body.ProviderConfig,
+			UpstreamConfig: input.Body.UpstreamConfig,
 			PluginSettings: input.Body.PluginSettings,
 		}
 
@@ -195,18 +195,18 @@ type createBucketInput struct {
 
 type createBucketBody struct {
 	Name           string                          `json:"name" example:"production-data"`
-	Provider       string                          `json:"provider" example:"s3"`
+	Upstream       string                          `json:"upstream" example:"s3"`
 	EndpointURL    string                          `json:"endpoint_url" example:"https://s3.amazonaws.com"`
 	Region         string                          `json:"region" example:"us-east-1"`
 	BucketName     string                          `json:"bucket_name" example:"example-bucket"`
 	Prefix         string                          `json:"prefix" example:"raw/"`
-	ProviderConfig storage.BucketProviderConfig    `json:"provider_config"`
+	UpstreamConfig storage.BucketUpstreamConfig    `json:"upstream_config"`
 	Credentials    map[string]any                  `json:"credentials"`
 	PluginSettings storage.BucketPluginSettingsMap `json:"plugin_settings"`
 }
 
 type listBucketsInput struct {
-	Provider string `query:"provider" example:"s3"`
+	Upstream string `query:"upstream" example:"s3"`
 	Limit    int    `query:"limit" example:"100"`
 	Offset   int    `query:"offset" example:"0"`
 }
@@ -229,7 +229,7 @@ type updateBucketBody struct {
 	EndpointURL    *string                          `json:"endpoint_url,omitempty" example:"https://s3.amazonaws.com"`
 	Region         *string                          `json:"region,omitempty" example:"us-east-1"`
 	Prefix         *string                          `json:"prefix,omitempty" example:"raw/"`
-	ProviderConfig *storage.BucketProviderConfig    `json:"provider_config,omitempty"`
+	UpstreamConfig *storage.BucketUpstreamConfig    `json:"upstream_config,omitempty"`
 	Credentials    *map[string]any                  `json:"credentials,omitempty"`
 	PluginSettings *storage.BucketPluginSettingsMap `json:"plugin_settings,omitempty"`
 }
@@ -254,12 +254,12 @@ type listBucketsBody struct {
 type bucketResponse struct {
 	ID             string                          `json:"id" example:"bucket_0123456789abcdef0123456789abcdef"`
 	Name           string                          `json:"name" example:"production-data"`
-	Provider       storage.BucketProvider          `json:"provider" example:"s3"`
+	Upstream       storage.BucketUpstream          `json:"upstream" example:"s3"`
 	EndpointURL    string                          `json:"endpoint_url" example:"https://s3.amazonaws.com"`
 	Region         string                          `json:"region" example:"us-east-1"`
 	BucketName     string                          `json:"bucket_name" example:"example-bucket"`
 	Prefix         string                          `json:"prefix" example:"raw/"`
-	ProviderConfig storage.BucketProviderConfig    `json:"provider_config"`
+	UpstreamConfig storage.BucketUpstreamConfig    `json:"upstream_config"`
 	PluginSettings storage.BucketPluginSettingsMap `json:"plugin_settings"`
 	CreatedAt      time.Time                       `json:"created_at"`
 	UpdatedAt      time.Time                       `json:"updated_at"`
@@ -269,12 +269,12 @@ func bucketResponseFromStorage(bucket storage.Bucket) bucketResponse {
 	return bucketResponse{
 		ID:             bucket.ID,
 		Name:           bucket.Name,
-		Provider:       bucket.Provider,
+		Upstream:       bucket.Upstream,
 		EndpointURL:    bucket.EndpointURL,
 		Region:         bucket.Region,
 		BucketName:     bucket.BucketName,
 		Prefix:         bucket.Prefix,
-		ProviderConfig: bucket.ProviderConfig,
+		UpstreamConfig: bucket.UpstreamConfig,
 		PluginSettings: bucket.PluginSettings,
 		CreatedAt:      bucket.CreatedAt,
 		UpdatedAt:      bucket.UpdatedAt,

@@ -103,15 +103,15 @@ DELETE /api/buckets/:id
 POST   /api/buckets/:id/sync
 ```
 
-Bucket creation should accept provider details, credentials, prefix or scope, and non-secret provider config. Read responses must never return plaintext credential secrets.
+Bucket creation should accept upstream details, credentials, prefix or scope, and non-secret upstream config. Read responses must never return plaintext credential secrets.
 
 Bucket fields should be split by ownership:
 
-* Top-level bucket fields are Relic's provider-neutral connection and scope model: provider, endpoint URL, region, bucket name, and prefix.
-* `provider_config` is for non-secret adapter-specific options that Relic does not interpret generically, such as S3 path-style addressing, compatibility flags, TLS options, or provider-specific signing details.
-* Credentials are secret material and must be encrypted separately from provider config.
+* Top-level bucket fields are Relic's upstream-neutral connection and scope model: upstream, endpoint URL, region, bucket name, and prefix.
+* `upstream_config` is for non-secret adapter-specific options that Relic does not interpret generically, such as S3 path-style addressing, compatibility flags, TLS options, or upstream-specific signing details.
+* Credentials are secret material and must be encrypted separately from upstream config.
 
-Example S3-compatible provider config:
+Example S3-compatible upstream config:
 
 ```json
 {
@@ -136,7 +136,7 @@ Bucket creation should enqueue the same `sync_bucket` job after the bucket row a
 
 Define:
 
-* Credential input shape per provider.
+* Credential input shape per upstream.
 * Encrypted credential storage format.
 * Encryption key configuration.
 * Key identifier storage for rotation.
@@ -190,11 +190,11 @@ Persist at least:
 
 * Bucket ID.
 * Object key.
-* Provider-reported size.
-* Provider-reported ETag.
-* Provider-reported last modified time.
-* Provider-reported content type where available.
-* S3-compatible provider headers where available.
+* Upstream-reported size.
+* Upstream-reported ETag.
+* Upstream-reported last modified time.
+* Upstream-reported content type where available.
+* S3-compatible upstream headers where available.
 * S3-compatible user metadata where available.
 * S3-compatible object tags where available.
 * First seen time.
@@ -202,11 +202,11 @@ Persist at least:
 
 Object rows should represent Relic's active catalog view of bucket contents. If sync determines an object no longer exists in the bucket, Relic should remove the object row. Historical visibility belongs in job runs and events, not in a deleted/tombstone flag on the active object.
 
-For duplicate detection, `provider.etag + provider.size` is enough to identify potential duplicates during the first sync pass. Relic should not hash every object body up front.
+For duplicate detection, `upstream.etag + upstream.size` is enough to identify potential duplicates during the first sync pass. Relic should not hash every object body up front.
 
 Duplicate verification should be two-phase:
 
-1. Group synced objects by `provider.etag + provider.size`.
+1. Group synced objects by `upstream.etag + upstream.size`.
 2. Flag matching groups as potential duplicates.
 3. Compute SHA-256 only for potential duplicate groups.
 4. Mark matching hashes as verified duplicates.
@@ -219,24 +219,24 @@ Start with simple list and filter behavior:
 
 * Bucket filter.
 * Prefix filter.
-* Provider-reported content type filter if available.
+* Upstream-reported content type filter if available.
 * Size range.
 * Modified time range.
 * Text match against object key.
 
 Avoid inventing a custom query language for the MVP.
 
-### Provider Adapter Interface
+### Upstream Adapter Interface
 
 Define a minimal S3-compatible adapter interface:
 
 * Validate credentials.
 * List objects by bucket/prefix.
 * Fetch object metadata.
-* Fetch provider-native headers, user metadata, and tags where supported.
+* Fetch upstream-native headers, user metadata, and tags where supported.
 * Optionally open object stream for future hashing/enrichment.
 
-Keep provider-specific details out of route handlers and core domain logic.
+Keep upstream-specific details out of route handlers and core domain logic.
 
 ## Implementation Plan
 
@@ -290,21 +290,21 @@ Create initial tables for:
 * `objects`
 * `job_runs`
 
-The `buckets` table should include bucket identity, provider-neutral connection and scope fields, encrypted credentials, and `provider_config` JSONB.
+The `buckets` table should include bucket identity, upstream-neutral connection and scope fields, encrypted credentials, and `upstream_config` JSONB.
 
 Status:
 
 * Done: `golang-migrate` migration runner is wired into API startup.
 * Done: Initial `buckets` migration exists.
-* Done: `buckets` includes provider-neutral connection and scope fields.
+* Done: `buckets` includes upstream-neutral connection and scope fields.
 * Done: `buckets` stores encrypted credential envelope fields.
-* Done: `buckets` includes `provider_config` JSONB for non-secret adapter-specific options.
+* Done: `buckets` includes `upstream_config` JSONB for non-secret adapter-specific options.
 * Pending: `objects` table.
 * Pending: `job_runs` table.
 
 The `objects` table should include:
 
-* `attributes` JSONB for provider, user, job-produced, and core attributes.
+* `attributes` JSONB for upstream, user, job-produced, and core attributes.
 * `attribute_provenance` JSONB mapping attribute paths or prefixes to job run IDs.
 
 Automated attribute mutations should be represented by a job run record. User edits should carry direct user provenance. This keeps provenance compact while avoiding one provenance row per object attribute.
@@ -323,11 +323,11 @@ Status:
 * Done: Bucket creation encrypts credential JSON before persistence.
 * Done: Bucket responses omit plaintext credentials and encrypted credential envelopes.
 * Done: Credential encryption behavior is covered by tests.
-* Pending: Provider-facing decrypt path when sync jobs need credentials.
+* Pending: Upstream-facing decrypt path when sync jobs need credentials.
 * Pending: Full redaction checks for future logs, jobs, and events.
 
 * Encrypt credentials before persistence.
-* Decrypt only inside backend services that need provider access.
+* Decrypt only inside backend services that need upstream access.
 * Redact credentials from API responses and logs.
 * Store a key identifier with encrypted payloads.
 
@@ -346,7 +346,7 @@ Status:
 * Done: Bucket read responses redact credentials.
 * Pending: `DELETE /api/buckets/:id`.
 * Pending: `POST /api/buckets/:id/sync`.
-* Pending: Optional credential validation against the provider before saving.
+* Pending: Optional credential validation against the upstream before saving.
 
 Operations:
 
@@ -356,10 +356,10 @@ Operations:
 * Update bucket connection config.
 * Delete bucket.
 
-Bucket creation should optionally validate credentials against the provider before saving.
+Bucket creation should optionally validate credentials against the upstream before saving.
 Bucket creation should enqueue an initial `sync_bucket` job after persistence succeeds.
 
-### 6. S3-Compatible Provider Adapter
+### 6. S3-Compatible Upstream Adapter
 
 Implement initial object listing for S3-compatible buckets:
 
@@ -367,7 +367,7 @@ Implement initial object listing for S3-compatible buckets:
 * Prefix handling.
 * Continuation tokens.
 * Basic metadata capture.
-* Retry behavior for transient provider errors.
+* Retry behavior for transient upstream errors.
 
 ### 7. Background Sync Job
 

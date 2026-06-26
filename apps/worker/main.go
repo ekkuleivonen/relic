@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,18 +13,23 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
+	syncbucket "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/sync_bucket"
 	workerRunner "github.com/ekkuleivonen/relic/apps/worker/internal/runner"
 	"github.com/ekkuleivonen/relic/packages/db"
-	"github.com/ekkuleivonen/relic/packages/jobs"
+	"github.com/ekkuleivonen/relic/packages/secrets"
 	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
 )
 
 const defaultPollInterval = 2 * time.Second
 
 type config struct {
-	DatabaseURL  string
-	WorkerID     string
-	PollInterval time.Duration
+	DatabaseURL     string
+	WorkerID        string
+	PollInterval    time.Duration
+	EncryptionKeyID string
+	EncryptionKey   []byte
 }
 
 func main() {
@@ -57,7 +63,16 @@ func run() error {
 		return err
 	}
 
-	syncBucketHandler, err := jobs.NewSyncBucketStubHandler(store)
+	secretManager, err := secrets.NewStaticKeyManager(cfg.EncryptionKeyID, cfg.EncryptionKey)
+	if err != nil {
+		return err
+	}
+
+	syncBucketHandler, err := syncbucket.NewHandler(syncbucket.HandlerOptions{
+		Store:   store,
+		Secrets: secretManager,
+		Factory: s3compat.ClientFactory{},
+	})
 	if err != nil {
 		return err
 	}
@@ -112,11 +127,25 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	encryptionKeyBase64 := stringEnv(lookup, "ENCRYPTION_KEY_BASE64", "")
+	if encryptionKeyBase64 == "" {
+		return config{}, fmt.Errorf("ENCRYPTION_KEY_BASE64 is required")
+	}
+	encryptionKey, err := base64.StdEncoding.DecodeString(encryptionKeyBase64)
+	if err != nil {
+		return config{}, fmt.Errorf("parse ENCRYPTION_KEY_BASE64: %w", err)
+	}
+	encryptionKeyID := stringEnv(lookup, "ENCRYPTION_KEY_ID", "")
+	if encryptionKeyID == "" {
+		return config{}, fmt.Errorf("ENCRYPTION_KEY_ID is required")
+	}
 
 	return config{
-		DatabaseURL:  databaseURL,
-		WorkerID:     stringEnv(lookup, "WORKER_ID", defaultWorkerID()),
-		PollInterval: pollInterval,
+		DatabaseURL:     databaseURL,
+		WorkerID:        stringEnv(lookup, "WORKER_ID", defaultWorkerID()),
+		PollInterval:    pollInterval,
+		EncryptionKeyID: encryptionKeyID,
+		EncryptionKey:   encryptionKey,
 	}, nil
 }
 

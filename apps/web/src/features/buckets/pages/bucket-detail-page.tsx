@@ -64,7 +64,7 @@ export function BucketDetailPage() {
                     <h1 className="text-2xl font-semibold tracking-tight">
                       {bucket.name}
                     </h1>
-                    <Badge variant="outline">{bucket.provider}</Badge>
+                    <Badge variant="outline">{bucket.upstream}</Badge>
                   </div>
                   <p className="mt-2 text-sm text-muted-foreground">
                     {bucket.bucket_name}

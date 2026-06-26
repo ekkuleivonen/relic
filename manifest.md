@@ -239,7 +239,7 @@ Bucket
    ↓
 NATS JetStream
    ↓
-Relic provider_events inbox
+Relic upstream_events inbox
    ↓
 batched job_runs
 ```
@@ -366,7 +366,7 @@ Duplicate detection should not be a special side system.
 
 It should be implemented as a core job that uses normal Relic primitives:
 
-1. Read provider attributes such as `provider.etag`, `provider.size`, and object identity.
+1. Read upstream attributes such as `upstream.etag`, `upstream.size`, and object identity.
 2. Search for objects with matching candidate signals.
 3. Write job-owned attributes for candidate state when useful:
 
@@ -406,13 +406,13 @@ Relic bookkeeping.
 
 Catalog invariants.
 
-Not provider claims.
+Not upstream claims.
 
 ---
 
-## Provider Metadata
+## Upstream Metadata
 
-Observed from the connected storage provider.
+Observed from the connected storage upstream.
 
 S3-compatible object storage supports native metadata in more than one place:
 
@@ -422,32 +422,32 @@ S3-compatible object storage supports native metadata in more than one place:
 
 Capturing this should be part of Relic's core offering.
 
-However, provider-native metadata should preserve its provider provenance instead of being blended into `core.*`.
+However, upstream-native metadata should preserve its upstream provenance instead of being blended into `core.*`.
 
 Example:
 
 ```yaml
-provider.etag
-provider.size
-provider.last_modified
-provider.header.content_type
-provider.header.cache_control
-provider.header.content_disposition
-provider.metadata.project
-provider.metadata.owner
-provider.metadata.source
-provider.tag.environment
-provider.tag.retention
+upstream.etag
+upstream.size
+upstream.last_modified
+upstream.header.content_type
+upstream.header.cache_control
+upstream.header.content_disposition
+upstream.metadata.project
+upstream.metadata.owner
+upstream.metadata.source
+upstream.tag.environment
+upstream.tag.retention
 ```
 
-Provider metadata is evidence, not truth.
+Upstream metadata is evidence, not truth.
 
-Relic should not blindly promote provider-reported values into `core.*`.
+Relic should not blindly promote upstream-reported values into `core.*`.
 
 For example, S3 `Content-Type` is often supplied by upload clients and can be wrong. It should be stored as:
 
 ```yaml
-provider.header.content_type
+upstream.header.content_type
 ```
 
 If Relic later determines a MIME type by inspecting bytes, that result should be written by the component that performed the work, such as:
@@ -460,7 +460,7 @@ job.extract_attributes.confidence
 The distinction:
 
 * `core.*` is Relic-owned bookkeeping and catalog invariants.
-* `provider.*` is what the storage provider reported.
+* `upstream.*` is what the storage upstream reported.
 * `job.<job_type>.*` is derived, detected, or enriched metadata produced by Relic jobs.
 
 ---
@@ -513,11 +513,11 @@ Namespace shape:
 
 ```text
 core.*
-provider.<attribute_name>
-provider.header.<header_name>
-provider.metadata.<metadata_key>
-provider.tag.<tag_key>
-provider.<provider_name>.<provider_specific_attribute>
+upstream.<attribute_name>
+upstream.header.<header_name>
+upstream.metadata.<metadata_key>
+upstream.tag.<tag_key>
+upstream.<upstream_name>.<upstream_specific_attribute>
 job.<job_type>.<attribute_name>
 job.<job_type>.<attribute_name>.*
 user.<attribute_name>
@@ -527,9 +527,9 @@ user.<attribute_name>.*
 Rules:
 
 * `core.*` is reserved for Relic bookkeeping and catalog invariants.
-* `provider.*` is for metadata observed from a storage provider.
-* Common provider-reported fields should be flattened, such as `provider.etag` and `provider.size`.
-* Provider-specific fields may include the provider name deeper in the namespace, such as `provider.s3.storage_class`.
+* `upstream.*` is for metadata observed from a storage upstream.
+* Common upstream-reported fields should be flattened, such as `upstream.etag` and `upstream.size`.
+* Upstream-specific fields may include the upstream name deeper in the namespace, such as `upstream.s3.storage_class`.
 * `job.<job_type>.*` is for metadata produced by built-in Relic jobs such as `extract_attributes` and `detect_duplicates`.
 * `user.*` is for user-owned metadata.
 * Plugin and workflow namespaces are deferred until those systems become first-class product scope.
@@ -539,12 +539,12 @@ Examples:
 ```text
 core.object_id
 core.first_seen_at
-provider.etag
-provider.size
-provider.header.cache_control
-provider.metadata.project
-provider.metadata.source
-provider.tag.environment
+upstream.etag
+upstream.size
+upstream.header.cache_control
+upstream.metadata.project
+upstream.metadata.source
+upstream.tag.environment
 job.extract_attributes.mime_type
 job.detect_duplicates.potential_duplicates
 user.owner
@@ -571,7 +571,7 @@ Bucket:
   endpoint
   region
 
-  provider
+  upstream
 
   encrypted_credentials
 
@@ -642,7 +642,7 @@ Example:
     "first_seen_at": "2026-06-23T00:00:00Z",
     "last_seen_at": "2026-06-26T00:00:00Z"
   },
-  "provider": {
+  "upstream": {
     "etag": "\"abc123\"",
     "size": 1048576,
     "last_modified": "2026-06-22T12:00:00Z",
@@ -669,7 +669,7 @@ Example:
 
 ```json
 {
-  "provider": "run.sync_123",
+  "upstream": "run.sync_123",
   "job.detect_duplicates": "run.detect_duplicates_456",
   "user.owner": "user.update_223"
 }
@@ -1209,7 +1209,7 @@ Potential future features:
 * Sensitive data detection.
 * Cost optimization recommendations.
 * Duplicate cleanup automation.
-* Cross-provider inventory.
+* Cross-upstream inventory.
 * Data governance tooling.
 
 ---

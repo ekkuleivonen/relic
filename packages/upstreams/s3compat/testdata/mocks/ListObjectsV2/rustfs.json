@@ -1,0 +1,23 @@
+{
+  "upstream": "rustfs",
+  "operation": "ListObjectsV2",
+  "source": "https://docs.rustfs.com/features/s3-compatibility/",
+  "request": {
+    "method": "GET",
+    "path": "/",
+    "query": {
+      "list-type": "2",
+      "prefix": "photos/",
+      "max-keys": "2"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      ["Content-Type", "application/xml"],
+      ["Date", "Wed, 26 Jun 2026 01:00:00 GMT"],
+      ["Server", "RustFS"]
+    ],
+    "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\n  <Name>relic-fixtures</Name>\n  <Prefix>photos/</Prefix>\n  <KeyCount>2</KeyCount>\n  <MaxKeys>2</MaxKeys>\n  <IsTruncated>false</IsTruncated>\n  <Contents>\n    <Key>photos/a.jpg</Key>\n    <LastModified>2026-06-26T01:00:00.000Z</LastModified>\n    <ETag>&quot;d41d8cd98f00b204e9800998ecf8427e&quot;</ETag>\n    <Size>434234</Size>\n    <StorageClass>STANDARD</StorageClass>\n  </Contents>\n  <Contents>\n    <Key>photos/b.jpg</Key>\n    <LastModified>2026-06-26T01:01:00.000Z</LastModified>\n    <ETag>&quot;0cc175b9c0f1b6a831c399e269772661&quot;</ETag>\n    <Size>77</Size>\n    <StorageClass>STANDARD</StorageClass>\n  </Contents>\n</ListBucketResult>"
+  }
+}

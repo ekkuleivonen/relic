@@ -1,0 +1,25 @@
+{
+  "upstream": "gcp",
+  "operation": "ListObjects",
+  "source": "https://cloud.google.com/storage/docs/xml-api/get-bucket-list",
+  "request": {
+    "method": "GET",
+    "path": "/",
+    "query": {
+      "prefix": "photos/",
+      "marker": "",
+      "max-keys": "2"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      ["Content-Type", "application/xml; charset=UTF-8"],
+      ["Content-Length", "650"],
+      ["Date", "Wed, 26 Jun 2026 01:00:00 GMT"],
+      ["Server", "UploadServer"],
+      ["x-guploader-uploadid", "ABgVH89example"]
+    ],
+    "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ListBucketResult xmlns=\"http://doc.storage.googleapis.com/2010-03-01\">\n  <Name>relic-fixtures</Name>\n  <Prefix>photos/</Prefix>\n  <Marker></Marker>\n  <MaxKeys>2</MaxKeys>\n  <IsTruncated>false</IsTruncated>\n  <Contents>\n    <Key>photos/a.jpg</Key>\n    <LastModified>2026-06-26T01:00:00.000Z</LastModified>\n    <ETag>\"2218880ef78838266ecd7d4c1b742a0e\"</ETag>\n    <Size>328</Size>\n    <StorageClass>STANDARD</StorageClass>\n  </Contents>\n  <Contents>\n    <Key>photos/b.jpg</Key>\n    <LastModified>2026-06-26T01:01:00.000Z</LastModified>\n    <ETag>\"8e2b4a051b9c6f7f14e9a1fd50c41b18\"</ETag>\n    <Size>77</Size>\n    <StorageClass>STANDARD</StorageClass>\n  </Contents>\n</ListBucketResult>"
+  }
+}

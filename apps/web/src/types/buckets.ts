@@ -1,6 +1,6 @@
-export type BucketProvider = "s3"
+export type BucketUpstream = "s3"
 
-export type BucketProviderConfig = Record<string, unknown>
+export type BucketUpstreamConfig = Record<string, unknown>
 
 export type BucketPluginSettings = {
   enabled: boolean
@@ -12,12 +12,12 @@ export type BucketPluginSettingsMap = Record<string, BucketPluginSettings>
 export type Bucket = {
   id: string
   name: string
-  provider: BucketProvider
+  upstream: BucketUpstream
   endpoint_url: string
   region: string
   bucket_name: string
   prefix: string
-  provider_config: BucketProviderConfig
+  upstream_config: BucketUpstreamConfig
   plugin_settings: BucketPluginSettingsMap
   created_at: string
   updated_at: string
@@ -29,12 +29,12 @@ export type ListBucketsResponse = {
 
 export type CreateBucketInput = {
   name: string
-  provider: BucketProvider
+  upstream: BucketUpstream
   endpoint_url: string
   region: string
   bucket_name: string
   prefix: string
-  provider_config: BucketProviderConfig
+  upstream_config: BucketUpstreamConfig
   credentials: Record<string, unknown>
   plugin_settings: BucketPluginSettingsMap
 }
@@ -44,7 +44,7 @@ export type UpdateBucketInput = {
   endpoint_url?: string
   region?: string
   prefix?: string
-  provider_config?: BucketProviderConfig
+  upstream_config?: BucketUpstreamConfig
   credentials?: Record<string, unknown>
   plugin_settings?: BucketPluginSettingsMap
 }

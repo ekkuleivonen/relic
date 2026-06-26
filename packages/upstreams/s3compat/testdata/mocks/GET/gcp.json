@@ -1,0 +1,30 @@
+{
+  "upstream": "gcp",
+  "operation": "GetObject",
+  "source": "https://cloud.google.com/storage/docs/xml-api/get-object",
+  "request": {
+    "method": "GET",
+    "path": "/photos/a.jpg",
+    "query": {}
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      ["date", "Wed, 30 May 2018 21:41:23 GMT"],
+      ["cache-control", "private, max-age=0"],
+      ["last-modified", "Wed, 30 May 2018 20:36:34 GMT"],
+      ["etag", "\"2218880ef78838266ecd7d4c1b742a0e\""],
+      ["x-goog-generation", "1486161811706000"],
+      ["x-goog-metageneration", "15"],
+      ["x-goog-stored-content-encoding", "identity"],
+      ["x-goog-stored-content-length", "328"],
+      ["content-type", "image/jpg"],
+      ["x-goog-hash", "crc32c=HBrbzQ=="],
+      ["x-goog-hash", "md5=OCydg52+pPG1Bwawjsl7DA=="],
+      ["x-goog-storage-class", "STANDARD"],
+      ["accept-ranges", "bytes"],
+      ["content-length", "10"]
+    ],
+    "body_base64": "Z2NzLWltYWdlCg=="
+  }
+}

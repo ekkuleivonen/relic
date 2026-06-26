@@ -33,13 +33,13 @@ cleanup_runs
 
 ### `sync_bucket`
 
-Reconcile provider state into Relic for a whole bucket or a subset.
+Reconcile upstream state into Relic for a whole bucket or a subset.
 
 It can run against:
 
 * A whole bucket.
 * A prefix.
-* Objects modified since a provider timestamp filter.
+* Objects modified since a upstream timestamp filter.
 
 Example input:
 
@@ -55,13 +55,13 @@ This is the heavy path for making Relic's catalog match storage.
 
 ### `scan_bucket`
 
-Sample provider state to detect drift without doing a full reconciliation.
+Sample upstream state to detect drift without doing a full reconciliation.
 
 It can run against the same scopes as `sync_bucket`:
 
 * A whole bucket.
 * A prefix.
-* Objects modified since a provider timestamp filter.
+* Objects modified since a upstream timestamp filter.
 
 Example input:
 
@@ -81,13 +81,13 @@ This job should avoid broad mutation. It is a detection and confidence job.
 
 Import or upsert one or more objects into Relic.
 
-This is the path for provider create/PUT notifications and targeted imports. It should fetch provider metadata for the specified keys and create or update Relic object rows.
+This is the path for upstream create/PUT notifications and targeted imports. It should fetch upstream metadata for the specified keys and create or update Relic object rows.
 
-Job input should stay close to the raw provider shape. For S3-compatible providers, that means carrying bucket/key/version/event fields and any metadata envelope the notification already supplied.
+Job input should stay close to the raw upstream shape. For S3-compatible upstreams, that means carrying bucket/key/version/event fields and any metadata envelope the notification already supplied.
 
-The handler should convert provider-shaped evidence into Relic's attribute namespaces before writing storage rows. That conversion should live in one reusable, well-tested mapper, not be reimplemented in each handler. If conversion fails, the `import_objects` run should fail visibly and be retried or inspected like any other job failure.
+The handler should convert upstream-shaped evidence into Relic's attribute namespaces before writing storage rows. That conversion should live in one reusable, well-tested mapper, not be reimplemented in each handler. If conversion fails, the `import_objects` run should fail visibly and be retried or inspected like any other job failure.
 
-If the input includes a complete enough provider snapshot, the handler can use it directly and skip a remote metadata read. Otherwise, it should call the provider to read object metadata, then run the same mapper.
+If the input includes a complete enough upstream snapshot, the handler can use it directly and skip a remote metadata read. Otherwise, it should call the upstream to read object metadata, then run the same mapper.
 
 Example input:
 
@@ -97,20 +97,20 @@ Example input:
   "objects": [
     {
       "key": "photos/a.jpg",
-      "version_id": "optional-provider-version",
-      "provider": "s3",
+      "version_id": "optional-upstream-version",
+      "upstream": "s3",
       "event_name": "ObjectCreated:Put",
       "event_time": "2026-06-01T00:00:00Z",
       "s3": {
         "bucket": {
-          "name": "raw-provider-bucket-name",
-          "arn": "arn:aws:s3:::raw-provider-bucket-name"
+          "name": "raw-upstream-bucket-name",
+          "arn": "arn:aws:s3:::raw-upstream-bucket-name"
         },
         "object": {
           "key": "photos/a.jpg",
           "size": 123456,
-          "eTag": "optional-provider-etag",
-          "versionId": "optional-provider-version",
+          "eTag": "optional-upstream-etag",
+          "versionId": "optional-upstream-version",
           "sequencer": "0065F2A4D75AB3CDEF"
         }
       },
@@ -137,7 +137,7 @@ Example input:
 
 Remove one or more objects from Relic.
 
-This is the path for provider delete notifications. The bytes remain in object storage; this job removes Relic's catalog object because Relic no longer believes that object exists in the bucket.
+This is the path for upstream delete notifications. The bytes remain in object storage; this job removes Relic's catalog object because Relic no longer believes that object exists in the bucket.
 
 Example input:
 
@@ -147,7 +147,7 @@ Example input:
   "objects": [
     {
       "key": "photos/a.jpg",
-      "version_id": "optional-provider-version"
+      "version_id": "optional-upstream-version"
     }
   ]
 }
@@ -157,7 +157,7 @@ Example input:
 
 Refresh Relic's known metadata or attributes for existing objects.
 
-This can handle provider metadata changes, tag changes, user-driven attribute refreshes, or internal attribute recalculation. The job should support batches because many refreshes will be independent per object.
+This can handle upstream metadata changes, tag changes, user-driven attribute refreshes, or internal attribute recalculation. The job should support batches because many refreshes will be independent per object.
 
 ### `extract_attributes`
 
@@ -179,7 +179,7 @@ Initially, this can run once per object. Later it can rerun when object content 
 
 Detect duplicate objects and create `duplicate` relationships.
 
-This should start with a cheap candidate pass over matching provider ETags. ETags are not enough to prove duplication across all providers and upload modes, but they are useful for narrowing the search space.
+This should start with a cheap candidate pass over matching upstream ETags. ETags are not enough to prove duplication across all upstreams and upload modes, but they are useful for narrowing the search space.
 
 For each matching ETag group, the job should compute a content hash for the candidate objects. If the content hashes match, Relic should create a relationship with type `duplicate` between the matching objects.
 
@@ -263,13 +263,13 @@ Example run for syncing a bucket:
 }
 ```
 
-Example run from a provider PUT notification:
+Example run from a upstream PUT notification:
 
 ```json
 {
   "type": "import_objects",
   "state": "pending",
-  "requested_by_type": "provider_event",
+  "requested_by_type": "upstream_event",
   "target_type": "bucket",
   "target_id": "bucket_0123456789abcdef0123456789abcdef",
   "input": {
@@ -277,11 +277,11 @@ Example run from a provider PUT notification:
     "objects": [
       {
         "key": "photos/a.jpg",
-        "provider": "s3",
+        "upstream": "s3",
         "event_name": "ObjectCreated:Put",
         "s3": {
           "bucket": {
-            "name": "raw-provider-bucket-name"
+            "name": "raw-upstream-bucket-name"
           },
           "object": {
             "key": "photos/a.jpg",
@@ -338,7 +338,7 @@ Reasons:
 * The UI needs to list runs, show detail, and poll progress.
 * `FOR UPDATE SKIP LOCKED` supports safe concurrent workers.
 * Retry, locking, progress, result, and error state live in one place.
-* It keeps executable work durable in Relic-owned storage even when provider events arrive through JetStream.
+* It keeps executable work durable in Relic-owned storage even when upstream events arrive through JetStream.
 
 Claiming work should happen transactionally:
 
@@ -401,34 +401,34 @@ The `sync_bucket` handler should:
 
 1. Load the bucket.
 2. Decrypt credentials through `secrets.Manager`.
-3. Build the provider adapter from bucket provider/config.
+3. Build the upstream adapter from bucket upstream/config.
 4. List objects page by page.
 5. Upsert objects in batches.
 6. Remove Relic objects that no longer exist in storage for the reconciled scope.
 7. Update `job_runs.progress`.
 8. Mark the run succeeded or failed.
 
-## Provider Events
+## Upstream Events
 
-Provider notifications arrive through platform-provided NATS JetStream. JetStream is durable transport, but Postgres should still be Relic's durable receipt and job state.
+Upstream notifications arrive through platform-provided NATS JetStream. JetStream is durable transport, but Postgres should still be Relic's durable receipt and job state.
 
-Provider events should flow through a Relic-owned inbox before becoming jobs:
+Upstream events should flow through a Relic-owned inbox before becoming jobs:
 
 ```text
-Provider event
+Upstream event
   -> JetStream
-  -> provider_events inbox
+  -> upstream_events inbox
   -> batched job_runs
 ```
 
-The consumer should insert the raw provider envelope into `provider_events` before acknowledging the JetStream message. Then a processor can dedupe, coalesce, and batch those events into hardcoded jobs.
+The consumer should insert the raw upstream envelope into `upstream_events` before acknowledging the JetStream message. Then a processor can dedupe, coalesce, and batch those events into hardcoded jobs.
 
 Initial mapping:
 
 ```text
-Provider PUT    -> import_objects
-Provider DELETE -> remove_objects
-Provider tags   -> refresh_objects
+Upstream PUT    -> import_objects
+Upstream DELETE -> remove_objects
+Upstream tags   -> refresh_objects
 ```
 
 These notifications are evidence, not truth. They may be lost, duplicated, delayed, or reordered. `sync_bucket` and `scan_bucket` remain the correctness backstop.
@@ -451,28 +451,28 @@ job_run_events
 
 This should not block MVP implementation.
 
-## Provider Boundary
+## Upstream Boundary
 
-Provider-specific object storage behavior should stay out of HTTP handlers and storage repositories.
+Upstream-specific object storage behavior should stay out of HTTP handlers and storage repositories.
 
 Suggested interface:
 
 ```go
-type ObjectProvider interface {
+type ObjectUpstream interface {
 	ListObjects(ctx context.Context, input ListObjectsInput) (ObjectPage, error)
 	HeadObject(ctx context.Context, input HeadObjectInput) (ObjectInfo, error)
 }
 ```
 
-The sync/import/refresh handlers should depend on a provider factory:
+The sync/import/refresh handlers should depend on a upstream factory:
 
 ```go
-type ProviderFactory interface {
-	ForBucket(ctx context.Context, bucket storage.Bucket, credentials []byte) (ObjectProvider, error)
+type UpstreamFactory interface {
+	ForBucket(ctx context.Context, bucket storage.Bucket, credentials []byte) (ObjectUpstream, error)
 }
 ```
 
-An S3-compatible implementation can live under a provider package, while storage remains responsible only for persisted Relic data.
+An S3-compatible implementation can live under a upstream package, while storage remains responsible only for persisted Relic data.
 
 ## JetStream And Postgres
 
@@ -482,18 +482,18 @@ It should complement Postgres:
 
 ```text
 Postgres = durable truth
-JetStream = provider event transport
+JetStream = upstream event transport
 ```
 
 Good uses for JetStream:
 
-* Carry provider notifications from the platform.
-* Absorb provider-side bursts before Relic consumes them.
-* Replay provider notifications into Relic's `provider_events` inbox.
+* Carry upstream notifications from the platform.
+* Absorb upstream-side bursts before Relic consumes them.
+* Replay upstream notifications into Relic's `upstream_events` inbox.
 * Publish `job_run.created`, `job_run.progressed`, and `job_run.completed` events.
 * Support higher-throughput event-driven import/remove/refresh paths.
 
-If JetStream is down, Relic may stop receiving new provider events, but Postgres should still contain all accepted provider events, durable job state, and catalog state. Workers should still be able to poll `job_runs`.
+If JetStream is down, Relic may stop receiving new upstream events, but Postgres should still contain all accepted upstream events, durable job state, and catalog state. Workers should still be able to poll `job_runs`.
 
 ## Implementation Order
 
@@ -505,7 +505,7 @@ Recommended next steps:
 4. Add `Store.JobRuns()` and transaction variants.
 5. Add hardcoded job type constants.
 6. Add a small in-process runner with Postgres claiming.
-7. Add provider adapter and `sync_bucket` handler.
+7. Add upstream adapter and `sync_bucket` handler.
 8. Add `POST /api/buckets/:id/sync` to create a `sync_bucket` run.
 9. Add `GET /api/job-runs` and `GET /api/job-runs/:id` for UI progress.
 10. Add `scan_bucket`, `import_objects`, `remove_objects`, `refresh_objects`, `extract_attributes`, `detect_duplicates`, and `cleanup_runs` as the product needs them.

@@ -1,0 +1,25 @@
+{
+  "upstream": "rustfs",
+  "operation": "GetObject",
+  "source": "https://docs.rustfs.com/features/s3-compatibility/",
+  "request": {
+    "method": "GET",
+    "path": "/photos/a.jpg",
+    "query": {}
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      ["Date", "Wed, 26 Jun 2026 01:00:00 GMT"],
+      ["Last-Modified", "Wed, 26 Jun 2026 01:00:00 GMT"],
+      ["ETag", "\"d41d8cd98f00b204e9800998ecf8427e\""],
+      ["Content-Length", "13"],
+      ["Content-Type", "image/jpeg"],
+      ["x-amz-meta-source", "camera"],
+      ["x-amz-storage-class", "STANDARD"],
+      ["Accept-Ranges", "bytes"],
+      ["Server", "RustFS"]
+    ],
+    "body_base64": "cnVzdGZzLWltYWdlCg=="
+  }
+}

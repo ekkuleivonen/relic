@@ -169,7 +169,7 @@ func (s *ObjectStore) ListObjects(ctx context.Context, params ListObjectsParams)
 		FROM objects
 		WHERE ($1 = '' OR bucket_id = $1)
 			AND ($2 = '' OR key LIKE $2 || '%')
-			AND ($3 = '' OR attributes #>> '{provider,header,content_type}' = $3)
+			AND ($3 = '' OR attributes #>> '{upstream,header,content_type}' = $3)
 			AND ($4 = '' OR key ILIKE '%' || $4 || '%')
 		ORDER BY bucket_id ASC, key ASC, version_id ASC
 		LIMIT $5 OFFSET $6

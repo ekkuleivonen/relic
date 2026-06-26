@@ -8,7 +8,7 @@ Accepted
 
 Relic's core query pressure will come from attributes.
 
-Attributes need to support typed values, nested data, arrays, provider metadata, plugin output, workflow output, user metadata, filtering, sorting, and collection queries.
+Attributes need to support typed values, nested data, arrays, upstream metadata, plugin output, workflow output, user metadata, filtering, sorting, and collection queries.
 
 Trying to support SQLite and Postgres at the same time would add abstraction burden before the product has proven its core loop.
 
@@ -69,7 +69,7 @@ Example:
     "object_id": "object_123",
     "first_seen_at": "2026-06-23T00:00:00Z"
   },
-  "provider": {
+  "upstream": {
     "etag": "\"abc123\"",
     "size": 1048576,
     "last_modified": "2026-06-22T12:00:00Z",
@@ -95,33 +95,33 @@ This document should be queryable with JSONB operators and indexed with GIN.
 
 Common hot fields may later get generated columns or dedicated indexes without changing the logical attribute model.
 
-## Provider Field Normalization
+## Upstream Field Normalization
 
-Common provider-reported fields should be flattened under `provider.*`.
+Common upstream-reported fields should be flattened under `upstream.*`.
 
 Examples:
 
 ```text
-provider.etag
-provider.size
-provider.last_modified
-provider.header.content_type
-provider.metadata.source
-provider.tag.environment
+upstream.etag
+upstream.size
+upstream.last_modified
+upstream.header.content_type
+upstream.metadata.source
+upstream.tag.environment
 ```
 
-A provider field should be flattened when it has a common meaning across more than one or two providers.
+A upstream field should be flattened when it has a common meaning across more than one or two upstreams.
 
-Provider-specific fields can be ignored initially. If needed later, they may be added under provider-specific subnamespaces.
+Upstream-specific fields can be ignored initially. If needed later, they may be added under upstream-specific subnamespaces.
 
 Example:
 
 ```text
-provider.s3.storage_class
-provider.gcs.generation
+upstream.s3.storage_class
+upstream.gcs.generation
 ```
 
-Provider metadata is evidence, not truth. Provider-reported values must not be promoted into `core.*`.
+Upstream metadata is evidence, not truth. Upstream-reported values must not be promoted into `core.*`.
 
 ## Provenance Storage
 
@@ -137,7 +137,7 @@ Example:
 
 ```json
 {
-  "provider": "job.import_123",
+  "upstream": "job.import_123",
   "plugin.duplicate_detection": "job.plugin_456",
   "user.owner": "job.user_update_223"
 }
@@ -167,7 +167,7 @@ job_runs
 Example provenance records:
 
 ```text
-run.import_123 | import_objects | provider_event | bucket_123
+run.import_123 | import_objects | upstream_event | bucket_123
 run.extract_456 | extract_attributes | system | object_456
 user.update_223 | user_attribute_update | user | user_123
 ```

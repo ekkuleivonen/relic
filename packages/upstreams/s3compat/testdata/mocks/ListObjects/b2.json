@@ -1,0 +1,25 @@
+{
+  "upstream": "b2",
+  "operation": "ListObjects",
+  "source": "https://www.backblaze.com/docs/cloud-storage-call-the-s3-compatible-api",
+  "request": {
+    "method": "GET",
+    "path": "/",
+    "query": {
+      "prefix": "photos/",
+      "marker": "",
+      "max-keys": "2"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": [
+      ["Content-Type", "application/xml"],
+      ["Date", "Fri, 28 Jan 2022 23:14:48 GMT"],
+      ["x-amz-request-id", "56aa38410aaebdd"],
+      ["x-amz-id-2", "aMa41BGZMOZMztjUfY9JmpzRnZLRjZmIQ"],
+      ["Connection", "keep-alive"]
+    ],
+    "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ListBucketResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">\n  <Name>relic-fixtures</Name>\n  <Prefix>photos/</Prefix>\n  <Marker></Marker>\n  <MaxKeys>2</MaxKeys>\n  <IsTruncated>false</IsTruncated>\n  <Contents>\n    <Key>photos/a.jpg</Key>\n    <LastModified>2022-01-28T23:12:33.000Z</LastModified>\n    <ETag>&quot;85f30635602dc09bd85957a6e82a2c21&quot;</ETag>\n    <Size>434234</Size>\n    <StorageClass>STANDARD</StorageClass>\n  </Contents>\n  <Contents>\n    <Key>photos/b.jpg</Key>\n    <LastModified>2022-01-28T23:13:33.000Z</LastModified>\n    <ETag>&quot;3a6eb0790f39ac87c94f3856b2dd2c5d&quot;</ETag>\n    <Size>77</Size>\n    <StorageClass>STANDARD</StorageClass>\n  </Contents>\n</ListBucketResult>"
+  }
+}

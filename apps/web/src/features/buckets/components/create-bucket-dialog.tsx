@@ -49,12 +49,12 @@ export function CreateBucketDialog({
 
     const input: CreateBucketInput = {
       name: form.name,
-      provider: "s3",
+      upstream: "s3",
       endpoint_url: form.endpointUrl,
       region: form.region,
       bucket_name: form.bucketName,
       prefix: form.prefix,
-      provider_config: {
+      upstream_config: {
         s3: {
           force_path_style: form.forcePathStyle,
           signing_region: form.region,
@@ -109,8 +109,8 @@ export function CreateBucketDialog({
                 required
               />
             </Field>
-            <Field label="Provider" htmlFor="bucket-provider">
-              <Input id="bucket-provider" value="S3-compatible" disabled />
+            <Field label="Upstream" htmlFor="bucket-upstream">
+              <Input id="bucket-upstream" value="S3-compatible" disabled />
             </Field>
             <Field label="Endpoint URL" htmlFor="endpoint-url">
               <Input
@@ -132,9 +132,9 @@ export function CreateBucketDialog({
                 required
               />
             </Field>
-            <Field label="Bucket name" htmlFor="provider-bucket-name">
+            <Field label="Bucket name" htmlFor="upstream-bucket-name">
               <Input
-                id="provider-bucket-name"
+                id="upstream-bucket-name"
                 value={form.bucketName}
                 onChange={(event) =>
                   updateField("bucketName", event.target.value)

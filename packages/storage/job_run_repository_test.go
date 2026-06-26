@@ -184,7 +184,7 @@ func TestJobRunStoreRetryAndFail(t *testing.T) {
 	retryAt := time.Now().Add(time.Minute)
 	retried, err := jobRuns.RetryJobRun(ctx, RetryJobRunParams{
 		ID:           created.ID,
-		ErrorMessage: "temporary provider error",
+		ErrorMessage: "temporary upstream error",
 		AvailableAt:  &retryAt,
 	})
 	if err != nil {
@@ -199,7 +199,7 @@ func TestJobRunStoreRetryAndFail(t *testing.T) {
 
 	failed, err := jobRuns.FailJobRun(ctx, FailJobRunParams{
 		ID:           created.ID,
-		ErrorMessage: "permanent provider error",
+		ErrorMessage: "permanent upstream error",
 	})
 	if err != nil {
 		t.Fatalf("FailJobRun returned error: %v", err)
@@ -207,8 +207,8 @@ func TestJobRunStoreRetryAndFail(t *testing.T) {
 	if failed.State != JobRunStateFailed {
 		t.Fatalf("failed state = %q, want %q", failed.State, JobRunStateFailed)
 	}
-	if failed.ErrorMessage != "permanent provider error" {
-		t.Fatalf("failed error message = %q, want permanent provider error", failed.ErrorMessage)
+	if failed.ErrorMessage != "permanent upstream error" {
+		t.Fatalf("failed error message = %q, want permanent upstream error", failed.ErrorMessage)
 	}
 }
 

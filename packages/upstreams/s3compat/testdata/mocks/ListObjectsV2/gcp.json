@@ -1,0 +1,24 @@
+{
+  "upstream": "gcp",
+  "operation": "ListObjectsV2",
+  "source": "https://cloud.google.com/storage/docs/xml-api/reference-headers",
+  "request": {
+    "method": "GET",
+    "path": "/",
+    "query": {
+      "list-type": "2",
+      "prefix": "photos/",
+      "max-keys": "2"
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": [
+      ["Content-Type", "application/xml; charset=UTF-8"],
+      ["Date", "Wed, 26 Jun 2026 01:00:00 GMT"],
+      ["Server", "UploadServer"],
+      ["x-guploader-uploadid", "ABgVH89example"]
+    ],
+    "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Error>\n  <Code>InvalidArgument</Code>\n  <Message>Invalid argument.</Message>\n  <Details>Invalid query parameter(s): [list-type, start-after]</Details>\n</Error>"
+  }
+}

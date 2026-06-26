@@ -20,12 +20,12 @@ func TestBucketStoreCreateGetList(t *testing.T) {
 	buckets := store.Buckets()
 	params := CreateBucketParams{
 		Name:        "test-bucket-" + time.Now().Format("20060102150405.000000000"),
-		Provider:    BucketProviderS3,
+		Upstream:    BucketUpstreamS3,
 		EndpointURL: "https://s3.example.test",
 		Region:      "us-east-1",
 		BucketName:  "example-data",
 		Prefix:      "imports/",
-		ProviderConfig: BucketProviderConfig{
+		UpstreamConfig: BucketUpstreamConfig{
 			"s3": map[string]any{
 				"force_path_style": true,
 				"signing_region":   "us-east-1",
@@ -69,9 +69,9 @@ func TestBucketStoreCreateGetList(t *testing.T) {
 	if created.EncryptedCredentials.KeyID != params.EncryptedCredentials.KeyID {
 		t.Fatalf("created credential key ID = %q, want %q", created.EncryptedCredentials.KeyID, params.EncryptedCredentials.KeyID)
 	}
-	s3Config, ok := created.ProviderConfig["s3"].(map[string]any)
+	s3Config, ok := created.UpstreamConfig["s3"].(map[string]any)
 	if !ok {
-		t.Fatalf("created provider config = %#v, want s3 object", created.ProviderConfig)
+		t.Fatalf("created upstream config = %#v, want s3 object", created.UpstreamConfig)
 	}
 	if forcePathStyle, ok := s3Config["force_path_style"].(bool); !ok || !forcePathStyle {
 		t.Fatalf("force_path_style = %#v, want true", s3Config["force_path_style"])
@@ -92,7 +92,7 @@ func TestBucketStoreCreateGetList(t *testing.T) {
 	}
 
 	listed, err := buckets.ListBuckets(ctx, ListBucketsParams{
-		Provider: BucketProviderS3,
+		Upstream: BucketUpstreamS3,
 		Limit:    50,
 	})
 	if err != nil {
@@ -122,12 +122,12 @@ func TestBucketStoreUpdate(t *testing.T) {
 	buckets := store.Buckets()
 	created, err := buckets.CreateBucket(ctx, CreateBucketParams{
 		Name:        "update-source-" + time.Now().Format("20060102150405.000000000"),
-		Provider:    BucketProviderS3,
+		Upstream:    BucketUpstreamS3,
 		EndpointURL: "https://wrong.example.test",
 		Region:      "us-east-1",
 		BucketName:  "example-data",
 		Prefix:      "old/",
-		ProviderConfig: BucketProviderConfig{
+		UpstreamConfig: BucketUpstreamConfig{
 			"s3": map[string]any{
 				"force_path_style": false,
 			},
@@ -151,7 +151,7 @@ func TestBucketStoreUpdate(t *testing.T) {
 	endpointURL := "https://s3.correct.example.test"
 	region := "eu-west-1"
 	prefix := "new/"
-	providerConfig := BucketProviderConfig{
+	upstreamConfig := BucketUpstreamConfig{
 		"s3": map[string]any{
 			"force_path_style": true,
 			"signing_region":   region,
@@ -164,7 +164,7 @@ func TestBucketStoreUpdate(t *testing.T) {
 		EndpointURL:    &endpointURL,
 		Region:         &region,
 		Prefix:         &prefix,
-		ProviderConfig: &providerConfig,
+		UpstreamConfig: &upstreamConfig,
 	})
 	if err != nil {
 		t.Fatalf("UpdateBucket returned error: %v", err)
@@ -185,9 +185,9 @@ func TestBucketStoreUpdate(t *testing.T) {
 	if updated.BucketName != created.BucketName {
 		t.Fatalf("updated bucket name = %q, want %q", updated.BucketName, created.BucketName)
 	}
-	s3Config, ok := updated.ProviderConfig["s3"].(map[string]any)
+	s3Config, ok := updated.UpstreamConfig["s3"].(map[string]any)
 	if !ok {
-		t.Fatalf("updated provider config = %#v, want s3 object", updated.ProviderConfig)
+		t.Fatalf("updated upstream config = %#v, want s3 object", updated.UpstreamConfig)
 	}
 	if forcePathStyle, ok := s3Config["force_path_style"].(bool); !ok || !forcePathStyle {
 		t.Fatalf("force_path_style = %#v, want true", s3Config["force_path_style"])
