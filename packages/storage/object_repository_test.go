@@ -324,6 +324,191 @@ func TestObjectStoreDeleteObjectsNotSeenSince(t *testing.T) {
 	}
 }
 
+func TestObjectStoreSearchRelicQLRelativeTime(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	if err := SeedAttributeCatalog(ctx, store.AttributeCatalog()); err != nil {
+		t.Fatalf("SeedAttributeCatalog returned error: %v", err)
+	}
+
+	bucket := createObjectTestBucket(t, ctx, store)
+	recentSeenAt := time.Now().Add(-24 * time.Hour).UTC()
+	oldSeenAt := time.Now().Add(-10 * 24 * time.Hour).UTC()
+
+	recentObject, err := store.Objects().UpsertObject(ctx, UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "scope/recent.txt",
+		SeenAt:   &recentSeenAt,
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject recent returned error: %v", err)
+	}
+	_, err = store.Objects().UpsertObject(ctx, UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "scope/old.txt",
+		SeenAt:   &oldSeenAt,
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject old returned error: %v", err)
+	}
+
+	results, err := store.SearchRelicQL(ctx, `
+		FROM objects
+		WHERE attr('core.last_seen_at') >= now() - interval '7 days'
+	`, SearchScope{BucketID: bucket.ID})
+	if err != nil {
+		t.Fatalf("SearchRelicQL returned error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results length = %d, want 1; got %#v", len(results), results)
+	}
+	if results[0].ID != recentObject.ID {
+		t.Fatalf("result ID = %q, want %q", results[0].ID, recentObject.ID)
+	}
+}
+
+func TestObjectStoreSearchRelicQL(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	if err := SeedAttributeCatalog(ctx, store.AttributeCatalog()); err != nil {
+		t.Fatalf("SeedAttributeCatalog returned error: %v", err)
+	}
+
+	bucket := createObjectTestBucket(t, ctx, store)
+	otherBucket := createObjectTestBucket(t, ctx, store)
+
+	photo, err := store.Objects().UpsertObject(ctx, UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "photos/a.jpg",
+		Attributes: ObjectAttributes{
+			"upstream": map[string]any{
+				"size": 2048,
+				"header": map[string]any{
+					"content_type": "image/jpeg",
+				},
+			},
+			"user": map[string]any{
+				"score": 150,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject photo returned error: %v", err)
+	}
+	_, err = store.Objects().UpsertObject(ctx, UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "docs/readme.md",
+		Attributes: ObjectAttributes{
+			"upstream": map[string]any{
+				"size": 512,
+				"header": map[string]any{
+					"content_type": "text/markdown",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject doc returned error: %v", err)
+	}
+	_, err = store.Objects().UpsertObject(ctx, UpsertObjectParams{
+		BucketID: otherBucket.ID,
+		Key:      "photos/a.jpg",
+		Attributes: ObjectAttributes{
+			"upstream": map[string]any{
+				"size": 4096,
+				"header": map[string]any{
+					"content_type": "image/jpeg",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject other bucket returned error: %v", err)
+	}
+
+	results, err := store.SearchRelicQL(ctx, `
+		FROM objects
+		WHERE attr('user.score')::integer >= 100
+		  AND attr('upstream.header.content_type') = 'image/jpeg'
+		ORDER BY key ASC
+	`, SearchScope{BucketID: bucket.ID})
+	if err != nil {
+		t.Fatalf("SearchRelicQL returned error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results length = %d, want 1; got %#v", len(results), results)
+	}
+	if results[0].ID != photo.ID {
+		t.Fatalf("result ID = %q, want %q", results[0].ID, photo.ID)
+	}
+}
+
+func TestObjectStoreSearchRelicQL_HasRelation(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	if err := SeedAttributeCatalog(ctx, store.AttributeCatalog()); err != nil {
+		t.Fatalf("SeedAttributeCatalog returned error: %v", err)
+	}
+
+	bucket := createObjectTestBucket(t, ctx, store)
+	source, err := store.Objects().UpsertObject(ctx, UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "source.jpg",
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject source returned error: %v", err)
+	}
+	target, err := store.Objects().UpsertObject(ctx, UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "target.jpg",
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject target returned error: %v", err)
+	}
+	_, err = store.Objects().UpsertObject(ctx, UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "unrelated.jpg",
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject unrelated returned error: %v", err)
+	}
+
+	_, err = store.pool.Exec(ctx, `
+		INSERT INTO relations (
+			id,
+			source_object_id,
+			target_object_id,
+			relation_type
+		) VALUES ($1, $2, $3, $4)
+	`, "relation_test_duplicate", source.ID, target.ID, "duplicate")
+	if err != nil {
+		t.Fatalf("insert relation returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.pool.Exec(context.Background(), "DELETE FROM relations WHERE id = $1", "relation_test_duplicate")
+	})
+
+	results, err := store.SearchRelicQL(ctx, `
+		FROM objects
+		WHERE has_relation('duplicate', 'out')
+	`, SearchScope{BucketID: bucket.ID})
+	if err != nil {
+		t.Fatalf("SearchRelicQL returned error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results length = %d, want 1; got %#v", len(results), results)
+	}
+	if results[0].ID != source.ID {
+		t.Fatalf("result ID = %q, want %q", results[0].ID, source.ID)
+	}
+}
+
 func createObjectTestBucket(t *testing.T, ctx context.Context, store *Store) Bucket {
 	t.Helper()
 

@@ -112,6 +112,15 @@ func (b *queryBinder) bindExpr(expr Expr) error {
 		return b.bindField(typed)
 	case AttrRef:
 		return b.bindAttribute(typed)
+	case CastExpr:
+		return b.bindCastExpr(typed)
+	case ArithmeticExpr:
+		if err := b.bindExpr(typed.Left); err != nil {
+			return err
+		}
+		return b.bindExpr(typed.Right)
+	case NowExpr, IntervalLiteral:
+		return nil
 	case StringLiteral, IntLiteral, FloatLiteral, BoolLiteral, TimestampLiteral, NullLiteral:
 		return nil
 	default:
@@ -225,6 +234,14 @@ func (b *queryBinder) exprType(expr Expr) (ValueType, error) {
 			Type: definition.Type,
 		})
 		return definition.Type, nil
+	case CastExpr:
+		if !isValidCastOperand(typed.Expr) {
+			return "", fmt.Errorf("bind RelicQL: cannot cast %T", typed.Expr)
+		}
+		if err := b.bindExpr(typed.Expr); err != nil {
+			return "", err
+		}
+		return typed.Type, nil
 	case StringLiteral:
 		return TypeString, nil
 	case IntLiteral:
@@ -235,6 +252,21 @@ func (b *queryBinder) exprType(expr Expr) (ValueType, error) {
 		return TypeBoolean, nil
 	case TimestampLiteral:
 		return TypeTimestamp, nil
+	case NowExpr:
+		return TypeTimestamp, nil
+	case IntervalLiteral:
+		return TypeInterval, nil
+	case ArithmeticExpr:
+		leftType, err := b.exprType(typed.Left)
+		if err != nil {
+			return "", err
+		}
+		rightType, err := b.exprType(typed.Right)
+		if err != nil {
+			return "", err
+		}
+
+		return arithmeticResultType(typed.Op, leftType, rightType)
 	case NullLiteral:
 		return TypeNull, nil
 	default:
@@ -286,6 +318,14 @@ func (b *queryBinder) bindRelationPredicate(predicate RelationPredicate) error {
 		Name: predicate.Type,
 	})
 	return nil
+}
+
+func (b *queryBinder) bindCastExpr(cast CastExpr) error {
+	if !isValidCastOperand(cast.Expr) {
+		return fmt.Errorf("bind RelicQL: cannot cast %T", cast.Expr)
+	}
+
+	return b.bindExpr(cast.Expr)
 }
 
 func (b *queryBinder) bindAttribute(attribute AttrRef) error {

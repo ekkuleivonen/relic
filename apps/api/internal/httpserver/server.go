@@ -10,6 +10,7 @@ import (
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/jobs"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/objects"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/search"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/system"
 )
 
@@ -32,6 +33,7 @@ func Handler(dependencies deps.Dependencies) http.Handler {
 	buckets.Register(api, dependencies, apiBasePath)
 	jobs.Register(api, dependencies, apiBasePath)
 	objects.Register(api, dependencies, apiBasePath)
+	search.Register(api, dependencies, apiBasePath)
 	system.Register(api, dependencies, apiBasePath)
 
 	return mux
@@ -65,6 +67,10 @@ func apiConfig() huma.Config {
 		{
 			Name:        "Objects",
 			Description: "Object catalog search and detail endpoints.",
+		},
+		{
+			Name:        "Search",
+			Description: "RelicQL validation and query endpoints.",
 		},
 	}
 

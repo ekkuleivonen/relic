@@ -60,6 +60,10 @@ func (s *AttributeCatalogStore) Resolve(ctx context.Context, path string) (Catal
 }
 
 func (s *AttributeCatalogStore) List(ctx context.Context) ([]CatalogEntry, error) {
+	if s == nil || s.runner == nil {
+		return nil, ErrNilPool
+	}
+
 	rows, err := s.runner.Query(ctx, `
 		SELECT path, value_type, source, first_seen_at, updated_at
 		FROM attribute_catalog

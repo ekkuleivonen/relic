@@ -126,6 +126,13 @@ type AttrRef struct {
 
 func (AttrRef) exprNode() {}
 
+type CastExpr struct {
+	Expr Expr
+	Type ValueType
+}
+
+func (CastExpr) exprNode() {}
+
 type StringLiteral struct {
 	Value string
 }
@@ -155,6 +162,31 @@ type TimestampLiteral struct {
 }
 
 func (TimestampLiteral) exprNode() {}
+
+type NowExpr struct{}
+
+func (NowExpr) exprNode() {}
+
+type IntervalLiteral struct {
+	Value string
+}
+
+func (IntervalLiteral) exprNode() {}
+
+type ArithmeticOp string
+
+const (
+	ArithAdd ArithmeticOp = "add"
+	ArithSub ArithmeticOp = "sub"
+)
+
+type ArithmeticExpr struct {
+	Op    ArithmeticOp
+	Left  Expr
+	Right Expr
+}
+
+func (ArithmeticExpr) exprNode() {}
 
 type NullLiteral struct{}
 

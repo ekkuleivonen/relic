@@ -35,9 +35,9 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			return nil, err
 		}
 
-		body := listObjectsBody{Objects: make([]objectResponse, 0, len(objects))}
+		body := listObjectsBody{Objects: make([]ObjectResponse, 0, len(objects))}
 		for _, object := range objects {
-			body.Objects = append(body.Objects, objectResponseFromStorage(object))
+			body.Objects = append(body.Objects, ObjectResponseFromStorage(object))
 		}
 
 		return &listObjectsOutput{Body: body}, nil
@@ -62,7 +62,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			return nil, err
 		}
 
-		return &objectOutput{Body: objectResponseFromStorage(object)}, nil
+		return &objectOutput{Body: ObjectResponseFromStorage(object)}, nil
 	})
 }
 
@@ -80,7 +80,7 @@ type getObjectInput struct {
 }
 
 type objectOutput struct {
-	Body objectResponse
+	Body ObjectResponse
 }
 
 type listObjectsOutput struct {
@@ -88,10 +88,10 @@ type listObjectsOutput struct {
 }
 
 type listObjectsBody struct {
-	Objects []objectResponse `json:"objects"`
+	Objects []ObjectResponse `json:"objects"`
 }
 
-type objectResponse struct {
+type ObjectResponse struct {
 	ID                  string                            `json:"id" example:"object_0123456789abcdef0123456789abcdef"`
 	BucketID            string                            `json:"bucket_id" example:"bucket_0123456789abcdef0123456789abcdef"`
 	Key                 string                            `json:"key" example:"photos/a.jpg"`
@@ -103,8 +103,8 @@ type objectResponse struct {
 	UpdatedAt           time.Time                         `json:"updated_at"`
 }
 
-func objectResponseFromStorage(object storage.Object) objectResponse {
-	return objectResponse{
+func ObjectResponseFromStorage(object storage.Object) ObjectResponse {
+	return ObjectResponse{
 		ID:                  object.ID,
 		BucketID:            object.BucketID,
 		Key:                 object.Key,

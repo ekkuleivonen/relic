@@ -2,7 +2,7 @@ import { Link } from "react-router"
 import { ArrowLeftIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { ObjectsCard } from "@/features/objects/components/objects-card"
+import { ObjectsSearchPanel } from "@/features/objects/components/objects-search-panel"
 
 export function ObjectsPage() {
   return (
@@ -24,12 +24,12 @@ export function ObjectsPage() {
             </div>
           </div>
           <p className="mt-4 max-w-2xl text-sm/7 text-muted-foreground">
-            Search and inspect object catalog rows created by bucket sync jobs.
+            Search catalog objects with RelicQL and inspect matching rows.
           </p>
         </header>
 
         <section className="mt-8">
-          <ObjectsCard />
+          <ObjectsSearchPanel />
         </section>
       </div>
     </main>

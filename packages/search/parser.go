@@ -323,11 +323,63 @@ func (p *queryParser) parseNullComparison(left Expr) (Expr, error) {
 }
 
 func (p *queryParser) parseOperand() (Expr, error) {
+	return p.parseAdditiveExpr()
+}
+
+func (p *queryParser) parseAdditiveExpr() (Expr, error) {
+	left, err := p.parseCastOperand()
+	if err != nil {
+		return nil, err
+	}
+
+	for p.at(tokenOperator) {
+		operator := p.current().literal
+		if operator != "+" && operator != "-" {
+			break
+		}
+		p.advance()
+
+		right, err := p.parseCastOperand()
+		if err != nil {
+			return nil, err
+		}
+
+		arithOp := ArithAdd
+		if operator == "-" {
+			arithOp = ArithSub
+		}
+		left = ArithmeticExpr{Op: arithOp, Left: left, Right: right}
+	}
+
+	return left, nil
+}
+
+func (p *queryParser) parseCastOperand() (Expr, error) {
+	expr, err := p.parsePrimary()
+	if err != nil {
+		return nil, err
+	}
+
+	return p.parsePostfixCasts(expr)
+}
+
+func (p *queryParser) parsePrimary() (Expr, error) {
+	if p.isKeyword("CAST") {
+		return p.parseCastCall()
+	}
+	if p.isKeyword("NOW") && p.peek().kind == tokenLParen {
+		return p.parseNowCall()
+	}
+
 	tok := p.current()
 	switch tok.kind {
 	case tokenIdent:
 		if p.isKeyword("ATTR") && p.peek().kind == tokenLParen {
-			return p.parseAttrRef()
+			attr, err := p.parseAttrRef()
+			if err != nil {
+				return nil, err
+			}
+			return attr, nil
 		}
 		if p.isKeyword("TRUE") {
 			p.advance()
@@ -343,6 +395,12 @@ func (p *queryParser) parseOperand() (Expr, error) {
 		}
 		if p.isKeyword("TIMESTAMP") {
 			return p.parseTimestampLiteral()
+		}
+		if p.isKeyword("DATE") {
+			return p.parseDateLiteral()
+		}
+		if p.isKeyword("INTERVAL") {
+			return p.parseIntervalLiteral()
 		}
 		p.advance()
 		return FieldRef{Name: tok.literal}, nil
@@ -366,6 +424,100 @@ func (p *queryParser) parseOperand() (Expr, error) {
 	default:
 		return nil, p.errorf("expected expression")
 	}
+}
+
+func (p *queryParser) parsePostfixCasts(expr Expr) (Expr, error) {
+	for p.consume(tokenCast) {
+		castType, err := p.parseCastTypeName()
+		if err != nil {
+			return nil, err
+		}
+		expr = CastExpr{Expr: expr, Type: castType}
+	}
+
+	return expr, nil
+}
+
+func (p *queryParser) parseCastCall() (Expr, error) {
+	p.advance()
+	if !p.consume(tokenLParen) {
+		return nil, p.errorf("expected ( after CAST")
+	}
+
+	inner, err := p.parseOperand()
+	if err != nil {
+		return nil, err
+	}
+	if !p.consumeKeyword("AS") {
+		return nil, p.errorf("expected AS in CAST expression")
+	}
+
+	castType, err := p.parseCastTypeName()
+	if err != nil {
+		return nil, err
+	}
+	if !p.consume(tokenRParen) {
+		return nil, p.errorf("expected ) after CAST expression")
+	}
+
+	return CastExpr{Expr: inner, Type: castType}, nil
+}
+
+func (p *queryParser) parseCastTypeName() (ValueType, error) {
+	tok := p.current()
+	if tok.kind != tokenIdent {
+		return "", p.errorf("expected cast type name")
+	}
+	p.advance()
+
+	return ParseCastType(tok.literal)
+}
+
+func (p *queryParser) parseNowCall() (Expr, error) {
+	p.advance()
+	if !p.consume(tokenLParen) {
+		return nil, p.errorf("expected ( after now")
+	}
+	if !p.at(tokenRParen) {
+		return nil, p.errorf("now() does not accept arguments")
+	}
+	p.advance()
+
+	return NowExpr{}, nil
+}
+
+func (p *queryParser) parseIntervalLiteral() (Expr, error) {
+	p.advance()
+
+	tok := p.current()
+	if tok.kind != tokenString {
+		return nil, p.errorf("expected interval string")
+	}
+	p.advance()
+
+	value, err := ParseIntervalValue(tok.literal)
+	if err != nil {
+		return nil, p.errorf("%s", err)
+	}
+
+	return IntervalLiteral{Value: value}, nil
+}
+
+func (p *queryParser) parseDateLiteral() (Expr, error) {
+	p.advance()
+
+	tok := p.current()
+	if tok.kind != tokenString {
+		return nil, p.errorf("expected date string")
+	}
+	p.advance()
+
+	value, err := time.Parse("2006-01-02", tok.literal)
+	if err != nil {
+		return nil, p.errorf("invalid date literal %q", tok.literal)
+	}
+
+	return TimestampLiteral{Value: value.UTC()}, nil
 }
 
 func (p *queryParser) parseTimestampLiteral() (Expr, error) {
@@ -577,6 +729,7 @@ const (
 	tokenRParen
 	tokenComma
 	tokenSemicolon
+	tokenCast
 )
 
 type token struct {
@@ -632,6 +785,15 @@ func lex(input string) ([]token, error) {
 			i++
 		case ';':
 			tokens = append(tokens, token{kind: tokenSemicolon, literal: ";"})
+			i++
+		case ':':
+			if i+1 >= len(input) || input[i+1] != ':' {
+				return nil, fmt.Errorf("lex RelicQL at byte %d: unexpected character ':'", i)
+			}
+			tokens = append(tokens, token{kind: tokenCast, literal: "::"})
+			i += 2
+		case '+', '-':
+			tokens = append(tokens, token{kind: tokenOperator, literal: string(input[i])})
 			i++
 		case '=', '<', '>', '!':
 			operator, next, err := scanOperator(input, i)

@@ -81,6 +81,25 @@
   --sidebar-accent-foreground: oklch(0.25 0.014 40);
   --sidebar-border: oklch(0.92 0.008 50);
   --sidebar-ring: #a83d2b;
+  --relic-builtin: #a83d2b;
+  --relic-arg-string: #9a3a29;
+  --relic-syntax-keyword: #9a3a29;
+  --relic-syntax-type: #c8793f;
+  --relic-syntax-builtin: #a83d2b;
+  --relic-syntax-string: #6b2418;
+  --relic-syntax-number: #78716c;
+  --relic-syntax-bool: #b45309;
+  --relic-syntax-null: #78716c;
+  --relic-syntax-name: oklch(0.21 0.012 40);
+  --relic-syntax-operator: #78716c;
+  --relic-syntax-punctuation: #a8a29e;
+  --relic-syntax-comment: #78716c;
+  --relic-syntax-special: #c8793f;
+  --relic-syntax-attr: #a83d2b;
+  --relic-syntax-relation: #c8793f;
+  --relic-selection: rgb(168 61 43 / 22%);
+  --relic-selection-focused: rgb(168 61 43 / 34%);
+  --relic-selection-blurred: rgb(168 61 43 / 16%);
 }
 
 .dark {
@@ -115,6 +134,25 @@
   --sidebar-accent-foreground: oklch(0.97 0.005 60);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: #c95a45;
+  --relic-builtin: #f0a261;
+  --relic-arg-string: #d8a657;
+  --relic-syntax-keyword: #f0a261;
+  --relic-syntax-type: #d8a657;
+  --relic-syntax-builtin: #c95a45;
+  --relic-syntax-string: #e8c07a;
+  --relic-syntax-number: #c8d4a0;
+  --relic-syntax-bool: #f0a261;
+  --relic-syntax-null: #94a3b8;
+  --relic-syntax-name: oklch(0.97 0.005 60);
+  --relic-syntax-operator: #94a3b8;
+  --relic-syntax-punctuation: #78716c;
+  --relic-syntax-comment: #64748b;
+  --relic-syntax-special: #c8793f;
+  --relic-syntax-attr: #c95a45;
+  --relic-syntax-relation: #c8793f;
+  --relic-selection: rgb(201 90 69 / 38%);
+  --relic-selection-focused: rgb(201 90 69 / 52%);
+  --relic-selection-blurred: rgb(201 90 69 / 24%);
 }
 
 @layer base {

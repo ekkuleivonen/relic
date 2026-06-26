@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ekkuleivonen/relic/packages/search"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -21,6 +22,7 @@ type ObjectRepository interface {
 	DeleteObject(context.Context, string) error
 	DeleteObjects(context.Context, DeleteObjectsParams) (int64, error)
 	DeleteObjectsNotSeenSince(context.Context, DeleteObjectsNotSeenSinceParams) (int64, error)
+	Search(context.Context, search.BoundQuery, SearchScope) ([]Object, error)
 }
 
 type ObjectStore struct {
@@ -183,6 +185,10 @@ func (s *ObjectStore) UpsertObjects(ctx context.Context, params []UpsertObjectPa
 		return nil, fmt.Errorf("upsert objects: %w", err)
 	}
 
+	if err := observeAttributeCatalog(ctx, s.runner, params); err != nil {
+		return nil, err
+	}
+
 	return objects, nil
 }
 
@@ -246,6 +252,33 @@ func (s *ObjectStore) ListObjects(ctx context.Context, params ListObjectsParams)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list objects: %w", err)
+	}
+
+	return objects, nil
+}
+
+func (s *ObjectStore) Search(ctx context.Context, bound search.BoundQuery, scope SearchScope) ([]Object, error) {
+	compiled, err := CompileObjectsSearch(bound, scope)
+	if err != nil {
+		return nil, fmt.Errorf("search objects: %w", err)
+	}
+
+	rows, err := s.runner.Query(ctx, compiled.SQL, compiled.Args...)
+	if err != nil {
+		return nil, fmt.Errorf("search objects: %w", err)
+	}
+	defer rows.Close()
+
+	objects := []Object{}
+	for rows.Next() {
+		object, err := scanObject(rows)
+		if err != nil {
+			return nil, err
+		}
+		objects = append(objects, object)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("search objects: %w", err)
 	}
 
 	return objects, nil
