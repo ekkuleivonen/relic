@@ -88,6 +88,7 @@ func (r *Runner) Run(ctx context.Context) error {
 func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 	run, err := r.store.JobRuns().ClaimJobRun(ctx, storage.ClaimJobRunParams{
 		WorkerID: r.workerID,
+		Types:    r.registry.Types(),
 	})
 	if errors.Is(err, storage.ErrNotFound) {
 		return false, nil

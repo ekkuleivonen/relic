@@ -120,6 +120,7 @@ type ListJobRunsParams struct {
 
 type ClaimJobRunParams struct {
 	WorkerID string
+	Types    []JobType
 }
 
 type UpdateJobRunProgressParams struct {
@@ -306,6 +307,13 @@ func (s *JobRunStore) ListJobRuns(ctx context.Context, params ListJobRunsParams)
 }
 
 func (s *JobRunStore) ClaimJobRun(ctx context.Context, params ClaimJobRunParams) (JobRun, error) {
+	types := make([]string, 0, len(params.Types))
+	for _, jobType := range params.Types {
+		if jobType != "" {
+			types = append(types, string(jobType))
+		}
+	}
+
 	return scanJobRun(s.runner.QueryRow(ctx, `
 		UPDATE job_runs
 		SET
@@ -319,6 +327,7 @@ func (s *JobRunStore) ClaimJobRun(ctx context.Context, params ClaimJobRunParams)
 			FROM job_runs
 			WHERE state = 'pending'
 				AND available_at <= now()
+				AND (cardinality($2::text[]) = 0 OR type = ANY($2::text[]))
 			ORDER BY created_at ASC, id ASC
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
@@ -344,7 +353,7 @@ func (s *JobRunStore) ClaimJobRun(ctx context.Context, params ClaimJobRunParams)
 			error_message,
 			created_at,
 			updated_at
-	`, params.WorkerID))
+	`, params.WorkerID, types))
 }
 
 func (s *JobRunStore) UpdateJobRunProgress(ctx context.Context, params UpdateJobRunProgressParams) (JobRun, error) {

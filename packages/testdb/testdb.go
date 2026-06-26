@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -31,6 +33,9 @@ func URL(t testing.TB, ctx context.Context) string {
 	databaseURL := os.Getenv(DatabaseURLEnv)
 	if databaseURL == "" {
 		t.Skipf("%s is not set", DatabaseURLEnv)
+	}
+	if runtimeURL := os.Getenv("DATABASE_URL"); runtimeURL != "" && runtimeURL == databaseURL {
+		t.Fatalf("%s must not equal DATABASE_URL; use a separate test database because this Postgres endpoint does not reliably isolate tests by schema", DatabaseURLEnv)
 	}
 
 	schema := os.Getenv(SchemaEnv)
@@ -64,6 +69,57 @@ func ensureSchema(t testing.TB, ctx context.Context, databaseURL string, schema 
 		createdSchemas.Delete(key)
 		t.Fatalf("create test schema %q: %v", schema, err)
 	}
+}
+
+func WithMigrationLock(t testing.TB, migrate func() error) error {
+	t.Helper()
+
+	lockPath := filepath.Join(os.TempDir(), "relic-test-migrations.lock")
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("open migration lock file: %w", err)
+	}
+	defer file.Close()
+
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	defer func() {
+		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+	}()
+
+	return migrate()
+}
+
+func MigrateIfNeeded(t testing.TB, ctx context.Context, databaseURL string, requiredTable string, migrate func() error) error {
+	t.Helper()
+
+	return WithMigrationLock(t, func() error {
+		exists, err := HasTable(ctx, databaseURL, requiredTable)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return nil
+		}
+
+		return migrate()
+	})
+}
+
+func HasTable(ctx context.Context, databaseURL string, table string) (bool, error) {
+	pool, err := connect(ctx, databaseURL)
+	if err != nil {
+		return false, err
+	}
+	defer pool.Close()
+
+	var name *string
+	if err := pool.QueryRow(ctx, "SELECT to_regclass($1)::text", table).Scan(&name); err != nil {
+		return false, fmt.Errorf("check test table %q: %w", table, err)
+	}
+
+	return name != nil && *name != "", nil
 }
 
 func connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {

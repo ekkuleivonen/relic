@@ -188,6 +188,37 @@ func TestJobRunStoreClaimProgressAndSucceed(t *testing.T) {
 	}
 }
 
+func TestJobRunStoreClaimFiltersTypes(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	jobRuns := store.JobRuns()
+	_, err := jobRuns.CreateJobRun(ctx, CreateJobRunParams{
+		Type: JobTypeSyncBucket,
+	})
+	if err != nil {
+		t.Fatalf("CreateJobRun sync returned error: %v", err)
+	}
+	importRun, err := jobRuns.CreateJobRun(ctx, CreateJobRunParams{
+		Type: JobTypeImportObjects,
+	})
+	if err != nil {
+		t.Fatalf("CreateJobRun import returned error: %v", err)
+	}
+
+	claimed, err := jobRuns.ClaimJobRun(ctx, ClaimJobRunParams{
+		WorkerID: "worker-test",
+		Types:    []JobType{JobTypeImportObjects},
+	})
+	if err != nil {
+		t.Fatalf("ClaimJobRun returned error: %v", err)
+	}
+	if claimed.ID != importRun.ID {
+		t.Fatalf("claimed ID = %q, want import job %q", claimed.ID, importRun.ID)
+	}
+}
+
 func TestJobRunStoreRetryAndFail(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := testStore(t, ctx)

@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
@@ -53,4 +54,20 @@ func (r *Registry) Get(jobType storage.JobType) (Handler, bool) {
 
 	handler, ok := r.handlers[jobType]
 	return handler, ok
+}
+
+func (r *Registry) Types() []storage.JobType {
+	if r == nil {
+		return nil
+	}
+
+	types := make([]storage.JobType, 0, len(r.handlers))
+	for jobType := range r.handlers {
+		types = append(types, jobType)
+	}
+	sort.Slice(types, func(i, j int) bool {
+		return types[i] < types[j]
+	})
+
+	return types
 }

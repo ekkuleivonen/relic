@@ -2,6 +2,7 @@ package import_objects
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -109,8 +110,124 @@ func TestHandlerImportsObjectsFromHead(t *testing.T) {
 	}
 }
 
+func TestHandlerFailsWithoutPartialUpsertsWhenHeadFails(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store)
+	input, err := jobs.PayloadFrom(jobs.ObjectMutationInput{
+		BucketID: bucket.ID,
+		Objects: []jobs.ObjectEvidence{
+			{Key: "photos/a.jpg"},
+			{Key: "photos/b.jpg"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PayloadFrom returned error: %v", err)
+	}
+	run := createJobRun(t, ctx, store, storage.JobTypeImportObjects, bucket.ID, input)
+	handler, err := NewHandler(HandlerOptions{
+		Store: store,
+		Secrets: fakeSecretsManager{
+			plaintext: []byte(`{"access_key_id":"access-key","secret_access_key":"secret-key"}`),
+		},
+		Factory: &fakeObjectClientFactory{
+			client: &fakeObjectClient{
+				headAttributes: storage.ObjectAttributes{
+					"upstream": map[string]any{"etag": "\"ok\""},
+				},
+				headErrByKey: map[string]error{
+					"photos/b.jpg": errors.New("head failed"),
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewHandler returned error: %v", err)
+	}
+
+	if _, err := handler.Handle(ctx, run); err == nil {
+		t.Fatal("Handle returned nil error, want HEAD error")
+	}
+	objects, err := store.Objects().ListObjectsInScope(ctx, storage.ObjectScopeParams{BucketID: bucket.ID})
+	if err != nil {
+		t.Fatalf("ListObjectsInScope returned error: %v", err)
+	}
+	if len(objects) != 0 {
+		t.Fatalf("object count after failed import = %d, want 0", len(objects))
+	}
+}
+
+func TestHandlerFailsBeforeUpstreamCallWithInvalidCredentials(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store)
+	input, err := jobs.PayloadFrom(jobs.ObjectMutationInput{
+		BucketID: bucket.ID,
+		Objects:  []jobs.ObjectEvidence{{Key: "photos/a.jpg"}},
+	})
+	if err != nil {
+		t.Fatalf("PayloadFrom returned error: %v", err)
+	}
+	run := createJobRun(t, ctx, store, storage.JobTypeImportObjects, bucket.ID, input)
+	client := &fakeObjectClient{}
+	handler, err := NewHandler(HandlerOptions{
+		Store:   store,
+		Secrets: fakeSecretsManager{plaintext: []byte(`{"access_key_id":""}`)},
+		Factory: &fakeObjectClientFactory{client: client},
+	})
+	if err != nil {
+		t.Fatalf("NewHandler returned error: %v", err)
+	}
+
+	if _, err := handler.Handle(ctx, run); err == nil {
+		t.Fatal("Handle returned nil error, want credentials error")
+	}
+	if len(client.headInputs) != 0 {
+		t.Fatalf("head calls = %d, want 0", len(client.headInputs))
+	}
+}
+
+func TestHandlerFailsCleanlyWhenBucketWasDeleted(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store)
+	input, err := jobs.PayloadFrom(jobs.ObjectMutationInput{
+		BucketID: bucket.ID,
+		Objects:  []jobs.ObjectEvidence{{Key: "photos/a.jpg"}},
+	})
+	if err != nil {
+		t.Fatalf("PayloadFrom returned error: %v", err)
+	}
+	run := createJobRun(t, ctx, store, storage.JobTypeImportObjects, bucket.ID, input)
+	if err := store.Buckets().DeleteBucket(ctx, bucket.ID); err != nil {
+		t.Fatalf("DeleteBucket returned error: %v", err)
+	}
+	handler, err := NewHandler(HandlerOptions{
+		Store: store,
+		Secrets: fakeSecretsManager{
+			plaintext: []byte(`{"access_key_id":"access-key","secret_access_key":"secret-key"}`),
+		},
+		Factory: &fakeObjectClientFactory{client: &fakeObjectClient{}},
+	})
+	if err != nil {
+		t.Fatalf("NewHandler returned error: %v", err)
+	}
+
+	_, err = handler.Handle(ctx, run)
+	if !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("Handle error = %v, want %v", err, storage.ErrNotFound)
+	}
+}
+
 type fakeObjectClient struct {
 	headAttributes storage.ObjectAttributes
+	headErrByKey   map[string]error
 	headInputs     []s3compat.HeadObjectInput
 	mu             sync.Mutex
 }
@@ -123,6 +240,9 @@ func (c *fakeObjectClient) HeadObject(ctx context.Context, input s3compat.HeadOb
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.headInputs = append(c.headInputs, input)
+	if err := c.headErrByKey[input.Key]; err != nil {
+		return nil, err
+	}
 	return c.headAttributes, nil
 }
 
@@ -155,7 +275,9 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
 	migrateTestStoreOnce.Do(func() {
-		migrateTestStoreErr = storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+		migrateTestStoreErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
+			return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+		})
 	})
 	if migrateTestStoreErr != nil {
 		t.Fatal(testdb.MigrationTimeoutError(migrateTestStoreErr))

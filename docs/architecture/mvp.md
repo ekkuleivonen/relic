@@ -284,7 +284,8 @@ Test database rules:
 
 * Runtime code uses `DATABASE_URL`.
 * DB-backed tests use `TEST_DATABASE_URL` and never fall back to the runtime database.
-* `TEST_DATABASE_SCHEMA` defaults to `relic_test`; test helpers create it, set `search_path`, and apply statement/lock timeouts before running migrations.
+* `TEST_DATABASE_URL` must point at a separate test database, not the same database as `DATABASE_URL`. Some hosted/pooler endpoints ignore session `search_path`, so schema-only isolation is not reliable enough.
+* `TEST_DATABASE_SCHEMA` defaults to `relic_test`; test helpers create it, set `search_path` where supported, and apply statement/lock timeouts before running migrations.
 * Migrations should run once per test package process, not once per test case, to avoid piling up Postgres advisory locks.
 
 This is not about supporting multiple databases in the MVP. It is about keeping persistence logic disciplined and preventing route handlers, services, workers, or future background systems from going around the storage layer.

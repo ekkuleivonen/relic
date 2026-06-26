@@ -2,12 +2,17 @@ package sync_bucket
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
+	importobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/import_objects"
+	refreshobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/refresh_objects"
+	removeobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/remove_objects"
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/secrets"
 	"github.com/ekkuleivonen/relic/packages/storage"
@@ -102,8 +107,8 @@ func TestHandlerPlansImportJobsForMissingObjects(t *testing.T) {
 	if len(input.Objects) != 2 {
 		t.Fatalf("import input objects = %d, want 2", len(input.Objects))
 	}
-	if input.Objects[0].Key != "photos/a.jpg" {
-		t.Fatalf("first import key = %q, want photos/a.jpg", input.Objects[0].Key)
+	if !objectEvidenceContainsKey(input.Objects, "photos/a.jpg") || !objectEvidenceContainsKey(input.Objects, "photos/b.jpg") {
+		t.Fatalf("import input objects = %#v, want photos/a.jpg and photos/b.jpg", input.Objects)
 	}
 
 	progressed, err := store.JobRuns().GetJobRun(ctx, run.ID)
@@ -302,10 +307,334 @@ func TestHandlerDoesNotRefreshWhenHeadAttributesMatchListing(t *testing.T) {
 	}
 }
 
+func TestSyncChainConvergesAcrossRepeatedChanges(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "photos/")
+	lastModified := time.Date(2026, 6, 26, 0, 0, 0, 0, time.UTC)
+	client := &fakeObjectClient{
+		page: s3compat.ObjectPage{
+			Objects: []s3compat.ListedObject{
+				listedObject("photos/a.jpg", "\"a1\"", 100, lastModified),
+				listedObject("photos/b.jpg", "\"b1\"", 200, lastModified),
+			},
+		},
+		headAttributesByKey: map[string]storage.ObjectAttributes{
+			"photos/a.jpg": headAttributes("\"a1\"", 100, lastModified),
+			"photos/b.jpg": headAttributes("\"b1\"", 200, lastModified),
+		},
+	}
+	factory := &fakeObjectClientFactory{client: client}
+	syncHandler, err := newTestHandler(store, factory)
+	if err != nil {
+		t.Fatalf("newTestHandler returned error: %v", err)
+	}
+	importHandler := newImportHandler(t, store, factory)
+	refreshHandler := newRefreshHandler(t, store, factory)
+	removeHandler := newRemoveHandler(t, store)
+
+	firstSync := createSyncRun(t, ctx, store, bucket.ID)
+	firstResult, err := syncHandler.Handle(ctx, firstSync)
+	if err != nil {
+		t.Fatalf("first sync returned error: %v", err)
+	}
+	assertPlannedCounts(t, firstResult, 2, 0, 0)
+	runChildJobs(t, ctx, store, firstSync.ID, storage.JobTypeImportObjects, importHandler.Handle)
+	assertObjectCount(t, ctx, store, bucket.ID, 2)
+
+	secondSync := createSyncRun(t, ctx, store, bucket.ID)
+	secondResult, err := syncHandler.Handle(ctx, secondSync)
+	if err != nil {
+		t.Fatalf("second sync returned error: %v", err)
+	}
+	assertPlannedCounts(t, secondResult, 0, 0, 0)
+	assertChildJobCount(t, ctx, store, secondSync.ID, storage.JobTypeImportObjects, 0)
+	assertChildJobCount(t, ctx, store, secondSync.ID, storage.JobTypeRefreshObjects, 0)
+	assertChildJobCount(t, ctx, store, secondSync.ID, storage.JobTypeRemoveObjects, 0)
+
+	client.page = s3compat.ObjectPage{
+		Objects: []s3compat.ListedObject{
+			listedObject("photos/a.jpg", "\"a2\"", 100, lastModified),
+			listedObject("photos/b.jpg", "\"b1\"", 200, lastModified),
+		},
+	}
+	client.headAttributesByKey["photos/a.jpg"] = headAttributes("\"a2\"", 100, lastModified)
+	refreshSync := createSyncRun(t, ctx, store, bucket.ID)
+	refreshResult, err := syncHandler.Handle(ctx, refreshSync)
+	if err != nil {
+		t.Fatalf("refresh sync returned error: %v", err)
+	}
+	assertPlannedCounts(t, refreshResult, 0, 1, 0)
+	runChildJobs(t, ctx, store, refreshSync.ID, storage.JobTypeRefreshObjects, refreshHandler.Handle)
+
+	client.page = s3compat.ObjectPage{
+		Objects: []s3compat.ListedObject{
+			listedObject("photos/a.jpg", "\"a2\"", 100, lastModified),
+		},
+	}
+	removeSync := createSyncRun(t, ctx, store, bucket.ID)
+	removeResult, err := syncHandler.Handle(ctx, removeSync)
+	if err != nil {
+		t.Fatalf("remove sync returned error: %v", err)
+	}
+	assertPlannedCounts(t, removeResult, 0, 0, 1)
+	runChildJobs(t, ctx, store, removeSync.ID, storage.JobTypeRemoveObjects, removeHandler.Handle)
+	assertObjectCount(t, ctx, store, bucket.ID, 1)
+
+	finalSync := createSyncRun(t, ctx, store, bucket.ID)
+	finalResult, err := syncHandler.Handle(ctx, finalSync)
+	if err != nil {
+		t.Fatalf("final sync returned error: %v", err)
+	}
+	assertPlannedCounts(t, finalResult, 0, 0, 0)
+}
+
+func TestHandlerFailsWhenListObjectsFails(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "photos/")
+	run := createSyncRun(t, ctx, store, bucket.ID)
+	handler, err := newTestHandler(store, &fakeObjectClientFactory{
+		client: &fakeObjectClient{err: errors.New("list failed")},
+	})
+	if err != nil {
+		t.Fatalf("newTestHandler returned error: %v", err)
+	}
+
+	if _, err := handler.Handle(ctx, run); err == nil {
+		t.Fatal("Handle returned nil error, want list error")
+	}
+	assertChildJobCount(t, ctx, store, run.ID, storage.JobTypeImportObjects, 0)
+}
+
+func TestHandlerFailsWhenListObjectsFailsMidPage(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "photos/")
+	run := createSyncRun(t, ctx, store, bucket.ID)
+	handler, err := newTestHandler(store, &fakeObjectClientFactory{
+		client: &fakeObjectClient{
+			pages: []s3compat.ObjectPage{
+				{
+					Objects:               []s3compat.ListedObject{listedObject("photos/a.jpg", "\"a1\"", 100, time.Now().UTC())},
+					IsTruncated:           true,
+					NextContinuationToken: "next-page",
+				},
+			},
+			errs: []error{nil, errors.New("second page failed")},
+		},
+	})
+	if err != nil {
+		t.Fatalf("newTestHandler returned error: %v", err)
+	}
+
+	if _, err := handler.Handle(ctx, run); err == nil {
+		t.Fatal("Handle returned nil error, want second page error")
+	}
+	assertChildJobCount(t, ctx, store, run.ID, storage.JobTypeImportObjects, 0)
+}
+
+func TestHandlerFailsWhenTruncatedPageHasNoCursor(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "photos/")
+	run := createSyncRun(t, ctx, store, bucket.ID)
+	handler, err := newTestHandler(store, &fakeObjectClientFactory{
+		client: &fakeObjectClient{
+			page: s3compat.ObjectPage{
+				Objects:     []s3compat.ListedObject{listedObject("photos/a.jpg", "\"a1\"", 100, time.Now().UTC())},
+				IsTruncated: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("newTestHandler returned error: %v", err)
+	}
+
+	if _, err := handler.Handle(ctx, run); err == nil {
+		t.Fatal("Handle returned nil error, want missing cursor error")
+	}
+	assertChildJobCount(t, ctx, store, run.ID, storage.JobTypeImportObjects, 0)
+}
+
+func TestHandlerFailsBeforeListingWithInvalidCredentials(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "photos/")
+	run := createSyncRun(t, ctx, store, bucket.ID)
+	client := &fakeObjectClient{}
+	handler, err := NewHandler(HandlerOptions{
+		Store:   store,
+		Secrets: fakeSecretsManager{plaintext: []byte(`{"access_key_id":""}`)},
+		Factory: &fakeObjectClientFactory{client: client},
+	})
+	if err != nil {
+		t.Fatalf("NewHandler returned error: %v", err)
+	}
+
+	if _, err := handler.Handle(ctx, run); err == nil {
+		t.Fatal("Handle returned nil error, want credentials error")
+	}
+	if len(client.listInputs) != 0 {
+		t.Fatalf("list calls = %d, want 0", len(client.listInputs))
+	}
+	assertChildJobCount(t, ctx, store, run.ID, storage.JobTypeImportObjects, 0)
+}
+
+func listedObject(key string, etag string, size int64, lastModified time.Time) s3compat.ListedObject {
+	return s3compat.ListedObject{
+		Key:          key,
+		ETag:         etag,
+		Size:         size,
+		LastModified: lastModified,
+		StorageClass: "STANDARD",
+	}
+}
+
+func headAttributes(etag string, size int64, lastModified time.Time) storage.ObjectAttributes {
+	return storage.ObjectAttributes{
+		"upstream": map[string]any{
+			"etag":          etag,
+			"size":          size,
+			"last_modified": lastModified.UTC().Format(time.RFC3339),
+			"header": map[string]any{
+				"content_type": "image/jpeg",
+			},
+		},
+	}
+}
+
+func assertPlannedCounts(t *testing.T, result storage.JobRunPayload, imports int, refreshes int, removals int) {
+	t.Helper()
+
+	if result["import_objects_count"] != imports {
+		t.Fatalf("import count = %#v, want %d", result["import_objects_count"], imports)
+	}
+	if result["refresh_objects_count"] != refreshes {
+		t.Fatalf("refresh count = %#v, want %d", result["refresh_objects_count"], refreshes)
+	}
+	if result["remove_objects_count"] != removals {
+		t.Fatalf("remove count = %#v, want %d", result["remove_objects_count"], removals)
+	}
+}
+
+func assertChildJobCount(t *testing.T, ctx context.Context, store *storage.Store, parentRunID string, jobType storage.JobType, want int) {
+	t.Helper()
+
+	children, err := childJobs(ctx, store, parentRunID, jobType)
+	if err != nil {
+		t.Fatalf("childJobs returned error: %v", err)
+	}
+	if len(children) != want {
+		t.Fatalf("%s child count = %d, want %d", jobType, len(children), want)
+	}
+}
+
+func childJobs(ctx context.Context, store *storage.Store, parentRunID string, jobType storage.JobType) ([]storage.JobRun, error) {
+	return store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
+		Type:            jobType,
+		RequestedByType: "job",
+		RequestedByID:   parentRunID,
+		Limit:           100,
+	})
+}
+
+func runChildJobs(t *testing.T, ctx context.Context, store *storage.Store, parentRunID string, jobType storage.JobType, handle func(context.Context, storage.JobRun) (storage.JobRunPayload, error)) {
+	t.Helper()
+
+	children, err := childJobs(ctx, store, parentRunID, jobType)
+	if err != nil {
+		t.Fatalf("childJobs returned error: %v", err)
+	}
+	for _, child := range children {
+		if _, err := handle(ctx, child); err != nil {
+			t.Fatalf("handle %s child returned error: %v", jobType, err)
+		}
+	}
+}
+
+func assertObjectCount(t *testing.T, ctx context.Context, store *storage.Store, bucketID string, want int) {
+	t.Helper()
+
+	objects, err := store.Objects().ListObjectsInScope(ctx, storage.ObjectScopeParams{BucketID: bucketID})
+	if err != nil {
+		t.Fatalf("ListObjectsInScope returned error: %v", err)
+	}
+	if len(objects) != want {
+		t.Fatalf("object count = %d, want %d", len(objects), want)
+	}
+}
+
+func objectEvidenceContainsKey(objects []jobs.ObjectEvidence, key string) bool {
+	for _, object := range objects {
+		if object.Key == key {
+			return true
+		}
+	}
+
+	return false
+}
+
+func newImportHandler(t *testing.T, store *storage.Store, factory s3compat.ObjectClientFactory) *importobjects.Handler {
+	t.Helper()
+
+	handler, err := importobjects.NewHandler(importobjects.HandlerOptions{
+		Store:   store,
+		Secrets: testSecretsManager(),
+		Factory: factory,
+	})
+	if err != nil {
+		t.Fatalf("import_objects NewHandler returned error: %v", err)
+	}
+
+	return handler
+}
+
+func newRefreshHandler(t *testing.T, store *storage.Store, factory s3compat.ObjectClientFactory) *refreshobjects.Handler {
+	t.Helper()
+
+	handler, err := refreshobjects.NewHandler(refreshobjects.HandlerOptions{
+		Store:   store,
+		Secrets: testSecretsManager(),
+		Factory: factory,
+	})
+	if err != nil {
+		t.Fatalf("refresh_objects NewHandler returned error: %v", err)
+	}
+
+	return handler
+}
+
+func newRemoveHandler(t *testing.T, store *storage.Store) *removeobjects.Handler {
+	t.Helper()
+
+	handler, err := removeobjects.NewHandler(removeobjects.HandlerOptions{Store: store})
+	if err != nil {
+		t.Fatalf("remove_objects NewHandler returned error: %v", err)
+	}
+
+	return handler
+}
+
 type fakeObjectClient struct {
-	page       s3compat.ObjectPage
-	err        error
-	listInputs []s3compat.ListObjectsInput
+	page                s3compat.ObjectPage
+	pages               []s3compat.ObjectPage
+	err                 error
+	errs                []error
+	headAttributesByKey map[string]storage.ObjectAttributes
+	headErrByKey        map[string]error
+	listInputs          []s3compat.ListObjectsInput
+	headInputs          []s3compat.HeadObjectInput
 }
 
 type fakeObjectClientFactory struct {
@@ -336,21 +665,46 @@ func (m fakeSecretsManager) Decrypt(ctx context.Context, envelope secrets.Envelo
 
 func newTestHandler(store *storage.Store, factory s3compat.ObjectClientFactory) (*Handler, error) {
 	return NewHandler(HandlerOptions{
-		Store: store,
-		Secrets: fakeSecretsManager{
-			plaintext: []byte(`{"access_key_id":"access-key","secret_access_key":"secret-key"}`),
-		},
+		Store:   store,
+		Secrets: testSecretsManager(),
 		Factory: factory,
 	})
 }
 
+func testSecretsManager() fakeSecretsManager {
+	return fakeSecretsManager{
+		plaintext: []byte(`{"access_key_id":"access-key","secret_access_key":"secret-key"}`),
+	}
+}
+
 func (c *fakeObjectClient) ListObjects(ctx context.Context, input s3compat.ListObjectsInput) (s3compat.ObjectPage, error) {
 	c.listInputs = append(c.listInputs, input)
+	index := len(c.listInputs) - 1
+	if index < len(c.errs) && c.errs[index] != nil {
+		return s3compat.ObjectPage{}, c.errs[index]
+	}
+	if c.err != nil {
+		return s3compat.ObjectPage{}, c.err
+	}
+	if len(c.pages) > 0 {
+		if index >= len(c.pages) {
+			return s3compat.ObjectPage{}, fmt.Errorf("unexpected list page %d", index)
+		}
+		return c.pages[index], nil
+	}
 	return c.page, c.err
 }
 
 func (c *fakeObjectClient) HeadObject(ctx context.Context, input s3compat.HeadObjectInput) (storage.ObjectAttributes, error) {
-	return storage.ObjectAttributes{}, nil
+	c.headInputs = append(c.headInputs, input)
+	if err := c.headErrByKey[input.Key]; err != nil {
+		return nil, err
+	}
+	if attributes, ok := c.headAttributesByKey[input.Key]; ok {
+		return attributes, nil
+	}
+
+	return storage.ObjectAttributes{"upstream": map[string]any{}}, nil
 }
 
 func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
@@ -362,7 +716,9 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
 	migrateTestStoreOnce.Do(func() {
-		migrateTestStoreErr = storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+		migrateTestStoreErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
+			return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+		})
 	})
 	if migrateTestStoreErr != nil {
 		t.Fatal(testdb.MigrationTimeoutError(migrateTestStoreErr))

@@ -154,7 +154,9 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
 	migrateTestStoreOnce.Do(func() {
-		migrateTestStoreErr = storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+		migrateTestStoreErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
+			return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+		})
 	})
 	if migrateTestStoreErr != nil {
 		t.Fatal(testdb.MigrationTimeoutError(migrateTestStoreErr))

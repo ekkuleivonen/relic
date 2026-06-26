@@ -32,6 +32,24 @@ func TestRegistryGet(t *testing.T) {
 	}
 }
 
+func TestRegistryTypes(t *testing.T) {
+	registry, err := NewRegistry(
+		fakeHandler{jobType: storage.JobTypeRefreshObjects},
+		fakeHandler{jobType: storage.JobTypeImportObjects},
+	)
+	if err != nil {
+		t.Fatalf("NewRegistry returned error: %v", err)
+	}
+
+	types := registry.Types()
+	if len(types) != 2 {
+		t.Fatalf("types length = %d, want 2", len(types))
+	}
+	if types[0] != storage.JobTypeImportObjects || types[1] != storage.JobTypeRefreshObjects {
+		t.Fatalf("types = %#v, want sorted import/refresh types", types)
+	}
+}
+
 type fakeHandler struct {
 	jobType storage.JobType
 }
