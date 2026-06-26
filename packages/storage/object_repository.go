@@ -16,7 +16,9 @@ type ObjectRepository interface {
 	UpsertObject(context.Context, UpsertObjectParams) (Object, error)
 	GetObject(context.Context, string) (Object, error)
 	ListObjects(context.Context, ListObjectsParams) ([]Object, error)
+	ListObjectsInScope(context.Context, ObjectScopeParams) ([]Object, error)
 	DeleteObject(context.Context, string) error
+	DeleteObjects(context.Context, DeleteObjectsParams) (int64, error)
 	DeleteObjectsNotSeenSince(context.Context, DeleteObjectsNotSeenSinceParams) (int64, error)
 }
 
@@ -67,6 +69,15 @@ type DeleteObjectsNotSeenSinceParams struct {
 	BucketID string
 	Prefix   string
 	SeenAt   time.Time
+}
+
+type ObjectScopeParams struct {
+	BucketID string
+	Prefix   string
+}
+
+type DeleteObjectsParams struct {
+	IDs []string
 }
 
 func (s *ObjectStore) UpsertObject(ctx context.Context, params UpsertObjectParams) (Object, error) {
@@ -194,6 +205,44 @@ func (s *ObjectStore) ListObjects(ctx context.Context, params ListObjectsParams)
 	return objects, nil
 }
 
+func (s *ObjectStore) ListObjectsInScope(ctx context.Context, params ObjectScopeParams) ([]Object, error) {
+	rows, err := s.runner.Query(ctx, `
+		SELECT
+			id,
+			bucket_id,
+			key,
+			version_id,
+			attributes,
+			attribute_provenance,
+			first_seen_at,
+			last_seen_at,
+			created_at,
+			updated_at
+		FROM objects
+		WHERE ($1 = '' OR bucket_id = $1)
+			AND ($2 = '' OR key LIKE $2 || '%')
+		ORDER BY bucket_id ASC, key ASC, version_id ASC
+	`, params.BucketID, params.Prefix)
+	if err != nil {
+		return nil, fmt.Errorf("list objects in scope: %w", err)
+	}
+	defer rows.Close()
+
+	objects := []Object{}
+	for rows.Next() {
+		object, err := scanObject(rows)
+		if err != nil {
+			return nil, err
+		}
+		objects = append(objects, object)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list objects in scope: %w", err)
+	}
+
+	return objects, nil
+}
+
 func (s *ObjectStore) DeleteObject(ctx context.Context, id string) error {
 	tag, err := s.runner.Exec(ctx, "DELETE FROM objects WHERE id = $1", id)
 	if err != nil {
@@ -204,6 +253,19 @@ func (s *ObjectStore) DeleteObject(ctx context.Context, id string) error {
 	}
 
 	return nil
+}
+
+func (s *ObjectStore) DeleteObjects(ctx context.Context, params DeleteObjectsParams) (int64, error) {
+	if len(params.IDs) == 0 {
+		return 0, nil
+	}
+
+	tag, err := s.runner.Exec(ctx, "DELETE FROM objects WHERE id = ANY($1)", params.IDs)
+	if err != nil {
+		return 0, fmt.Errorf("delete objects: %w", err)
+	}
+
+	return tag.RowsAffected(), nil
 }
 
 func (s *ObjectStore) DeleteObjectsNotSeenSince(ctx context.Context, params DeleteObjectsNotSeenSinceParams) (int64, error) {

@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
+	importobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/import_objects"
+	refreshobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/refresh_objects"
+	removeobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/remove_objects"
 	syncbucket "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/sync_bucket"
 	workerRunner "github.com/ekkuleivonen/relic/apps/worker/internal/runner"
 	"github.com/ekkuleivonen/relic/packages/db"
@@ -76,7 +79,29 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	registry, err := jobs.NewRegistry(syncBucketHandler)
+	importObjectsHandler, err := importobjects.NewHandler(importobjects.HandlerOptions{
+		Store:   store,
+		Secrets: secretManager,
+		Factory: s3compat.ClientFactory{},
+	})
+	if err != nil {
+		return err
+	}
+	refreshObjectsHandler, err := refreshobjects.NewHandler(refreshobjects.HandlerOptions{
+		Store:   store,
+		Secrets: secretManager,
+		Factory: s3compat.ClientFactory{},
+	})
+	if err != nil {
+		return err
+	}
+	removeObjectsHandler, err := removeobjects.NewHandler(removeobjects.HandlerOptions{
+		Store: store,
+	})
+	if err != nil {
+		return err
+	}
+	registry, err := jobs.NewRegistry(syncBucketHandler, importObjectsHandler, refreshObjectsHandler, removeObjectsHandler)
 	if err != nil {
 		return err
 	}

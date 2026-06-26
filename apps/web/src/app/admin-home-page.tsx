@@ -28,6 +28,11 @@ const nextSteps = [
     icon: RefreshCwIcon,
   },
   {
+    title: "Inspect job runs",
+    description: "Debug sync progress, retries, timestamps, and worker errors.",
+    icon: ListFilterIcon,
+  },
+  {
     title: "Browse objects",
     description: "List and filter imported objects by bucket, prefix, type, and size.",
     icon: ListFilterIcon,
@@ -70,6 +75,12 @@ export function AdminHomePage() {
             <div className="mt-8 flex flex-wrap gap-3">
               <Button size="lg" asChild>
                 <Link to="/buckets">Buckets UI next</Link>
+              </Button>
+              <Button size="lg" variant="outline" asChild>
+                <Link to="/objects">Browse objects</Link>
+              </Button>
+              <Button size="lg" variant="outline" asChild>
+                <Link to="/job-runs">View job runs</Link>
               </Button>
               <Button size="lg" variant="outline" asChild>
                 <a href="/api/docs">View API docs</a>

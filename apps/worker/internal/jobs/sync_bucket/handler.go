@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
 	"github.com/ekkuleivonen/relic/packages/secrets"
 	"github.com/ekkuleivonen/relic/packages/storage"
 	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
 )
+
+const childJobBatchSize = 100
 
 type Handler struct {
 	store   *storage.Store
@@ -60,10 +63,10 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 		return nil, err
 	}
 
-	seenAt := time.Now().UTC()
 	objectsSeen := 0
 	continuationToken := ""
 	marker := ""
+	upstreamObjects := map[string]s3compat.ListedObject{}
 
 	for {
 		page, err := client.ListObjects(ctx, s3compat.ListObjectsInput{
@@ -77,18 +80,7 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 		}
 
 		for _, listedObject := range page.Objects {
-			attributes := s3compat.AttributesFromListedObject(listedObject)
-			if _, err := h.store.Objects().UpsertObject(ctx, storage.UpsertObjectParams{
-				BucketID:   bucket.ID,
-				Key:        listedObject.Key,
-				Attributes: attributes,
-				AttributeProvenance: storage.ObjectAttributeProvenance{
-					"upstream": run.ID,
-				},
-				SeenAt: &seenAt,
-			}); err != nil {
-				return nil, err
-			}
+			upstreamObjects[listedObjectKey(listedObject.Key, "")] = listedObject
 			objectsSeen++
 		}
 
@@ -112,21 +104,181 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 		}
 	}
 
-	objectsDeleted, err := h.store.Objects().DeleteObjectsNotSeenSince(ctx, storage.DeleteObjectsNotSeenSinceParams{
+	localObjects, err := h.store.Objects().ListObjectsInScope(ctx, storage.ObjectScopeParams{
 		BucketID: bucket.ID,
 		Prefix:   bucket.Prefix,
-		SeenAt:   seenAt,
 	})
 	if err != nil {
 		return nil, err
 	}
 
+	importObjects, refreshObjects, removeObjects := planObjectMutations(upstreamObjects, localObjects)
+	importJobIDs, err := h.createChildJobs(ctx, run, bucket.ID, storage.JobTypeImportObjects, importObjects)
+	if err != nil {
+		return nil, err
+	}
+	refreshJobIDs, err := h.createChildJobs(ctx, run, bucket.ID, storage.JobTypeRefreshObjects, refreshObjects)
+	if err != nil {
+		return nil, err
+	}
+	removeJobIDs, err := h.createChildJobs(ctx, run, bucket.ID, storage.JobTypeRemoveObjects, removeObjects)
+	if err != nil {
+		return nil, err
+	}
+
 	return storage.JobRunPayload{
-		"phase":           "listed",
-		"bucket_id":       bucket.ID,
-		"objects_seen":    objectsSeen,
-		"objects_deleted": int(objectsDeleted),
+		"phase":                 "planned",
+		"bucket_id":             bucket.ID,
+		"objects_seen":          objectsSeen,
+		"import_objects_count":  len(importObjects),
+		"refresh_objects_count": len(refreshObjects),
+		"remove_objects_count":  len(removeObjects),
+		"child_job_ids": map[string]any{
+			"import_objects":  importJobIDs,
+			"refresh_objects": refreshJobIDs,
+			"remove_objects":  removeJobIDs,
+		},
 	}, nil
+}
+
+func (h *Handler) createChildJobs(ctx context.Context, run storage.JobRun, bucketID string, jobType storage.JobType, objects []jobs.ObjectEvidence) ([]string, error) {
+	jobIDs := []string{}
+	for _, batch := range objectEvidenceBatches(objects, childJobBatchSize) {
+		input, err := jobs.PayloadFrom(jobs.ObjectMutationInput{
+			BucketID:       bucketID,
+			Objects:        batch,
+			SourceJobRunID: run.ID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		childRun, err := h.store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+			Type:            jobType,
+			RequestedByType: "job",
+			RequestedByID:   run.ID,
+			TargetType:      "bucket",
+			TargetID:        bucketID,
+			Input:           input,
+		})
+		if err != nil {
+			return nil, err
+		}
+		jobIDs = append(jobIDs, childRun.ID)
+	}
+
+	return jobIDs, nil
+}
+
+func planObjectMutations(upstreamObjects map[string]s3compat.ListedObject, localObjects []storage.Object) ([]jobs.ObjectEvidence, []jobs.ObjectEvidence, []jobs.ObjectEvidence) {
+	localByKey := map[string]storage.Object{}
+	for _, object := range localObjects {
+		localByKey[listedObjectKey(object.Key, object.VersionID)] = object
+	}
+
+	importObjects := []jobs.ObjectEvidence{}
+	refreshObjects := []jobs.ObjectEvidence{}
+	for key, upstreamObject := range upstreamObjects {
+		evidence := objectEvidenceFromListedObject(upstreamObject)
+		localObject, exists := localByKey[key]
+		if !exists {
+			importObjects = append(importObjects, evidence)
+			continue
+		}
+		evidence.ID = localObject.ID
+		if objectChanged(upstreamObject, localObject) {
+			refreshObjects = append(refreshObjects, evidence)
+		}
+	}
+
+	removeObjects := []jobs.ObjectEvidence{}
+	for key, localObject := range localByKey {
+		if _, exists := upstreamObjects[key]; exists {
+			continue
+		}
+		removeObjects = append(removeObjects, jobs.ObjectEvidence{
+			ID:        localObject.ID,
+			Key:       localObject.Key,
+			VersionID: localObject.VersionID,
+		})
+	}
+
+	return importObjects, refreshObjects, removeObjects
+}
+
+func objectEvidenceFromListedObject(object s3compat.ListedObject) jobs.ObjectEvidence {
+	return jobs.ObjectEvidence{
+		Key:          object.Key,
+		ETag:         object.ETag,
+		Size:         object.Size,
+		LastModified: object.LastModified.UTC().Format(time.RFC3339),
+		StorageClass: object.StorageClass,
+	}
+}
+
+func objectChanged(upstreamObject s3compat.ListedObject, localObject storage.Object) bool {
+	upstreamAttributes, _ := localObject.Attributes["upstream"].(map[string]any)
+	if upstreamAttributes == nil {
+		return true
+	}
+
+	return upstreamAttributes["etag"] != upstreamObject.ETag ||
+		int64Attribute(upstreamAttributes["size"]) != upstreamObject.Size ||
+		upstreamAttributes["last_modified"] != upstreamObject.LastModified.UTC().Format(time.RFC3339) ||
+		storageClassAttribute(upstreamAttributes) != upstreamObject.StorageClass
+}
+
+func int64Attribute(value any) int64 {
+	switch typed := value.(type) {
+	case int64:
+		return typed
+	case int:
+		return int64(typed)
+	case float64:
+		return int64(typed)
+	default:
+		return 0
+	}
+}
+
+func storageClassAttribute(upstreamAttributes map[string]any) string {
+	if value, ok := upstreamAttributes["storage_class"].(string); ok {
+		return value
+	}
+	for _, namespace := range []string{"s3", "gcp"} {
+		nested, ok := upstreamAttributes[namespace].(map[string]any)
+		if !ok {
+			continue
+		}
+		if value, ok := nested["storage_class"].(string); ok {
+			return value
+		}
+	}
+
+	return ""
+}
+
+func listedObjectKey(key string, versionID string) string {
+	return key + "\x00" + versionID
+}
+
+func objectEvidenceBatches(objects []jobs.ObjectEvidence, size int) [][]jobs.ObjectEvidence {
+	if len(objects) == 0 {
+		return nil
+	}
+	if size <= 0 {
+		size = len(objects)
+	}
+
+	batches := [][]jobs.ObjectEvidence{}
+	for start := 0; start < len(objects); start += size {
+		end := start + size
+		if end > len(objects) {
+			end = len(objects)
+		}
+		batches = append(batches, objects[start:end])
+	}
+
+	return batches
 }
 
 func (h *Handler) clientForBucket(ctx context.Context, bucket storage.Bucket) (s3compat.ObjectClient, error) {

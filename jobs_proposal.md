@@ -51,7 +51,13 @@ Example input:
 }
 ```
 
-This is the heavy path for making Relic's catalog match storage.
+This is the heavy planner path for making Relic's catalog match storage. It lists upstream objects, compares that listing with Relic's active catalog, and creates child `job_runs` for the actual mutations:
+
+* `import_objects` for keys that exist upstream but not locally.
+* `refresh_objects` for existing keys whose cheap listing evidence changed.
+* `remove_objects` for local objects missing from the upstream listing.
+
+`sync_bucket` should not upsert or delete object rows directly. Its result should report object counts and child job IDs so the job trace explains what changed.
 
 ### `scan_bucket`
 
@@ -81,9 +87,9 @@ This job should avoid broad mutation. It is a detection and confidence job.
 
 Import or upsert one or more objects into Relic.
 
-This is the path for upstream create/PUT notifications and targeted imports. It should fetch upstream metadata for the specified keys and create or update Relic object rows.
+This is the path for upstream create/PUT notifications, targeted imports, and new keys discovered by `sync_bucket`. It should fetch upstream metadata for the specified keys and create or update Relic object rows.
 
-Job input should stay close to the raw upstream shape. For S3-compatible upstreams, that means carrying bucket/key/version/event fields and any metadata envelope the notification already supplied.
+Job input should carry bucket/key/version fields and any cheap evidence already known from a listing or event.
 
 The handler should convert upstream-shaped evidence into Relic's attribute namespaces before writing storage rows. That conversion should live in one reusable, well-tested mapper, not be reimplemented in each handler. If conversion fails, the `import_objects` run should fail visibly and be retried or inspected like any other job failure.
 
@@ -98,38 +104,13 @@ Example input:
     {
       "key": "photos/a.jpg",
       "version_id": "optional-upstream-version",
-      "upstream": "s3",
-      "event_name": "ObjectCreated:Put",
-      "event_time": "2026-06-01T00:00:00Z",
-      "s3": {
-        "bucket": {
-          "name": "raw-upstream-bucket-name",
-          "arn": "arn:aws:s3:::raw-upstream-bucket-name"
-        },
-        "object": {
-          "key": "photos/a.jpg",
-          "size": 123456,
-          "eTag": "optional-upstream-etag",
-          "versionId": "optional-upstream-version",
-          "sequencer": "0065F2A4D75AB3CDEF"
-        }
-      },
-      "metadata_snapshot": {
-        "headers": {
-          "content-type": "image/jpeg",
-          "cache-control": "max-age=3600"
-        },
-        "metadata": {
-          "source": "camera-upload"
-        },
-        "tags": {
-          "environment": "prod"
-        },
-        "storage_class": "STANDARD",
-        "last_modified": "2026-06-01T00:00:00Z"
-      }
+      "etag": "\"abc123\"",
+      "size": 123456,
+      "last_modified": "2026-06-01T00:00:00Z",
+      "storage_class": "STANDARD"
     }
-  ]
+  ],
+  "source_job_run_id": "jobrun_source"
 }
 ```
 
@@ -137,7 +118,7 @@ Example input:
 
 Remove one or more objects from Relic.
 
-This is the path for upstream delete notifications. The bytes remain in object storage; this job removes Relic's catalog object because Relic no longer believes that object exists in the bucket.
+This is the path for upstream delete notifications and local rows missing from a `sync_bucket` listing. The bytes remain in object storage; this job removes Relic's catalog object because Relic no longer believes that object exists in the bucket.
 
 Example input:
 
@@ -146,10 +127,12 @@ Example input:
   "bucket_id": "bucket_0123456789abcdef0123456789abcdef",
   "objects": [
     {
+      "id": "object_0123456789abcdef0123456789abcdef",
       "key": "photos/a.jpg",
       "version_id": "optional-upstream-version"
     }
-  ]
+  ],
+  "source_job_run_id": "jobrun_source"
 }
 ```
 
@@ -157,7 +140,7 @@ Example input:
 
 Refresh Relic's known metadata or attributes for existing objects.
 
-This can handle upstream metadata changes, tag changes, user-driven attribute refreshes, or internal attribute recalculation. The job should support batches because many refreshes will be independent per object.
+This can handle upstream metadata changes, tag changes, user-driven attribute refreshes, or changed listing evidence found by `sync_bucket`. The job should support batches because many refreshes will be independent per object. It should HEAD each requested object and update the existing object row with fresh `upstream.*` attributes and provenance.
 
 ### `extract_attributes`
 
@@ -305,10 +288,11 @@ type JobType string
 
 const (
 	JobTypeSyncBucket        JobType = "sync_bucket"
-	JobTypeScanBucket        JobType = "scan_bucket"
 	JobTypeImportObjects     JobType = "import_objects"
 	JobTypeRemoveObjects     JobType = "remove_objects"
 	JobTypeRefreshObjects    JobType = "refresh_objects"
+
+  JobTypeScanBucket        JobType = "scan_bucket"
 	JobTypeExtractAttributes JobType = "extract_attributes"
 	JobTypeDetectDuplicates  JobType = "detect_duplicates"
 	JobTypeCleanupRuns       JobType = "cleanup_runs"
@@ -403,10 +387,13 @@ The `sync_bucket` handler should:
 2. Decrypt credentials through `secrets.Manager`.
 3. Build the upstream adapter from bucket upstream/config.
 4. List objects page by page.
-5. Upsert objects in batches.
-6. Remove Relic objects that no longer exist in storage for the reconciled scope.
-7. Update `job_runs.progress`.
-8. Mark the run succeeded or failed.
+5. Load Relic's local object rows for the same scope.
+6. Compare upstream listing evidence against local `attributes.upstream`.
+7. Create `import_objects`, `refresh_objects`, and `remove_objects` child runs in bounded batches.
+8. Update `job_runs.progress`.
+9. Mark the run succeeded or failed.
+
+The child handlers own catalog mutations. `import_objects` and `refresh_objects` perform HEAD calls and upsert object attributes/provenance; `remove_objects` performs targeted local deletion.
 
 ## Upstream Events
 

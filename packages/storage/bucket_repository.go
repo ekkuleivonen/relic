@@ -339,7 +339,15 @@ func (s *BucketStore) UpdateBucket(ctx context.Context, params UpdateBucketParam
 }
 
 func (s *BucketStore) DeleteBucket(ctx context.Context, id string) error {
-	return ErrNotImplemented
+	tag, err := s.runner.Exec(ctx, "DELETE FROM buckets WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("delete bucket: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+
+	return nil
 }
 
 func scanBucket(row pgx.Row) (Bucket, error) {

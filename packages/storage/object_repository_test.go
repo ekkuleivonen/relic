@@ -143,6 +143,63 @@ func TestObjectStoreDelete(t *testing.T) {
 	}
 }
 
+func TestObjectStoreListObjectsInScopeAndDeleteObjects(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createObjectTestBucket(t, ctx, store)
+	photosObject, err := store.Objects().UpsertObject(ctx, UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "photos/a.jpg",
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject photos returned error: %v", err)
+	}
+	_, err = store.Objects().UpsertObject(ctx, UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "docs/readme.md",
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject docs returned error: %v", err)
+	}
+
+	scoped, err := store.Objects().ListObjectsInScope(ctx, ObjectScopeParams{
+		BucketID: bucket.ID,
+		Prefix:   "photos/",
+	})
+	if err != nil {
+		t.Fatalf("ListObjectsInScope returned error: %v", err)
+	}
+	if len(scoped) != 1 || scoped[0].ID != photosObject.ID {
+		t.Fatalf("scoped objects = %#v, want only %q", scoped, photosObject.ID)
+	}
+
+	deleted, err := store.Objects().DeleteObjects(ctx, DeleteObjectsParams{
+		IDs: []string{photosObject.ID},
+	})
+	if err != nil {
+		t.Fatalf("DeleteObjects returned error: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1", deleted)
+	}
+}
+
+func TestObjectStoreDeleteObjectsEmpty(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	deleted, err := store.Objects().DeleteObjects(ctx, DeleteObjectsParams{})
+	if err != nil {
+		t.Fatalf("DeleteObjects returned error: %v", err)
+	}
+	if deleted != 0 {
+		t.Fatalf("deleted = %d, want 0", deleted)
+	}
+}
+
 func TestObjectStoreDeleteObjectsNotSeenSince(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := testStore(t, ctx)

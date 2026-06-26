@@ -187,6 +187,28 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			Body:   jobs.JobRunResponseFromStorage(run),
 		}, nil
 	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "delete-bucket",
+		Method:      http.MethodDelete,
+		Path:        basePath + "/buckets/{id}",
+		Summary:     "Delete bucket",
+		Tags:        []string{"Buckets"},
+	}, func(ctx context.Context, input *deleteBucketInput) (*deleteBucketOutput, error) {
+		if dependencies.Storage == nil {
+			return nil, huma.Error500InternalServerError("bucket dependencies are not configured")
+		}
+
+		err := dependencies.Storage.Buckets().DeleteBucket(ctx, input.ID)
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, huma.Error404NotFound("bucket not found")
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		return &deleteBucketOutput{Status: http.StatusNoContent}, nil
+	})
 }
 
 type createBucketInput struct {
@@ -224,6 +246,10 @@ type syncBucketInput struct {
 	ID string `path:"id" example:"bucket_0123456789abcdef0123456789abcdef"`
 }
 
+type deleteBucketInput struct {
+	ID string `path:"id" example:"bucket_0123456789abcdef0123456789abcdef"`
+}
+
 type updateBucketBody struct {
 	Name           *string                          `json:"name,omitempty" example:"production-data"`
 	EndpointURL    *string                          `json:"endpoint_url,omitempty" example:"https://s3.amazonaws.com"`
@@ -245,6 +271,10 @@ type listBucketsOutput struct {
 type syncBucketOutput struct {
 	Status int
 	Body   jobs.JobRunResponse
+}
+
+type deleteBucketOutput struct {
+	Status int
 }
 
 type listBucketsBody struct {

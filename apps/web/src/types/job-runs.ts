@@ -39,3 +39,16 @@ export type JobRun = {
   created_at: string
   updated_at: string
 }
+
+export type ListJobRunsParams = {
+  type?: JobRunType
+  state?: JobRunState
+  targetType?: string
+  targetId?: string
+  limit?: number
+  offset?: number
+}
+
+export type ListJobRunsResponse = {
+  job_runs: JobRun[]
+}

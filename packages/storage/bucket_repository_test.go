@@ -147,7 +147,7 @@ func TestBucketStoreUpdate(t *testing.T) {
 		_, _ = store.pool.Exec(context.Background(), "DELETE FROM buckets WHERE id = $1", created.ID)
 	})
 
-	name := "updated-bucket"
+	name := "updated-bucket-" + time.Now().Format("20060102150405.000000000")
 	endpointURL := "https://s3.correct.example.test"
 	region := "eu-west-1"
 	prefix := "new/"
@@ -191,6 +191,57 @@ func TestBucketStoreUpdate(t *testing.T) {
 	}
 	if forcePathStyle, ok := s3Config["force_path_style"].(bool); !ok || !forcePathStyle {
 		t.Fatalf("force_path_style = %#v, want true", s3Config["force_path_style"])
+	}
+}
+
+func TestBucketStoreDeleteCascadesObjects(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket, err := store.Buckets().CreateBucket(ctx, CreateBucketParams{
+		Name:        "delete-source-" + time.Now().Format("20060102150405.000000000"),
+		Upstream:    BucketUpstreamS3,
+		EndpointURL: "https://s3.example.test",
+		Region:      "us-east-1",
+		BucketName:  "example-data",
+		EncryptedCredentials: secrets.Envelope{
+			KeyID:      "local-dev",
+			Algorithm:  secrets.AlgorithmXChaCha20Poly1305,
+			Nonce:      []byte("012345678901234567890123"),
+			Ciphertext: []byte("encrypted-credentials"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateBucket returned error: %v", err)
+	}
+	object, err := store.Objects().UpsertObject(ctx, UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "photos/a.jpg",
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject returned error: %v", err)
+	}
+
+	if err := store.Buckets().DeleteBucket(ctx, bucket.ID); err != nil {
+		t.Fatalf("DeleteBucket returned error: %v", err)
+	}
+	if _, err := store.Buckets().GetBucket(ctx, bucket.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetBucket after delete error = %v, want %v", err, ErrNotFound)
+	}
+	if _, err := store.Objects().GetObject(ctx, object.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetObject after bucket delete error = %v, want %v", err, ErrNotFound)
+	}
+}
+
+func TestBucketStoreDeleteMissing(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	err := store.Buckets().DeleteBucket(ctx, "bucket_missing")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("DeleteBucket error = %v, want %v", err, ErrNotFound)
 	}
 }
 

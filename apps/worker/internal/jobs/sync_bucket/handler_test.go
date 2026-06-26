@@ -2,19 +2,19 @@ package sync_bucket
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/secrets"
 	"github.com/ekkuleivonen/relic/packages/storage"
 	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
 )
 
-func TestHandlerUpsertsListedObjects(t *testing.T) {
+func TestHandlerPlansImportJobsForMissingObjects(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := testStore(t, ctx)
 	defer cleanup()
@@ -56,6 +56,9 @@ func TestHandlerUpsertsListedObjects(t *testing.T) {
 	if result["objects_seen"] != 2 {
 		t.Fatalf("objects_seen result = %#v, want 2", result["objects_seen"])
 	}
+	if result["import_objects_count"] != 2 {
+		t.Fatalf("import count = %#v, want 2", result["import_objects_count"])
+	}
 	if len(client.listInputs) != 1 {
 		t.Fatalf("list calls = %d, want 1", len(client.listInputs))
 	}
@@ -75,33 +78,26 @@ func TestHandlerUpsertsListedObjects(t *testing.T) {
 		t.Fatalf("factory access key = %q, want access-key", factory.credentials[0].AccessKeyID)
 	}
 
-	objects, err := store.Objects().ListObjects(ctx, storage.ListObjectsParams{
-		BucketID: bucket.ID,
-		Prefix:   "photos/",
+	children, err := store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
+		Type:     storage.JobTypeImportObjects,
+		TargetID: bucket.ID,
 		Limit:    10,
 	})
 	if err != nil {
-		t.Fatalf("ListObjects returned error: %v", err)
+		t.Fatalf("ListJobRuns returned error: %v", err)
 	}
-	if len(objects) != 2 {
-		t.Fatalf("object count = %d, want 2", len(objects))
+	if len(children) != 1 {
+		t.Fatalf("import child count = %d, want 1", len(children))
 	}
-	first := objects[0]
-	if first.Key != "photos/a.jpg" {
-		t.Fatalf("first key = %q, want photos/a.jpg", first.Key)
+	var input jobs.ObjectMutationInput
+	if err := jobs.DecodePayload(children[0].Input, &input); err != nil {
+		t.Fatalf("DecodePayload returned error: %v", err)
 	}
-	upstream, ok := first.Attributes["upstream"].(map[string]any)
-	if !ok {
-		t.Fatalf("upstream attributes = %#v, want object", first.Attributes["upstream"])
+	if len(input.Objects) != 2 {
+		t.Fatalf("import input objects = %d, want 2", len(input.Objects))
 	}
-	if upstream["etag"] != "\"abc123\"" {
-		t.Fatalf("etag = %#v, want abc123", upstream["etag"])
-	}
-	if upstream["size"] != float64(123) {
-		t.Fatalf("size = %#v, want 123", upstream["size"])
-	}
-	if first.AttributeProvenance["upstream"] != run.ID {
-		t.Fatalf("upstream provenance = %q, want %q", first.AttributeProvenance["upstream"], run.ID)
+	if input.Objects[0].Key != "photos/a.jpg" {
+		t.Fatalf("first import key = %q, want photos/a.jpg", input.Objects[0].Key)
 	}
 
 	progressed, err := store.JobRuns().GetJobRun(ctx, run.ID)
@@ -116,7 +112,7 @@ func TestHandlerUpsertsListedObjects(t *testing.T) {
 	}
 }
 
-func TestHandlerDeletesStaleObjects(t *testing.T) {
+func TestHandlerPlansRemoveJobsForMissingRemoteObjects(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := testStore(t, ctx)
 	defer cleanup()
@@ -155,12 +151,148 @@ func TestHandlerDeletesStaleObjects(t *testing.T) {
 		t.Fatalf("Handle returned error: %v", err)
 	}
 
-	if result["objects_deleted"] != 1 {
-		t.Fatalf("objects_deleted result = %#v, want 1", result["objects_deleted"])
+	if result["remove_objects_count"] != 1 {
+		t.Fatalf("remove count = %#v, want 1", result["remove_objects_count"])
 	}
-	_, err = store.Objects().GetObject(ctx, stale.ID)
-	if !errors.Is(err, storage.ErrNotFound) {
-		t.Fatalf("stale object error = %v, want %v", err, storage.ErrNotFound)
+	if _, err := store.Objects().GetObject(ctx, stale.ID); err != nil {
+		t.Fatalf("stale object should remain for remove_objects child, got error: %v", err)
+	}
+	children, err := store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
+		Type:     storage.JobTypeRemoveObjects,
+		TargetID: bucket.ID,
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("ListJobRuns returned error: %v", err)
+	}
+	if len(children) != 1 {
+		t.Fatalf("remove child count = %d, want 1", len(children))
+	}
+	var input jobs.ObjectMutationInput
+	if err := jobs.DecodePayload(children[0].Input, &input); err != nil {
+		t.Fatalf("DecodePayload returned error: %v", err)
+	}
+	if len(input.Objects) != 1 || input.Objects[0].ID != stale.ID {
+		t.Fatalf("remove input objects = %#v, want stale ID %q", input.Objects, stale.ID)
+	}
+}
+
+func TestHandlerPlansRefreshJobsForChangedObjects(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "photos/")
+	run := createSyncRun(t, ctx, store, bucket.ID)
+	existing, err := store.Objects().UpsertObject(ctx, storage.UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "photos/changed.jpg",
+		Attributes: storage.ObjectAttributes{
+			"upstream": map[string]any{
+				"etag":          "\"old\"",
+				"size":          123,
+				"last_modified": "2026-06-26T00:00:00Z",
+				"storage_class": "STANDARD",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject returned error: %v", err)
+	}
+	client := &fakeObjectClient{
+		page: s3compat.ObjectPage{
+			Objects: []s3compat.ListedObject{
+				{
+					Key:          "photos/changed.jpg",
+					ETag:         "\"new\"",
+					Size:         123,
+					LastModified: time.Date(2026, 6, 26, 0, 0, 0, 0, time.UTC),
+					StorageClass: "STANDARD",
+				},
+			},
+		},
+	}
+	handler, err := newTestHandler(store, &fakeObjectClientFactory{client: client})
+	if err != nil {
+		t.Fatalf("newTestHandler returned error: %v", err)
+	}
+
+	result, err := handler.Handle(ctx, run)
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if result["refresh_objects_count"] != 1 {
+		t.Fatalf("refresh count = %#v, want 1", result["refresh_objects_count"])
+	}
+	children, err := store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
+		Type:     storage.JobTypeRefreshObjects,
+		TargetID: bucket.ID,
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("ListJobRuns returned error: %v", err)
+	}
+	if len(children) != 1 {
+		t.Fatalf("refresh child count = %d, want 1", len(children))
+	}
+	var input jobs.ObjectMutationInput
+	if err := jobs.DecodePayload(children[0].Input, &input); err != nil {
+		t.Fatalf("DecodePayload returned error: %v", err)
+	}
+	if len(input.Objects) != 1 || input.Objects[0].ID != existing.ID {
+		t.Fatalf("refresh input objects = %#v, want existing ID %q", input.Objects, existing.ID)
+	}
+}
+
+func TestHandlerDoesNotRefreshWhenHeadAttributesMatchListing(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "photos/")
+	run := createSyncRun(t, ctx, store, bucket.ID)
+	lastModified := time.Date(2026, 6, 26, 0, 0, 0, 0, time.UTC)
+	_, err := store.Objects().UpsertObject(ctx, storage.UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "photos/current.jpg",
+		Attributes: storage.ObjectAttributes{
+			"upstream": map[string]any{
+				"etag":          "\"abc123\"",
+				"size":          123,
+				"last_modified": lastModified.Format(time.RFC3339),
+				"s3": map[string]any{
+					"storage_class": "STANDARD",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject returned error: %v", err)
+	}
+	client := &fakeObjectClient{
+		page: s3compat.ObjectPage{
+			Objects: []s3compat.ListedObject{
+				{
+					Key:          "photos/current.jpg",
+					ETag:         "\"abc123\"",
+					Size:         123,
+					LastModified: lastModified,
+					StorageClass: "STANDARD",
+				},
+			},
+		},
+	}
+	handler, err := newTestHandler(store, &fakeObjectClientFactory{client: client})
+	if err != nil {
+		t.Fatalf("newTestHandler returned error: %v", err)
+	}
+
+	result, err := handler.Handle(ctx, run)
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if result["refresh_objects_count"] != 0 {
+		t.Fatalf("refresh count = %#v, want 0", result["refresh_objects_count"])
 	}
 }
 
@@ -223,7 +355,7 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 		t.Skip("DATABASE_URL is not set")
 	}
 
-	migrationDir, err := filepath.Abs("../../storage/migrations")
+	migrationDir, err := filepath.Abs("../../../../../packages/storage/migrations")
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}

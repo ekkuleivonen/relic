@@ -120,6 +120,13 @@ func TestOpenAPI(t *testing.T) {
 	if _, ok := spec.Paths["/api/buckets/{id}/sync"]; !ok {
 		t.Fatal("OpenAPI spec does not include /api/buckets/{id}/sync")
 	}
+	bucketPath, ok := spec.Paths["/api/buckets/{id}"].(map[string]any)
+	if !ok {
+		t.Fatal("OpenAPI spec does not include /api/buckets/{id}")
+	}
+	if _, ok := bucketPath["delete"]; !ok {
+		t.Fatal("OpenAPI spec does not include DELETE /api/buckets/{id}")
+	}
 
 	if len(spec.Servers) == 0 || spec.Servers[0].URL != "/api" {
 		t.Fatalf("servers = %#v, want first URL /api", spec.Servers)

@@ -2,20 +2,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
 import { apiRequest, extractApiError } from "@/lib/api"
+import { jobRunKeys } from "@/features/job-runs/hooks/use-job-runs"
 import type {
   Bucket,
   CreateBucketInput,
   ListBucketsResponse,
   UpdateBucketInput,
 } from "@/types/buckets"
-import type { JobRun } from "@/types/jobs"
+import type { JobRun } from "@/types/job-runs"
 
 const bucketKeys = {
   all: ["buckets"] as const,
-}
-
-const jobRunKeys = {
-  all: ["job-runs"] as const,
 }
 
 export function useBuckets() {
@@ -67,6 +64,27 @@ export function useUpdateBucket(bucketId: string) {
         queryClient.invalidateQueries({ queryKey: [...bucketKeys.all, bucketId] }),
       ])
       toast.success("Bucket updated")
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+}
+
+export function useDeleteBucket(bucketId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<void>(`/buckets/${bucketId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: bucketKeys.all }),
+        queryClient.invalidateQueries({ queryKey: ["objects"] }),
+      ])
+      toast.success("Bucket deleted")
     },
     onError: (error) => {
       toast.error(extractApiError(error))

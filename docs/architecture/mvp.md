@@ -128,7 +128,7 @@ For the MVP, bucket sync is the only special bucket lifecycle action:
 POST /api/buckets/:id/sync
 ```
 
-This creates a `job_runs` row with `type = sync_bucket` and updates catalog state as the job runs.
+This creates a `job_runs` row with `type = sync_bucket`. The `sync_bucket` run lists upstream objects, compares them with Relic's catalog, and creates child `import_objects`, `refresh_objects`, and `remove_objects` runs for the catalog mutations.
 
 Bucket creation should enqueue the same `sync_bucket` job after the bucket row and encrypted credentials are committed. The UI button should call `POST /api/buckets/:id/sync` and enqueue the same job type. These paths should differ only in request provenance, not in sync behavior.
 
@@ -200,7 +200,7 @@ Persist at least:
 * First seen time.
 * Last seen time.
 
-Object rows should represent Relic's active catalog view of bucket contents. If sync determines an object no longer exists in the bucket, Relic should remove the object row. Historical visibility belongs in job runs and events, not in a deleted/tombstone flag on the active object.
+Object rows should represent Relic's active catalog view of bucket contents. If sync determines an object no longer exists in the bucket, `sync_bucket` should create a `remove_objects` child job to remove the object row. Historical visibility belongs in job runs and events, not in a deleted/tombstone flag on the active object.
 
 For duplicate detection, `upstream.etag + upstream.size` is enough to identify potential duplicates during the first sync pass. Relic should not hash every object body up front.
 
@@ -375,10 +375,13 @@ Implement bucket sync as a background job:
 
 * Create `job_runs` record.
 * Mark job running.
-* Scan bucket.
-* Upsert object records.
+* List bucket objects.
+* Compare upstream listing evidence with local object rows.
+* Create child `import_objects`, `refresh_objects`, and `remove_objects` runs.
 * Track progress.
 * Mark succeeded or failed.
+
+The child jobs own object table mutations. Import and refresh jobs fetch object metadata and upsert attributes with provenance; remove jobs delete missing local catalog rows.
 
 For the MVP, a simple in-process worker is acceptable. A durable external queue can come later if needed.
 

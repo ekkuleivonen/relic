@@ -1,4 +1,4 @@
-import { Link, useParams } from "react-router"
+import { Link, useNavigate, useParams } from "react-router"
 import { ArrowLeftIcon, Loader2Icon } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -10,12 +10,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { DeleteBucketDialog } from "@/features/buckets/components/delete-bucket-dialog"
 import { EditBucketDialog } from "@/features/buckets/components/edit-bucket-dialog"
 import { SyncBucketButton } from "@/features/buckets/components/sync-bucket-button"
 import { useBucket } from "@/features/buckets/hooks/use-buckets"
 
 export function BucketDetailPage() {
   const { bucketId } = useParams()
+  const navigate = useNavigate()
   const bucketQuery = useBucket(bucketId)
   const bucket = bucketQuery.data
 
@@ -71,7 +73,13 @@ export function BucketDetailPage() {
                     {bucket.prefix ? `/${bucket.prefix}` : ""}
                   </p>
                 </div>
-                <EditBucketDialog bucket={bucket} />
+                <div className="flex gap-2">
+                  <EditBucketDialog bucket={bucket} />
+                  <DeleteBucketDialog
+                    bucket={bucket}
+                    onDeleted={() => navigate("/buckets")}
+                  />
+                </div>
               </div>
             </header>
 
@@ -100,8 +108,7 @@ export function BucketDetailPage() {
               <CardHeader>
                 <CardTitle>Next actions</CardTitle>
                 <CardDescription>
-                  Queue a bucket sync job. The worker handler is still a stub,
-                  but this exercises the same plumbing the real sync will use.
+                  Queue a bucket sync job to refresh the active object catalog.
                 </CardDescription>
               </CardHeader>
               <CardContent>
