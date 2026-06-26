@@ -8,9 +8,14 @@ import type {
   ListBucketsResponse,
   UpdateBucketInput,
 } from "@/types/buckets"
+import type { JobRun } from "@/types/jobs"
 
 const bucketKeys = {
   all: ["buckets"] as const,
+}
+
+const jobRunKeys = {
+  all: ["job-runs"] as const,
 }
 
 export function useBuckets() {
@@ -62,6 +67,24 @@ export function useUpdateBucket(bucketId: string) {
         queryClient.invalidateQueries({ queryKey: [...bucketKeys.all, bucketId] }),
       ])
       toast.success("Bucket updated")
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+}
+
+export function useSyncBucket(bucketId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<JobRun>(`/buckets/${bucketId}/sync`, {
+        method: "POST",
+      }),
+    onSuccess: async (jobRun) => {
+      await queryClient.invalidateQueries({ queryKey: jobRunKeys.all })
+      toast.success(`Sync queued (${jobRun.id})`)
     },
     onError: (error) => {
       toast.error(extractApiError(error))

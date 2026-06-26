@@ -31,6 +31,14 @@ func (s *Store) Buckets() *BucketStore {
 	return NewBucketStore(s.pool)
 }
 
+func (s *Store) JobRuns() *JobRunStore {
+	return NewJobRunStore(s.pool)
+}
+
+func (s *Store) Objects() *ObjectStore {
+	return NewObjectStore(s.pool)
+}
+
 func (s *Store) WithTx(ctx context.Context, fn func(context.Context, *Tx) error) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -61,4 +69,12 @@ type Tx struct {
 
 func (tx *Tx) Buckets() *BucketStore {
 	return NewBucketStore(tx.tx)
+}
+
+func (tx *Tx) JobRuns() *JobRunStore {
+	return NewJobRunStore(tx.tx)
+}
+
+func (tx *Tx) Objects() *ObjectStore {
+	return NewObjectStore(tx.tx)
 }

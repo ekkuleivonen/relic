@@ -9,6 +9,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/jobs"
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
@@ -150,6 +151,42 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 
 		return &bucketOutput{Body: bucketResponseFromStorage(bucket)}, nil
 	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "sync-bucket",
+		Method:      http.MethodPost,
+		Path:        basePath + "/buckets/{id}/sync",
+		Summary:     "Sync bucket",
+		Tags:        []string{"Buckets"},
+	}, func(ctx context.Context, input *syncBucketInput) (*syncBucketOutput, error) {
+		if dependencies.Storage == nil {
+			return nil, huma.Error500InternalServerError("bucket dependencies are not configured")
+		}
+
+		if _, err := dependencies.Storage.Buckets().GetBucket(ctx, input.ID); errors.Is(err, storage.ErrNotFound) {
+			return nil, huma.Error404NotFound("bucket not found")
+		} else if err != nil {
+			return nil, err
+		}
+
+		run, err := dependencies.Storage.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+			Type:            storage.JobTypeSyncBucket,
+			RequestedByType: "api",
+			TargetType:      "bucket",
+			TargetID:        input.ID,
+			Input: storage.JobRunPayload{
+				"bucket_id": input.ID,
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return &syncBucketOutput{
+			Status: http.StatusAccepted,
+			Body:   jobs.JobRunResponseFromStorage(run),
+		}, nil
+	})
 }
 
 type createBucketInput struct {
@@ -183,6 +220,10 @@ type updateBucketInput struct {
 	Body updateBucketBody
 }
 
+type syncBucketInput struct {
+	ID string `path:"id" example:"bucket_0123456789abcdef0123456789abcdef"`
+}
+
 type updateBucketBody struct {
 	Name           *string                          `json:"name,omitempty" example:"production-data"`
 	EndpointURL    *string                          `json:"endpoint_url,omitempty" example:"https://s3.amazonaws.com"`
@@ -199,6 +240,11 @@ type bucketOutput struct {
 
 type listBucketsOutput struct {
 	Body listBucketsBody
+}
+
+type syncBucketOutput struct {
+	Status int
+	Body   jobs.JobRunResponse
 }
 
 type listBucketsBody struct {

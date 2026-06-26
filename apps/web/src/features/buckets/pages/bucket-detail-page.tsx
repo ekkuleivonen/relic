@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { EditBucketDialog } from "@/features/buckets/components/edit-bucket-dialog"
+import { SyncBucketButton } from "@/features/buckets/components/sync-bucket-button"
 import { useBucket } from "@/features/buckets/hooks/use-buckets"
 
 export function BucketDetailPage() {
@@ -99,12 +100,12 @@ export function BucketDetailPage() {
               <CardHeader>
                 <CardTitle>Next actions</CardTitle>
                 <CardDescription>
-                  Import controls and job status will live here once the import
-                  endpoint is ready.
+                  Queue a bucket sync job. The worker handler is still a stub,
+                  but this exercises the same plumbing the real sync will use.
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Button disabled>Run import</Button>
+                <SyncBucketButton bucketId={bucket.id} />
               </CardContent>
             </Card>
           </div>

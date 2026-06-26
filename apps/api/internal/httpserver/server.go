@@ -8,6 +8,8 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/buckets"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/jobs"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/objects"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/system"
 )
 
@@ -28,6 +30,8 @@ func Handler(dependencies deps.Dependencies) http.Handler {
 	mux := http.NewServeMux()
 	api := humago.New(mux, apiConfig())
 	buckets.Register(api, dependencies, apiBasePath)
+	jobs.Register(api, dependencies, apiBasePath)
+	objects.Register(api, dependencies, apiBasePath)
 	system.Register(api, dependencies, apiBasePath)
 
 	return mux
@@ -53,6 +57,14 @@ func apiConfig() huma.Config {
 		{
 			Name:        "Buckets",
 			Description: "Bucket connection and catalog import endpoints.",
+		},
+		{
+			Name:        "Jobs",
+			Description: "Durable background job run endpoints.",
+		},
+		{
+			Name:        "Objects",
+			Description: "Object catalog search and detail endpoints.",
 		},
 	}
 
