@@ -95,7 +95,6 @@ type objectResponse struct {
 	ID                  string                            `json:"id" example:"object_0123456789abcdef0123456789abcdef"`
 	BucketID            string                            `json:"bucket_id" example:"bucket_0123456789abcdef0123456789abcdef"`
 	Key                 string                            `json:"key" example:"photos/a.jpg"`
-	VersionID           string                            `json:"version_id,omitempty" example:"upstream-version"`
 	Attributes          storage.ObjectAttributes          `json:"attributes"`
 	AttributeProvenance storage.ObjectAttributeProvenance `json:"attribute_provenance"`
 	FirstSeenAt         time.Time                         `json:"first_seen_at"`
@@ -109,7 +108,6 @@ func objectResponseFromStorage(object storage.Object) objectResponse {
 		ID:                  object.ID,
 		BucketID:            object.BucketID,
 		Key:                 object.Key,
-		VersionID:           object.VersionID,
 		Attributes:          object.Attributes,
 		AttributeProvenance: object.AttributeProvenance,
 		FirstSeenAt:         object.FirstSeenAt,

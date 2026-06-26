@@ -1,4 +1,9 @@
 export type ObjectAttributes = {
+  core?: {
+    object_id?: string
+    first_seen_at?: string
+    last_seen_at?: string
+  }
   upstream?: {
     etag?: string
     size?: number
@@ -10,7 +15,11 @@ export type ObjectAttributes = {
       accept_ranges?: string
     }
     metadata?: Record<string, unknown>
-    s3?: Record<string, unknown>
+    s3?: {
+      version_id?: string
+      storage_class?: string
+      [key: string]: unknown
+    }
     gcp?: Record<string, unknown>
     b2?: Record<string, unknown>
   }
@@ -21,7 +30,6 @@ export type CatalogObject = {
   id: string
   bucket_id: string
   key: string
-  version_id?: string
   attributes: ObjectAttributes
   attribute_provenance: Record<string, string>
   first_seen_at: string

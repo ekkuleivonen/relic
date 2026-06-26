@@ -110,7 +110,10 @@ export function ObjectDetailPage() {
                   />
                 )}
                 <Detail label="Key" value={object.key} />
-                <Detail label="Version ID" value={object.version_id || "-"} />
+                <Detail
+                  label="Version ID"
+                  value={mono(object.attributes.upstream?.s3?.version_id) || "-"}
+                />
               </CardContent>
             </Card>
 

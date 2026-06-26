@@ -19,9 +19,8 @@ func TestObjectStoreUpsertGetList(t *testing.T) {
 	seenAt := time.Now().Add(-time.Minute).UTC()
 
 	created, err := objects.UpsertObject(ctx, UpsertObjectParams{
-		BucketID:  bucket.ID,
-		Key:       "photos/a.jpg",
-		VersionID: "v1",
+		BucketID: bucket.ID,
+		Key:      "photos/a.jpg",
 		Attributes: ObjectAttributes{
 			"upstream": map[string]any{
 				"etag":          "\"abc123\"",
@@ -74,9 +73,8 @@ func TestObjectStoreUpsertGetList(t *testing.T) {
 
 	laterSeenAt := seenAt.Add(time.Minute)
 	updated, err := objects.UpsertObject(ctx, UpsertObjectParams{
-		BucketID:  bucket.ID,
-		Key:       "photos/a.jpg",
-		VersionID: "v1",
+		BucketID: bucket.ID,
+		Key:      "photos/a.jpg",
 		Attributes: ObjectAttributes{
 			"upstream": map[string]any{
 				"etag": "\"def456\"",

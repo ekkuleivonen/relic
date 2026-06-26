@@ -39,7 +39,6 @@ type Object struct {
 	ID                  string
 	BucketID            string
 	Key                 string
-	VersionID           string
 	Attributes          ObjectAttributes
 	AttributeProvenance ObjectAttributeProvenance
 	FirstSeenAt         time.Time
@@ -51,7 +50,6 @@ type Object struct {
 type UpsertObjectParams struct {
 	BucketID            string
 	Key                 string
-	VersionID           string
 	Attributes          ObjectAttributes
 	AttributeProvenance ObjectAttributeProvenance
 	SeenAt              *time.Time
@@ -111,10 +109,8 @@ func (s *ObjectStore) UpsertObjects(ctx context.Context, params []UpsertObjectPa
 				id text,
 				bucket_id text,
 				key text,
-				version_id text,
 				attributes jsonb,
-				attribute_provenance jsonb,
-				seen_at timestamptz
+				attribute_provenance jsonb
 			)
 		),
 		upserted AS (
@@ -122,38 +118,38 @@ func (s *ObjectStore) UpsertObjects(ctx context.Context, params []UpsertObjectPa
 			id,
 			bucket_id,
 			key,
-			version_id,
 			attributes,
-			attribute_provenance,
-			first_seen_at,
-			last_seen_at
+			attribute_provenance
 		)
 			SELECT
 				id,
 				bucket_id,
 				key,
-				version_id,
 				attributes,
-				attribute_provenance,
-				COALESCE(seen_at, now()),
-				COALESCE(seen_at, now())
+				attribute_provenance
 			FROM input
 			ORDER BY ordinal
-		ON CONFLICT (bucket_id, key, version_id)
+		ON CONFLICT (bucket_id, key)
 		DO UPDATE SET
-			attributes = EXCLUDED.attributes,
+			attributes = EXCLUDED.attributes || jsonb_build_object(
+				'core',
+				jsonb_build_object(
+					'object_id', objects.id,
+					'first_seen_at', COALESCE(
+						objects.attributes #>> '{core,first_seen_at}',
+						EXCLUDED.attributes #>> '{core,first_seen_at}'
+					),
+					'last_seen_at', EXCLUDED.attributes #>> '{core,last_seen_at}'
+				)
+			),
 			attribute_provenance = EXCLUDED.attribute_provenance,
-			last_seen_at = EXCLUDED.last_seen_at,
 			updated_at = now()
 		RETURNING
 			id,
 			bucket_id,
 			key,
-			version_id,
 			attributes,
 			attribute_provenance,
-			first_seen_at,
-			last_seen_at,
 			created_at,
 			updated_at
 		)
@@ -161,17 +157,13 @@ func (s *ObjectStore) UpsertObjects(ctx context.Context, params []UpsertObjectPa
 			upserted.id,
 			upserted.bucket_id,
 			upserted.key,
-			upserted.version_id,
 			upserted.attributes,
 			upserted.attribute_provenance,
-			upserted.first_seen_at,
-			upserted.last_seen_at,
 			upserted.created_at,
 			upserted.updated_at
 		FROM upserted
 		INNER JOIN input ON input.bucket_id = upserted.bucket_id
 			AND input.key = upserted.key
-			AND input.version_id = upserted.version_id
 		ORDER BY input.ordinal
 	`, rowsJSON)
 	if err != nil {
@@ -200,11 +192,8 @@ func (s *ObjectStore) GetObject(ctx context.Context, id string) (Object, error) 
 			id,
 			bucket_id,
 			key,
-			version_id,
 			attributes,
 			attribute_provenance,
-			first_seen_at,
-			last_seen_at,
 			created_at,
 			updated_at
 		FROM objects
@@ -230,11 +219,8 @@ func (s *ObjectStore) ListObjects(ctx context.Context, params ListObjectsParams)
 			id,
 			bucket_id,
 			key,
-			version_id,
 			attributes,
 			attribute_provenance,
-			first_seen_at,
-			last_seen_at,
 			created_at,
 			updated_at
 		FROM objects
@@ -242,7 +228,7 @@ func (s *ObjectStore) ListObjects(ctx context.Context, params ListObjectsParams)
 			AND ($2 = '' OR key LIKE $2 || '%')
 			AND ($3 = '' OR attributes #>> '{upstream,header,content_type}' = $3)
 			AND ($4 = '' OR key ILIKE '%' || $4 || '%')
-		ORDER BY bucket_id ASC, key ASC, version_id ASC
+		ORDER BY bucket_id ASC, key ASC
 		LIMIT $5 OFFSET $6
 	`, params.BucketID, params.Prefix, params.ContentType, params.KeyContains, limit, offset)
 	if err != nil {
@@ -271,17 +257,14 @@ func (s *ObjectStore) ListObjectsInScope(ctx context.Context, params ObjectScope
 			id,
 			bucket_id,
 			key,
-			version_id,
 			attributes,
 			attribute_provenance,
-			first_seen_at,
-			last_seen_at,
 			created_at,
 			updated_at
 		FROM objects
 		WHERE ($1 = '' OR bucket_id = $1)
 			AND ($2 = '' OR key LIKE $2 || '%')
-		ORDER BY bucket_id ASC, key ASC, version_id ASC
+		ORDER BY bucket_id ASC, key ASC
 	`, params.BucketID, params.Prefix)
 	if err != nil {
 		return nil, fmt.Errorf("list objects in scope: %w", err)
@@ -333,7 +316,7 @@ func (s *ObjectStore) DeleteObjectsNotSeenSince(ctx context.Context, params Dele
 		DELETE FROM objects
 		WHERE bucket_id = $1
 			AND ($2 = '' OR key LIKE $2 || '%')
-			AND last_seen_at < $3
+			AND (attributes #>> '{core,last_seen_at}')::timestamptz < $3
 	`, params.BucketID, params.Prefix, params.SeenAt)
 	if err != nil {
 		return 0, fmt.Errorf("delete objects not seen since: %w", err)
@@ -353,11 +336,8 @@ func scanObject(row pgx.Row) (Object, error) {
 		&object.ID,
 		&object.BucketID,
 		&object.Key,
-		&object.VersionID,
 		&attributesBytes,
 		&attributeProvenanceBytes,
-		&object.FirstSeenAt,
-		&object.LastSeenAt,
 		&object.CreatedAt,
 		&object.UpdatedAt,
 	)
@@ -374,6 +354,13 @@ func scanObject(row pgx.Row) (Object, error) {
 	if err := decodeObjectAttributeProvenance(attributeProvenanceBytes, &object.AttributeProvenance); err != nil {
 		return Object{}, fmt.Errorf("decode object attribute provenance: %w", err)
 	}
+
+	firstSeenAt, lastSeenAt, err := coreTimestamps(object.Attributes)
+	if err != nil {
+		return Object{}, err
+	}
+	object.FirstSeenAt = firstSeenAt
+	object.LastSeenAt = lastSeenAt
 
 	return object, nil
 }
@@ -409,10 +396,8 @@ type upsertObjectRow struct {
 	ID                  string          `json:"id"`
 	BucketID            string          `json:"bucket_id"`
 	Key                 string          `json:"key"`
-	VersionID           string          `json:"version_id"`
 	Attributes          json.RawMessage `json:"attributes"`
 	AttributeProvenance json.RawMessage `json:"attribute_provenance"`
-	SeenAt              *time.Time      `json:"seen_at"`
 }
 
 func encodeUpsertObjectRows(params []UpsertObjectParams) ([]byte, error) {
@@ -422,7 +407,13 @@ func encodeUpsertObjectRows(params []UpsertObjectParams) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		attributes, err := encodeObjectAttributes(param.Attributes)
+		seenAt := time.Now().UTC()
+		if param.SeenAt != nil {
+			seenAt = param.SeenAt.UTC()
+		}
+		attributes := cloneObjectAttributes(param.Attributes)
+		injectCoreAttributes(attributes, id, seenAt)
+		encodedAttributes, err := encodeObjectAttributes(attributes)
 		if err != nil {
 			return nil, err
 		}
@@ -435,10 +426,8 @@ func encodeUpsertObjectRows(params []UpsertObjectParams) ([]byte, error) {
 			ID:                  id,
 			BucketID:            param.BucketID,
 			Key:                 param.Key,
-			VersionID:           param.VersionID,
-			Attributes:          json.RawMessage(attributes),
+			Attributes:          json.RawMessage(encodedAttributes),
 			AttributeProvenance: json.RawMessage(attributeProvenance),
-			SeenAt:              param.SeenAt,
 		})
 	}
 

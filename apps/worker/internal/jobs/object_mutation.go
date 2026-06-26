@@ -77,7 +77,6 @@ func UpsertObjectParamsFromHeadResults(bucketID string, runID string, results []
 		params = append(params, storage.UpsertObjectParams{
 			BucketID:   bucketID,
 			Key:        result.Evidence.Key,
-			VersionID:  result.Evidence.VersionID,
 			Attributes: result.Attributes,
 			AttributeProvenance: storage.ObjectAttributeProvenance{
 				"upstream": runID,

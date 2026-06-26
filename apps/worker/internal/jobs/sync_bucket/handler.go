@@ -80,7 +80,7 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 		}
 
 		for _, listedObject := range page.Objects {
-			upstreamObjects[listedObjectKey(listedObject.Key, "")] = listedObject
+			upstreamObjects[listedObject.Key] = listedObject
 			objectsSeen++
 		}
 
@@ -172,7 +172,7 @@ func (h *Handler) createChildJobs(ctx context.Context, run storage.JobRun, bucke
 func planObjectMutations(upstreamObjects map[string]s3compat.ListedObject, localObjects []storage.Object) ([]jobs.ObjectEvidence, []jobs.ObjectEvidence, []jobs.ObjectEvidence) {
 	localByKey := map[string]storage.Object{}
 	for _, object := range localObjects {
-		localByKey[listedObjectKey(object.Key, object.VersionID)] = object
+		localByKey[object.Key] = object
 	}
 
 	importObjects := []jobs.ObjectEvidence{}
@@ -196,9 +196,8 @@ func planObjectMutations(upstreamObjects map[string]s3compat.ListedObject, local
 			continue
 		}
 		removeObjects = append(removeObjects, jobs.ObjectEvidence{
-			ID:        localObject.ID,
-			Key:       localObject.Key,
-			VersionID: localObject.VersionID,
+			ID:  localObject.ID,
+			Key: localObject.Key,
 		})
 	}
 
@@ -255,10 +254,6 @@ func storageClassAttribute(upstreamAttributes map[string]any) string {
 	}
 
 	return ""
-}
-
-func listedObjectKey(key string, versionID string) string {
-	return key + "\x00" + versionID
 }
 
 func objectEvidenceBatches(objects []jobs.ObjectEvidence, size int) [][]jobs.ObjectEvidence {

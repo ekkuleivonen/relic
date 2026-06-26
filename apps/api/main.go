@@ -50,6 +50,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if err := storage.SeedAttributeCatalog(ctx, store.AttributeCatalog()); err != nil {
+		return err
+	}
+	slog.Info("attribute catalog seeded")
 
 	secretManager, err := secrets.NewStaticKeyManager(cfg.EncryptionKeyID, cfg.EncryptionKey)
 	if err != nil {

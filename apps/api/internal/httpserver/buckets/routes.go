@@ -35,18 +35,30 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			return nil, err
 		}
 
-		bucket, err := dependencies.Storage.Buckets().CreateBucket(ctx, storage.CreateBucketParams{
-			Name:                 input.Body.Name,
-			Upstream:             storage.BucketUpstream(input.Body.Upstream),
-			EndpointURL:          input.Body.EndpointURL,
-			Region:               input.Body.Region,
-			BucketName:           input.Body.BucketName,
-			Prefix:               input.Body.Prefix,
-			UpstreamConfig:       input.Body.UpstreamConfig,
-			EncryptedCredentials: envelope,
-			PluginSettings:       input.Body.PluginSettings,
-		})
-		if err != nil {
+		var bucket storage.Bucket
+		if err := dependencies.Storage.WithTx(ctx, func(ctx context.Context, tx *storage.Tx) error {
+			createdBucket, err := tx.Buckets().CreateBucket(ctx, storage.CreateBucketParams{
+				Name:                 input.Body.Name,
+				Upstream:             storage.BucketUpstream(input.Body.Upstream),
+				EndpointURL:          input.Body.EndpointURL,
+				Region:               input.Body.Region,
+				BucketName:           input.Body.BucketName,
+				Prefix:               input.Body.Prefix,
+				UpstreamConfig:       input.Body.UpstreamConfig,
+				EncryptedCredentials: envelope,
+				PluginSettings:       input.Body.PluginSettings,
+			})
+			if err != nil {
+				return err
+			}
+
+			if _, err := createSyncBucketJob(ctx, tx.JobRuns(), createdBucket.ID); err != nil {
+				return err
+			}
+
+			bucket = createdBucket
+			return nil
+		}); err != nil {
 			return nil, err
 		}
 
@@ -169,15 +181,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			return nil, err
 		}
 
-		run, err := dependencies.Storage.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
-			Type:            storage.JobTypeSyncBucket,
-			RequestedByType: "api",
-			TargetType:      "bucket",
-			TargetID:        input.ID,
-			Input: storage.JobRunPayload{
-				"bucket_id": input.ID,
-			},
-		})
+		run, err := createSyncBucketJob(ctx, dependencies.Storage.JobRuns(), input.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -208,6 +212,18 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 		}
 
 		return &deleteBucketOutput{Status: http.StatusNoContent}, nil
+	})
+}
+
+func createSyncBucketJob(ctx context.Context, jobRuns storage.JobRunRepository, bucketID string) (storage.JobRun, error) {
+	return jobRuns.CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:            storage.JobTypeSyncBucket,
+		RequestedByType: "api",
+		TargetType:      "bucket",
+		TargetID:        bucketID,
+		Input: storage.JobRunPayload{
+			"bucket_id": bucketID,
+		},
 	})
 }
 
