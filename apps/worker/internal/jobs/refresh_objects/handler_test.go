@@ -2,8 +2,8 @@ package refresh_objects
 
 import (
 	"context"
-	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,7 +11,13 @@ import (
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/secrets"
 	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/ekkuleivonen/relic/packages/testdb"
 	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
+)
+
+var (
+	migrateTestStoreOnce sync.Once
+	migrateTestStoreErr  error
 )
 
 func TestHandlerRefreshesObjectsFromHead(t *testing.T) {
@@ -92,6 +98,19 @@ func TestHandlerRefreshesObjectsFromHead(t *testing.T) {
 	if !ok || header["content_type"] != "image/jpeg" {
 		t.Fatalf("header = %#v, want content_type image/jpeg", upstream["header"])
 	}
+	progressed, err := store.JobRuns().GetJobRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetJobRun returned error: %v", err)
+	}
+	if progressed.Progress["phase"] != "upserting" {
+		t.Fatalf("progress phase = %#v, want upserting", progressed.Progress["phase"])
+	}
+	if progressed.Progress["objects_headed"] != float64(1) {
+		t.Fatalf("progress objects_headed = %#v, want 1", progressed.Progress["objects_headed"])
+	}
+	if progressed.Progress["objects_upserted"] != float64(1) {
+		t.Fatalf("progress objects_upserted = %#v, want 1", progressed.Progress["objects_upserted"])
+	}
 }
 
 type fakeObjectClient struct {
@@ -129,17 +148,16 @@ func (m fakeSecretsManager) Decrypt(ctx context.Context, envelope secrets.Envelo
 func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	t.Helper()
 
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not set")
-	}
-
+	databaseURL := testdb.URL(t, ctx)
 	migrationDir, err := filepath.Abs("../../../../../packages/storage/migrations")
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
-	if err := storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir); err != nil {
-		t.Fatalf("RunMigrations returned error: %v", err)
+	migrateTestStoreOnce.Do(func() {
+		migrateTestStoreErr = storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	})
+	if migrateTestStoreErr != nil {
+		t.Fatal(testdb.MigrationTimeoutError(migrateTestStoreErr))
 	}
 
 	pool, err := db.Connect(ctx, databaseURL)

@@ -43,6 +43,8 @@ export type JobRun = {
 export type ListJobRunsParams = {
   type?: JobRunType
   state?: JobRunState
+  requestedByType?: string
+  requestedById?: string
   targetType?: string
   targetId?: string
   limit?: number

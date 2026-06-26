@@ -2,8 +2,9 @@ package db
 
 import (
 	"context"
-	"os"
 	"testing"
+
+	"github.com/ekkuleivonen/relic/packages/testdb"
 )
 
 func TestConnectRejectsMissingDatabaseURL(t *testing.T) {
@@ -27,12 +28,8 @@ func TestConnectRejectsInvalidDatabaseURL(t *testing.T) {
 }
 
 func TestConnectWithDatabaseURL(t *testing.T) {
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not set")
-	}
-
-	pool, err := Connect(context.Background(), databaseURL)
+	ctx := context.Background()
+	pool, err := Connect(ctx, testdb.URL(t, ctx))
 	if err != nil {
 		t.Fatalf("Connect returned error: %v", err)
 	}

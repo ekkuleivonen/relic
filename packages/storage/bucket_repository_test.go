@@ -3,13 +3,19 @@ package storage
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/secrets"
+	"github.com/ekkuleivonen/relic/packages/testdb"
+)
+
+var (
+	migrateTestStoreOnce sync.Once
+	migrateTestStoreErr  error
 )
 
 func TestBucketStoreCreateGetList(t *testing.T) {
@@ -248,17 +254,16 @@ func TestBucketStoreDeleteMissing(t *testing.T) {
 func testStore(t *testing.T, ctx context.Context) (*Store, func()) {
 	t.Helper()
 
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not set")
-	}
-
+	databaseURL := testdb.URL(t, ctx)
 	migrationDir, err := filepath.Abs("migrations")
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
-	if err := RunMigrations(ctx, databaseURL, "file://"+migrationDir); err != nil {
-		t.Fatalf("RunMigrations returned error: %v", err)
+	migrateTestStoreOnce.Do(func() {
+		migrateTestStoreErr = RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	})
+	if migrateTestStoreErr != nil {
+		t.Fatal(testdb.MigrationTimeoutError(migrateTestStoreErr))
 	}
 
 	pool, err := db.Connect(ctx, databaseURL)

@@ -108,12 +108,14 @@ type CreateJobRunParams struct {
 }
 
 type ListJobRunsParams struct {
-	Type       JobType
-	State      JobRunState
-	TargetType string
-	TargetID   string
-	Limit      int
-	Offset     int
+	Type            JobType
+	State           JobRunState
+	RequestedByType string
+	RequestedByID   string
+	TargetType      string
+	TargetID        string
+	Limit           int
+	Offset          int
 }
 
 type ClaimJobRunParams struct {
@@ -268,11 +270,21 @@ func (s *JobRunStore) ListJobRuns(ctx context.Context, params ListJobRunsParams)
 		FROM job_runs
 		WHERE ($1 = '' OR type = $1)
 			AND ($2 = '' OR state = $2)
-			AND ($3 = '' OR target_type = $3)
-			AND ($4 = '' OR target_id = $4)
+			AND ($3 = '' OR requested_by_type = $3)
+			AND ($4 = '' OR requested_by_id = $4)
+			AND ($5 = '' OR target_type = $5)
+			AND ($6 = '' OR target_id = $6)
 		ORDER BY created_at DESC, id DESC
-		LIMIT $5 OFFSET $6
-	`, string(params.Type), string(params.State), params.TargetType, params.TargetID, limit, offset)
+		LIMIT $7 OFFSET $8
+	`, string(params.Type),
+		string(params.State),
+		params.RequestedByType,
+		params.RequestedByID,
+		params.TargetType,
+		params.TargetID,
+		limit,
+		offset,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("list job runs: %w", err)
 	}

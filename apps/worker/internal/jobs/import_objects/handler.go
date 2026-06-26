@@ -58,35 +58,15 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 		return nil, err
 	}
 
-	imported := 0
-	for _, object := range input.Objects {
-		attributes, err := client.HeadObject(ctx, s3compat.HeadObjectInput{
-			Bucket:    bucket.BucketName,
-			Key:       object.Key,
-			VersionID: object.VersionID,
-		})
-		if err != nil {
-			return nil, err
-		}
-		attributes = jobs.AttributesWithEvidence(attributes, object)
-		if _, err := h.store.Objects().UpsertObject(ctx, storage.UpsertObjectParams{
-			BucketID:   bucket.ID,
-			Key:        object.Key,
-			VersionID:  object.VersionID,
-			Attributes: attributes,
-			AttributeProvenance: storage.ObjectAttributeProvenance{
-				"upstream": run.ID,
-			},
-		}); err != nil {
-			return nil, err
-		}
-		imported++
-	}
-
-	return storage.JobRunPayload{
-		"bucket_id":        bucket.ID,
-		"objects_imported": imported,
-	}, nil
+	return jobs.ExecuteObjectMutation(ctx, jobs.ExecuteObjectMutationOptions{
+		Store:          h.store,
+		Run:            run,
+		Bucket:         bucket,
+		Client:         client,
+		Objects:        input.Objects,
+		ProgressAction: "import_objects",
+		ResultCountKey: "objects_imported",
+	})
 }
 
 func (h *Handler) clientForBucket(ctx context.Context, bucket storage.Bucket) (s3compat.ObjectClient, error) {

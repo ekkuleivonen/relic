@@ -3,8 +3,8 @@ package remove_objects
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +12,12 @@ import (
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/secrets"
 	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/ekkuleivonen/relic/packages/testdb"
+)
+
+var (
+	migrateTestStoreOnce sync.Once
+	migrateTestStoreErr  error
 )
 
 func TestHandlerDeletesRequestedObjects(t *testing.T) {
@@ -65,17 +71,16 @@ func TestHandlerDeletesRequestedObjects(t *testing.T) {
 func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	t.Helper()
 
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not set")
-	}
-
+	databaseURL := testdb.URL(t, ctx)
 	migrationDir, err := filepath.Abs("../../../../../packages/storage/migrations")
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
-	if err := storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir); err != nil {
-		t.Fatalf("RunMigrations returned error: %v", err)
+	migrateTestStoreOnce.Do(func() {
+		migrateTestStoreErr = storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	})
+	if migrateTestStoreErr != nil {
+		t.Fatal(testdb.MigrationTimeoutError(migrateTestStoreErr))
 	}
 
 	pool, err := db.Connect(ctx, databaseURL)

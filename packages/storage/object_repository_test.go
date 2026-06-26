@@ -119,6 +119,85 @@ func TestObjectStoreGetMissing(t *testing.T) {
 	}
 }
 
+func TestObjectStoreUpsertObjectsInsertUpdateAndEmpty(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createObjectTestBucket(t, ctx, store)
+	objects := store.Objects()
+	seenAt := time.Now().Add(-time.Minute).UTC()
+
+	empty, err := objects.UpsertObjects(ctx, nil)
+	if err != nil {
+		t.Fatalf("UpsertObjects empty returned error: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("empty result length = %d, want 0", len(empty))
+	}
+
+	created, err := objects.UpsertObjects(ctx, []UpsertObjectParams{
+		{
+			BucketID: bucket.ID,
+			Key:      "batch/a.jpg",
+			Attributes: ObjectAttributes{
+				"upstream": map[string]any{"etag": "\"a\""},
+			},
+			AttributeProvenance: ObjectAttributeProvenance{"upstream": "jobrun_import"},
+			SeenAt:              &seenAt,
+		},
+		{
+			BucketID: bucket.ID,
+			Key:      "batch/b.jpg",
+			Attributes: ObjectAttributes{
+				"upstream": map[string]any{"etag": "\"b\""},
+			},
+			AttributeProvenance: ObjectAttributeProvenance{"upstream": "jobrun_import"},
+			SeenAt:              &seenAt,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertObjects insert returned error: %v", err)
+	}
+	if len(created) != 2 {
+		t.Fatalf("created length = %d, want 2", len(created))
+	}
+	if created[0].Key != "batch/a.jpg" || created[1].Key != "batch/b.jpg" {
+		t.Fatalf("created order = %q, %q; want batch order", created[0].Key, created[1].Key)
+	}
+
+	laterSeenAt := seenAt.Add(time.Minute)
+	updated, err := objects.UpsertObjects(ctx, []UpsertObjectParams{
+		{
+			BucketID: bucket.ID,
+			Key:      "batch/a.jpg",
+			Attributes: ObjectAttributes{
+				"upstream": map[string]any{"etag": "\"updated\""},
+			},
+			AttributeProvenance: ObjectAttributeProvenance{"upstream": "jobrun_refresh"},
+			SeenAt:              &laterSeenAt,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertObjects update returned error: %v", err)
+	}
+	if len(updated) != 1 {
+		t.Fatalf("updated length = %d, want 1", len(updated))
+	}
+	if updated[0].ID != created[0].ID {
+		t.Fatalf("updated ID = %q, want existing ID %q", updated[0].ID, created[0].ID)
+	}
+	if !updated[0].FirstSeenAt.Equal(created[0].FirstSeenAt) {
+		t.Fatalf("updated first seen = %v, want %v", updated[0].FirstSeenAt, created[0].FirstSeenAt)
+	}
+	if !updated[0].LastSeenAt.Equal(laterSeenAt) {
+		t.Fatalf("updated last seen = %v, want %v", updated[0].LastSeenAt, laterSeenAt)
+	}
+	if updated[0].AttributeProvenance["upstream"] != "jobrun_refresh" {
+		t.Fatalf("updated provenance = %#v, want refresh provenance", updated[0].AttributeProvenance)
+	}
+}
+
 func TestObjectStoreDelete(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := testStore(t, ctx)

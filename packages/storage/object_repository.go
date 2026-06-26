@@ -14,6 +14,7 @@ import (
 
 type ObjectRepository interface {
 	UpsertObject(context.Context, UpsertObjectParams) (Object, error)
+	UpsertObjects(context.Context, []UpsertObjectParams) ([]Object, error)
 	GetObject(context.Context, string) (Object, error)
 	ListObjects(context.Context, ListObjectsParams) ([]Object, error)
 	ListObjectsInScope(context.Context, ObjectScopeParams) ([]Object, error)
@@ -81,21 +82,42 @@ type DeleteObjectsParams struct {
 }
 
 func (s *ObjectStore) UpsertObject(ctx context.Context, params UpsertObjectParams) (Object, error) {
-	id, err := newObjectID()
+	objects, err := s.UpsertObjects(ctx, []UpsertObjectParams{params})
 	if err != nil {
 		return Object{}, err
+	}
+	if len(objects) == 0 {
+		return Object{}, ErrNotFound
 	}
 
-	attributes, err := encodeObjectAttributes(params.Attributes)
-	if err != nil {
-		return Object{}, err
-	}
-	attributeProvenance, err := encodeObjectAttributeProvenance(params.AttributeProvenance)
-	if err != nil {
-		return Object{}, err
+	return objects[0], nil
+}
+
+func (s *ObjectStore) UpsertObjects(ctx context.Context, params []UpsertObjectParams) ([]Object, error) {
+	if len(params) == 0 {
+		return []Object{}, nil
 	}
 
-	return scanObject(s.runner.QueryRow(ctx, `
+	rowsJSON, err := encodeUpsertObjectRows(params)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := s.runner.Query(ctx, `
+		WITH input AS (
+			SELECT *
+			FROM jsonb_to_recordset($1::jsonb) AS x(
+				ordinal int,
+				id text,
+				bucket_id text,
+				key text,
+				version_id text,
+				attributes jsonb,
+				attribute_provenance jsonb,
+				seen_at timestamptz
+			)
+		),
+		upserted AS (
 		INSERT INTO objects (
 			id,
 			bucket_id,
@@ -106,7 +128,17 @@ func (s *ObjectStore) UpsertObject(ctx context.Context, params UpsertObjectParam
 			first_seen_at,
 			last_seen_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::timestamptz, now()), COALESCE($7::timestamptz, now()))
+			SELECT
+				id,
+				bucket_id,
+				key,
+				version_id,
+				attributes,
+				attribute_provenance,
+				COALESCE(seen_at, now()),
+				COALESCE(seen_at, now())
+			FROM input
+			ORDER BY ordinal
 		ON CONFLICT (bucket_id, key, version_id)
 		DO UPDATE SET
 			attributes = EXCLUDED.attributes,
@@ -124,14 +156,42 @@ func (s *ObjectStore) UpsertObject(ctx context.Context, params UpsertObjectParam
 			last_seen_at,
 			created_at,
 			updated_at
-	`, id,
-		params.BucketID,
-		params.Key,
-		params.VersionID,
-		attributes,
-		attributeProvenance,
-		params.SeenAt,
-	))
+		)
+		SELECT
+			upserted.id,
+			upserted.bucket_id,
+			upserted.key,
+			upserted.version_id,
+			upserted.attributes,
+			upserted.attribute_provenance,
+			upserted.first_seen_at,
+			upserted.last_seen_at,
+			upserted.created_at,
+			upserted.updated_at
+		FROM upserted
+		INNER JOIN input ON input.bucket_id = upserted.bucket_id
+			AND input.key = upserted.key
+			AND input.version_id = upserted.version_id
+		ORDER BY input.ordinal
+	`, rowsJSON)
+	if err != nil {
+		return nil, fmt.Errorf("upsert objects: %w", err)
+	}
+	defer rows.Close()
+
+	objects := []Object{}
+	for rows.Next() {
+		object, err := scanObject(rows)
+		if err != nil {
+			return nil, err
+		}
+		objects = append(objects, object)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("upsert objects: %w", err)
+	}
+
+	return objects, nil
 }
 
 func (s *ObjectStore) GetObject(ctx context.Context, id string) (Object, error) {
@@ -339,6 +399,52 @@ func encodeObjectAttributeProvenance(provenance ObjectAttributeProvenance) ([]by
 	encoded, err := json.Marshal(provenance)
 	if err != nil {
 		return nil, fmt.Errorf("encode object attribute provenance: %w", err)
+	}
+
+	return encoded, nil
+}
+
+type upsertObjectRow struct {
+	Ordinal             int             `json:"ordinal"`
+	ID                  string          `json:"id"`
+	BucketID            string          `json:"bucket_id"`
+	Key                 string          `json:"key"`
+	VersionID           string          `json:"version_id"`
+	Attributes          json.RawMessage `json:"attributes"`
+	AttributeProvenance json.RawMessage `json:"attribute_provenance"`
+	SeenAt              *time.Time      `json:"seen_at"`
+}
+
+func encodeUpsertObjectRows(params []UpsertObjectParams) ([]byte, error) {
+	rows := make([]upsertObjectRow, 0, len(params))
+	for index, param := range params {
+		id, err := newObjectID()
+		if err != nil {
+			return nil, err
+		}
+		attributes, err := encodeObjectAttributes(param.Attributes)
+		if err != nil {
+			return nil, err
+		}
+		attributeProvenance, err := encodeObjectAttributeProvenance(param.AttributeProvenance)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, upsertObjectRow{
+			Ordinal:             index,
+			ID:                  id,
+			BucketID:            param.BucketID,
+			Key:                 param.Key,
+			VersionID:           param.VersionID,
+			Attributes:          json.RawMessage(attributes),
+			AttributeProvenance: json.RawMessage(attributeProvenance),
+			SeenAt:              param.SeenAt,
+		})
+	}
+
+	encoded, err := json.Marshal(rows)
+	if err != nil {
+		return nil, fmt.Errorf("encode object upsert rows: %w", err)
 	}
 
 	return encoded, nil

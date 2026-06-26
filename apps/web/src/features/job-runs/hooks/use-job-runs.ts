@@ -14,11 +14,15 @@ export const jobRunKeys = {
     [...jobRunKeys.all, jobRunId] as const,
 }
 
-export function useJobRuns(params: ListJobRunsParams = {}) {
+export function useJobRuns(
+  params: ListJobRunsParams = {},
+  options: { enabled?: boolean } = {}
+) {
   return useQuery({
     queryKey: jobRunKeys.list(params),
     queryFn: () =>
       apiRequest<ListJobRunsResponse>(`/job-runs${jobRunQueryString(params)}`),
+    enabled: options.enabled ?? true,
     refetchInterval: (query) =>
       hasActiveJobRuns(query.state.data?.job_runs) ? 3000 : false,
   })
@@ -39,6 +43,8 @@ function jobRunQueryString(params: ListJobRunsParams) {
 
   appendParam(searchParams, "type", params.type)
   appendParam(searchParams, "state", params.state)
+  appendParam(searchParams, "requested_by_type", params.requestedByType)
+  appendParam(searchParams, "requested_by_id", params.requestedById)
   appendParam(searchParams, "target_type", params.targetType)
   appendParam(searchParams, "target_id", params.targetId)
   appendParam(searchParams, "limit", params.limit?.toString())

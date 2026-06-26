@@ -69,6 +69,32 @@ func TestJobRunStoreCreateGetList(t *testing.T) {
 	if !jobRunListContains(listed, created.ID) {
 		t.Fatalf("ListJobRuns did not include created job run %q", created.ID)
 	}
+
+	child, err := jobRuns.CreateJobRun(ctx, CreateJobRunParams{
+		Type:            JobTypeImportObjects,
+		RequestedByType: "job",
+		RequestedByID:   created.ID,
+		TargetType:      "bucket",
+		TargetID:        targetID,
+	})
+	if err != nil {
+		t.Fatalf("CreateJobRun child returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.pool.Exec(context.Background(), "DELETE FROM job_runs WHERE id = $1", child.ID)
+	})
+
+	children, err := jobRuns.ListJobRuns(ctx, ListJobRunsParams{
+		RequestedByType: "job",
+		RequestedByID:   created.ID,
+		Limit:           50,
+	})
+	if err != nil {
+		t.Fatalf("ListJobRuns children returned error: %v", err)
+	}
+	if len(children) != 1 || children[0].ID != child.ID {
+		t.Fatalf("children = %#v, want only %q", children, child.ID)
+	}
 }
 
 func TestJobRunStoreGetMissing(t *testing.T) {

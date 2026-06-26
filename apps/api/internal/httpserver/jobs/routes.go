@@ -23,12 +23,14 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 		}
 
 		runs, err := dependencies.Storage.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
-			Type:       storage.JobType(input.Type),
-			State:      storage.JobRunState(input.State),
-			TargetType: input.TargetType,
-			TargetID:   input.TargetID,
-			Limit:      input.Limit,
-			Offset:     input.Offset,
+			Type:            storage.JobType(input.Type),
+			State:           storage.JobRunState(input.State),
+			RequestedByType: input.RequestedByType,
+			RequestedByID:   input.RequestedByID,
+			TargetType:      input.TargetType,
+			TargetID:        input.TargetID,
+			Limit:           input.Limit,
+			Offset:          input.Offset,
 		})
 		if err != nil {
 			return nil, err
@@ -66,12 +68,14 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 }
 
 type listJobRunsInput struct {
-	Type       string `query:"type" example:"sync_bucket"`
-	State      string `query:"state" example:"pending"`
-	TargetType string `query:"target_type" example:"bucket"`
-	TargetID   string `query:"target_id" example:"bucket_0123456789abcdef0123456789abcdef"`
-	Limit      int    `query:"limit" example:"100"`
-	Offset     int    `query:"offset" example:"0"`
+	Type            string `query:"type" example:"sync_bucket"`
+	State           string `query:"state" example:"pending"`
+	RequestedByType string `query:"requested_by_type" example:"job"`
+	RequestedByID   string `query:"requested_by_id" example:"jobrun_0123456789abcdef0123456789abcdef"`
+	TargetType      string `query:"target_type" example:"bucket"`
+	TargetID        string `query:"target_id" example:"bucket_0123456789abcdef0123456789abcdef"`
+	Limit           int    `query:"limit" example:"100"`
+	Offset          int    `query:"offset" example:"0"`
 }
 
 type getJobRunInput struct {

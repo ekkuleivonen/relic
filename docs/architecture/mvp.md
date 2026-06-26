@@ -280,6 +280,13 @@ Rules:
 * Keep JSONB query construction centralized.
 * Make tests cover the abstraction instead of individual callers relying on database details.
 
+Test database rules:
+
+* Runtime code uses `DATABASE_URL`.
+* DB-backed tests use `TEST_DATABASE_URL` and never fall back to the runtime database.
+* `TEST_DATABASE_SCHEMA` defaults to `relic_test`; test helpers create it, set `search_path`, and apply statement/lock timeouts before running migrations.
+* Migrations should run once per test package process, not once per test case, to avoid piling up Postgres advisory locks.
+
 This is not about supporting multiple databases in the MVP. It is about keeping persistence logic disciplined and preventing route handlers, services, workers, or future background systems from going around the storage layer.
 
 ### 3. Database Schema

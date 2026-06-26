@@ -2,8 +2,8 @@ package import_objects
 
 import (
 	"context"
-	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,7 +11,13 @@ import (
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/secrets"
 	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/ekkuleivonen/relic/packages/testdb"
 	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
+)
+
+var (
+	migrateTestStoreOnce sync.Once
+	migrateTestStoreErr  error
 )
 
 func TestHandlerImportsObjectsFromHead(t *testing.T) {
@@ -24,6 +30,9 @@ func TestHandlerImportsObjectsFromHead(t *testing.T) {
 		BucketID: bucket.ID,
 		Objects: []jobs.ObjectEvidence{{
 			Key:          "photos/a.jpg",
+			StorageClass: "STANDARD",
+		}, {
+			Key:          "photos/b.jpg",
 			StorageClass: "STANDARD",
 		}},
 	})
@@ -57,19 +66,19 @@ func TestHandlerImportsObjectsFromHead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Handle returned error: %v", err)
 	}
-	if result["objects_imported"] != 1 {
-		t.Fatalf("objects_imported = %#v, want 1", result["objects_imported"])
+	if result["objects_imported"] != 2 {
+		t.Fatalf("objects_imported = %#v, want 2", result["objects_imported"])
 	}
-	if len(client.headInputs) != 1 || client.headInputs[0].Key != "photos/a.jpg" {
-		t.Fatalf("head inputs = %#v, want photos/a.jpg", client.headInputs)
+	if len(client.headInputs) != 2 {
+		t.Fatalf("head inputs = %d, want 2", len(client.headInputs))
 	}
 
 	objects, err := store.Objects().ListObjectsInScope(ctx, storage.ObjectScopeParams{BucketID: bucket.ID})
 	if err != nil {
 		t.Fatalf("ListObjectsInScope returned error: %v", err)
 	}
-	if len(objects) != 1 {
-		t.Fatalf("object count = %d, want 1", len(objects))
+	if len(objects) != 2 {
+		t.Fatalf("object count = %d, want 2", len(objects))
 	}
 	if objects[0].AttributeProvenance["upstream"] != run.ID {
 		t.Fatalf("provenance = %q, want %q", objects[0].AttributeProvenance["upstream"], run.ID)
@@ -85,11 +94,25 @@ func TestHandlerImportsObjectsFromHead(t *testing.T) {
 	if !ok || header["content_type"] != "image/jpeg" {
 		t.Fatalf("header = %#v, want content_type image/jpeg", upstream["header"])
 	}
+	progressed, err := store.JobRuns().GetJobRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetJobRun returned error: %v", err)
+	}
+	if progressed.Progress["phase"] != "upserting" {
+		t.Fatalf("progress phase = %#v, want upserting", progressed.Progress["phase"])
+	}
+	if progressed.Progress["objects_headed"] != float64(2) {
+		t.Fatalf("progress objects_headed = %#v, want 2", progressed.Progress["objects_headed"])
+	}
+	if progressed.Progress["objects_upserted"] != float64(2) {
+		t.Fatalf("progress objects_upserted = %#v, want 2", progressed.Progress["objects_upserted"])
+	}
 }
 
 type fakeObjectClient struct {
 	headAttributes storage.ObjectAttributes
 	headInputs     []s3compat.HeadObjectInput
+	mu             sync.Mutex
 }
 
 func (c *fakeObjectClient) ListObjects(ctx context.Context, input s3compat.ListObjectsInput) (s3compat.ObjectPage, error) {
@@ -97,6 +120,8 @@ func (c *fakeObjectClient) ListObjects(ctx context.Context, input s3compat.ListO
 }
 
 func (c *fakeObjectClient) HeadObject(ctx context.Context, input s3compat.HeadObjectInput) (storage.ObjectAttributes, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.headInputs = append(c.headInputs, input)
 	return c.headAttributes, nil
 }
@@ -124,17 +149,16 @@ func (m fakeSecretsManager) Decrypt(ctx context.Context, envelope secrets.Envelo
 func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	t.Helper()
 
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("DATABASE_URL is not set")
-	}
-
+	databaseURL := testdb.URL(t, ctx)
 	migrationDir, err := filepath.Abs("../../../../../packages/storage/migrations")
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
-	if err := storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir); err != nil {
-		t.Fatalf("RunMigrations returned error: %v", err)
+	migrateTestStoreOnce.Do(func() {
+		migrateTestStoreErr = storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	})
+	if migrateTestStoreErr != nil {
+		t.Fatal(testdb.MigrationTimeoutError(migrateTestStoreErr))
 	}
 
 	pool, err := db.Connect(ctx, databaseURL)

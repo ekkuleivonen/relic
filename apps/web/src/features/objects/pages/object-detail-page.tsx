@@ -135,10 +135,40 @@ export function ObjectDetailPage() {
               </CardContent>
             </Card>
 
-            <JsonCard
-              title="Attribute provenance"
-              description="Where each object attribute came from during catalog enrichment."
-              value={object.attribute_provenance}
+            <Card>
+              <CardHeader>
+                <CardTitle>Upstream metadata</CardTitle>
+                <CardDescription>
+                  Key attributes captured from listing and HEAD enrichment.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-2">
+                <Detail label="ETag" value={mono(object.attributes.upstream?.etag)} />
+                <Detail
+                  label="Size"
+                  value={formatSize(object.attributes.upstream?.size)}
+                />
+                <Detail
+                  label="Storage class"
+                  value={storageClass(object.attributes.upstream)}
+                />
+                <Detail
+                  label="Content type"
+                  value={object.attributes.upstream?.header?.content_type ?? "-"}
+                />
+                <Detail
+                  label="Cache control"
+                  value={object.attributes.upstream?.header?.cache_control ?? "-"}
+                />
+                <Detail
+                  label="Accept ranges"
+                  value={object.attributes.upstream?.header?.accept_ranges ?? "-"}
+                />
+              </CardContent>
+            </Card>
+
+            <ProvenanceCard
+              provenance={object.attribute_provenance}
             />
 
             <JsonCard
@@ -150,6 +180,54 @@ export function ObjectDetailPage() {
         )}
       </div>
     </main>
+  )
+}
+
+function ProvenanceCard({
+  provenance,
+}: {
+  provenance: Record<string, string>
+}) {
+  const entries = Object.entries(provenance)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Attribute provenance</CardTitle>
+        <CardDescription>
+          The job run that last wrote each attribute namespace.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No provenance has been recorded for this object yet.
+          </p>
+        ) : (
+          <div className="grid gap-3">
+            {entries.map(([path, jobRunId]) => (
+              <div
+                key={path}
+                className="flex flex-col gap-1 rounded-lg border bg-background/60 p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground">
+                    Attribute path
+                  </div>
+                  <div className="mt-1 font-mono text-sm">{path}</div>
+                </div>
+                <Link
+                  className="font-mono text-sm underline-offset-4 hover:underline"
+                  to={`/job-runs/${jobRunId}`}
+                >
+                  {jobRunId}
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -184,6 +262,50 @@ function JsonCard({
       </CardContent>
     </Card>
   )
+}
+
+function mono(value: string | undefined) {
+  if (!value) {
+    return <span className="text-muted-foreground">-</span>
+  }
+
+  return <span className="font-mono text-[11px]">{value}</span>
+}
+
+function formatSize(value: number | undefined) {
+  if (value === undefined) {
+    return <span className="text-muted-foreground">-</span>
+  }
+
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 1,
+    notation: value >= 1024 * 1024 * 1024 ? "compact" : "standard",
+    style: "unit",
+    unit: "byte",
+    unitDisplay: "narrow",
+  }).format(value)
+}
+
+function storageClass(upstream: Record<string, unknown> | undefined) {
+  if (!upstream) {
+    return <span className="text-muted-foreground">-</span>
+  }
+  if (typeof upstream.storage_class === "string") {
+    return upstream.storage_class
+  }
+
+  for (const namespace of ["s3", "gcp"]) {
+    const nested = upstream[namespace]
+    if (isRecord(nested) && typeof nested.storage_class === "string") {
+      return nested.storage_class
+    }
+  }
+
+  return <span className="text-muted-foreground">-</span>
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function formatDate(value: string) {
