@@ -4,9 +4,9 @@
 
 Build the smallest credible version of Relic:
 
-> Connect a bucket, import its object inventory, store useful metadata, and make it searchable.
+> Connect a bucket, sync its object inventory, store useful metadata, and make it searchable.
 
-The MVP should prove Relic's core loop before expanding into plugins, event streams, reconciliation, AI enrichment, or governance workflows.
+The MVP should prove Relic's core loop before expanding into event streams, reconciliation, AI enrichment, or governance automation.
 
 ## First Product Slice
 
@@ -14,10 +14,10 @@ The first usable Relic flow should be:
 
 1. Add a bucket from the UI.
 2. Store bucket credentials encrypted in the database.
-3. Run an initial import.
+3. Enqueue an initial bucket sync.
 4. Persist objects and core metadata.
-5. Search or list imported objects.
-6. Show sync/import job status.
+5. Search or list synced objects.
+6. Show sync job status.
 
 This is the first "real Relic" loop. If this works well, the rest of the platform has a foundation.
 
@@ -28,16 +28,15 @@ Include:
 * Bucket creation from the UI.
 * Encrypted credential persistence.
 * S3-compatible bucket access.
-* Initial full bucket import.
+* Initial full bucket sync.
 * Object catalog persistence.
 * Basic object list/search.
-* Import job state and progress.
+* Sync job state and progress.
 * Auth middleware shape, disabled by default until implemented.
 * Health endpoint and basic operational visibility.
 
 Exclude for now:
 
-* Plugins.
 * Relations.
 * Collections.
 * AI enrichment.
@@ -45,7 +44,7 @@ Exclude for now:
 * Embeddings.
 * Event streams.
 * Reconciliation.
-* Duplicate cleanup workflows.
+* Duplicate cleanup automation.
 * Cost optimization.
 * Compliance reporting.
 
@@ -82,7 +81,7 @@ Go implementation direction:
 
 * Use normal `net/http` middleware patterns for request authentication.
 * Treat authenticated callers as principals.
-* Represent principals as human users, API tokens, plugins, or workflows as the platform grows.
+* Represent principals as human users or API tokens for the MVP.
 * Validate OIDC tokens with a well-maintained OIDC library.
 * Store API tokens hashed, not plaintext.
 * Accept machine tokens as bearer tokens.
@@ -101,17 +100,16 @@ POST   /api/buckets
 GET    /api/buckets/:id
 PATCH  /api/buckets/:id
 DELETE /api/buckets/:id
-POST   /api/buckets/:id/import
+POST   /api/buckets/:id/sync
 ```
 
-Bucket creation should accept provider details, credentials, prefix or scope, non-secret provider config, and plugin settings. Read responses must never return plaintext credential secrets.
+Bucket creation should accept provider details, credentials, prefix or scope, and non-secret provider config. Read responses must never return plaintext credential secrets.
 
 Bucket fields should be split by ownership:
 
 * Top-level bucket fields are Relic's provider-neutral connection and scope model: provider, endpoint URL, region, bucket name, and prefix.
 * `provider_config` is for non-secret adapter-specific options that Relic does not interpret generically, such as S3 path-style addressing, compatibility flags, TLS options, or provider-specific signing details.
 * Credentials are secret material and must be encrypted separately from provider config.
-* `plugin_settings` is for plugin-owned ongoing behavior.
 
 Example S3-compatible provider config:
 
@@ -124,35 +122,15 @@ Example S3-compatible provider config:
 }
 ```
 
-For the MVP, manual import is the only special bucket lifecycle action:
+For the MVP, bucket sync is the only special bucket lifecycle action:
 
 ```http
-POST /api/buckets/:id/import
+POST /api/buckets/:id/sync
 ```
 
-This creates an import job and updates catalog state as the job runs.
+This creates a `job_runs` row with `type = sync_bucket` and updates catalog state as the job runs.
 
-Ongoing behavior should be represented as plugin-owned settings, not as special bucket subsystems. The bucket contract should reserve a JSONB-friendly plugin settings shape:
-
-```json
-{
-  "plugins": {
-    "background_verification": {
-      "enabled": true,
-      "settings": {
-        "interval": "24h",
-        "sample_rate": 0.01
-      }
-    },
-    "duplicate_detection": {
-      "enabled": false,
-      "settings": {}
-    }
-  }
-}
-```
-
-Future scheduled imports, background verification, and reconciliation can become plugin settings once those concepts are sharper.
+Bucket creation should enqueue the same `sync_bucket` job after the bucket row and encrypted credentials are committed. The UI button should call `POST /api/buckets/:id/sync` and enqueue the same job type. These paths should differ only in request provenance, not in sync behavior.
 
 ### Credential Encryption
 
@@ -186,7 +164,7 @@ openssl rand -base64 32
 
 The API process should decode `ENCRYPTION_KEY_BASE64`, require exactly 32 bytes, construct a `secrets.Manager`, and inject that manager into services that need to encrypt or decrypt credentials. Storage must only persist `secrets.Envelope` values and must not read encryption configuration or perform encryption itself.
 
-### Import Job Lifecycle
+### Sync Job Lifecycle
 
 Define:
 
@@ -221,18 +199,19 @@ Persist at least:
 * S3-compatible object tags where available.
 * First seen time.
 * Last seen time.
-* Deleted/tombstone flag.
 
-For duplicate detection, `provider.etag + provider.size` is enough to identify potential duplicates during the first import pass. Relic should not hash every object body up front.
+Object rows should represent Relic's active catalog view of bucket contents. If sync determines an object no longer exists in the bucket, Relic should remove the object row. Historical visibility belongs in job runs and events, not in a deleted/tombstone flag on the active object.
+
+For duplicate detection, `provider.etag + provider.size` is enough to identify potential duplicates during the first sync pass. Relic should not hash every object body up front.
 
 Duplicate verification should be two-phase:
 
-1. Group imported objects by `provider.etag + provider.size`.
+1. Group synced objects by `provider.etag + provider.size`.
 2. Flag matching groups as potential duplicates.
 3. Compute SHA-256 only for potential duplicate groups.
 4. Mark matching hashes as verified duplicates.
 
-This keeps initial import cheap while still allowing Relic to confirm duplicates before presenting them as certain.
+This keeps initial sync cheap while still allowing Relic to confirm duplicates before presenting them as certain.
 
 ### Search/List API
 
@@ -289,7 +268,7 @@ Status:
 * Done: Bucket create, get, and list are implemented behind the storage layer.
 * Done: JSONB helper primitives exist for future centralized JSONB handling.
 * Pending: Bucket update and delete persistence.
-* Pending: Object, content, and job repositories.
+* Pending: Object, content, and job run repositories.
 * Pending: Broader integration tests for future repositories.
 
 Rules:
@@ -301,7 +280,7 @@ Rules:
 * Keep JSONB query construction centralized.
 * Make tests cover the abstraction instead of individual callers relying on database details.
 
-This is not about supporting multiple databases in the MVP. It is about keeping persistence logic disciplined and preventing route handlers, services, workers, plugins, or workflows from going around the storage layer.
+This is not about supporting multiple databases in the MVP. It is about keeping persistence logic disciplined and preventing route handlers, services, workers, or future background systems from going around the storage layer.
 
 ### 3. Database Schema
 
@@ -309,10 +288,9 @@ Create initial tables for:
 
 * `buckets`
 * `objects`
-* `contents`, for verified duplicate content
-* `jobs`
+* `job_runs`
 
-The `buckets` table should include bucket identity, provider-neutral connection and scope fields, encrypted credentials, `provider_config` JSONB, and `plugin_settings` JSONB. Scheduled import, background verification, and reconciliation settings should remain plugin-owned rather than hardcoded bucket columns.
+The `buckets` table should include bucket identity, provider-neutral connection and scope fields, encrypted credentials, and `provider_config` JSONB.
 
 Status:
 
@@ -321,19 +299,17 @@ Status:
 * Done: `buckets` includes provider-neutral connection and scope fields.
 * Done: `buckets` stores encrypted credential envelope fields.
 * Done: `buckets` includes `provider_config` JSONB for non-secret adapter-specific options.
-* Done: `buckets` includes `plugin_settings` JSONB for plugin-owned behavior.
 * Pending: `objects` table.
-* Pending: `contents` table for verified duplicate content.
-* Pending: `jobs` table.
+* Pending: `job_runs` table.
 
 The `objects` table should include:
 
-* `attributes` JSONB for provider, user, plugin, workflow, and core attributes.
-* `attribute_provenance` JSONB mapping attribute paths or prefixes to job IDs.
+* `attributes` JSONB for provider, user, job-produced, and core attributes.
+* `attribute_provenance` JSONB mapping attribute paths or prefixes to job run IDs.
 
-Every attribute mutation should be represented by a job or run record, including user edits. This keeps provenance compact while avoiding one provenance row per object attribute.
+Automated attribute mutations should be represented by a job run record. User edits should carry direct user provenance. This keeps provenance compact while avoiding one provenance row per object attribute.
 
-Do not overbuild the schema for plugins, relations, or collections yet.
+Do not overbuild the schema for relations or collections yet.
 
 ### 4. Credential Encryption
 
@@ -347,7 +323,7 @@ Status:
 * Done: Bucket creation encrypts credential JSON before persistence.
 * Done: Bucket responses omit plaintext credentials and encrypted credential envelopes.
 * Done: Credential encryption behavior is covered by tests.
-* Pending: Provider-facing decrypt path when scanner/import needs credentials.
+* Pending: Provider-facing decrypt path when sync jobs need credentials.
 * Pending: Full redaction checks for future logs, jobs, and events.
 
 * Encrypt credentials before persistence.
@@ -369,7 +345,7 @@ Status:
 * Done: Bucket create encrypts credentials before calling storage.
 * Done: Bucket read responses redact credentials.
 * Pending: `DELETE /api/buckets/:id`.
-* Pending: `POST /api/buckets/:id/import`.
+* Pending: `POST /api/buckets/:id/sync`.
 * Pending: Optional credential validation against the provider before saving.
 
 Operations:
@@ -377,13 +353,13 @@ Operations:
 * Create bucket.
 * List buckets.
 * Get bucket.
-* Update bucket connection config and plugin settings.
+* Update bucket connection config.
 * Delete bucket.
 
 Bucket creation should optionally validate credentials against the provider before saving.
-Bucket update should allow changing plugin settings without replacing credentials.
+Bucket creation should enqueue an initial `sync_bucket` job after persistence succeeds.
 
-### 6. S3-Compatible Scanner
+### 6. S3-Compatible Provider Adapter
 
 Implement initial object listing for S3-compatible buckets:
 
@@ -393,11 +369,11 @@ Implement initial object listing for S3-compatible buckets:
 * Basic metadata capture.
 * Retry behavior for transient provider errors.
 
-### 7. Background Import Job
+### 7. Background Sync Job
 
-Implement bucket import as a background job:
+Implement bucket sync as a background job:
 
-* Create job record.
+* Create `job_runs` record.
 * Mark job running.
 * Scan bucket.
 * Upsert object records.
@@ -412,7 +388,7 @@ Build the smallest UI around the core loop:
 
 * Add bucket form.
 * Bucket list.
-* Trigger import.
+* Trigger sync.
 * Job status view.
 * Object table.
 * Basic filters/search.
@@ -428,7 +404,7 @@ Object attributes should be stored in JSONB and indexed with GIN. This is the pr
 Rules:
 
 * Do not support SQLite in the MVP.
-* Never bypass the DB abstraction from route handlers, services, workers, plugins, or workflows.
+* Never bypass the DB abstraction from route handlers, services, workers, or future automation systems.
 * Keep JSONB query construction inside the persistence layer.
 * Use generated columns or dedicated indexes for hot paths when needed.
 * Keep attribute provenance in a compact JSONB sidecar, not inside the hot attribute document.
@@ -442,12 +418,11 @@ Do not build these until the initial catalog loop is working:
 * Durable event transport.
 * Continuous sync.
 * Reconciliation.
-* Attribute plugins.
 * Semantic search.
-* Duplicate cleanup workflows.
+* Duplicate cleanup automation.
 * Object relationship graph.
 * Governance dashboards.
-* Workflow/automation engine.
+* Automation engine.
 * Multi-tenant authorization model.
 
 ## Success Criteria
@@ -458,9 +433,9 @@ The MVP is successful when a user can:
 2. Open the web UI.
 3. Add an S3-compatible bucket.
 4. See credentials accepted without manual secret-manager setup.
-5. Trigger an import.
-6. Watch import progress.
-7. Browse and search imported objects.
+5. Trigger a bucket sync.
+6. Watch sync progress.
+7. Browse and search synced objects.
 8. Restart Relic without losing catalog state.
 
 At that point, Relic has proven its core identity:

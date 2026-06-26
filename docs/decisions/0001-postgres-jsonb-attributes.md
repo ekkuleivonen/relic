@@ -145,31 +145,31 @@ Example:
 
 The keys are exact attribute paths or path prefixes. The values are job/run identifiers.
 
-Every attribute mutation should be represented by a job or run record, including user edits.
+Every automated attribute mutation should be represented by a job run. User edits can use direct user provenance.
 
-The job record carries the full provenance:
+The job run carries the automated provenance:
 
 ```text
-jobs
+job_runs
   id
   type
   state
 
-  actor_type
-  actor_id
-  actor_name
-  actor_version
+  requested_by_type
+  requested_by_id
+  target_type
+  target_id
 
   created_at
   updated_at
 ```
 
-Example job records:
+Example provenance records:
 
 ```text
-job.import_123 | import_bucket | system | bucket_importer | 0.1.0
-job.plugin_456 | plugin_execution | plugin | duplicate_detection | 1.4.2
-job.user_update_223 | user_attribute_update | user | user_123 | null
+run.import_123 | import_objects | provider_event | bucket_123
+run.extract_456 | extract_attributes | system | object_456
+user.update_223 | user_attribute_update | user | user_123
 ```
 
 Resolution rule:
