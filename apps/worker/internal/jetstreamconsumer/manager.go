@@ -91,14 +91,23 @@ func (m *Manager) sync(ctx context.Context) error {
 
 	started, stopped, unchanged := m.reconcile(ctx, desired)
 
-	m.logger.Info(
-		"jetstream consumer sync complete",
-		"started", started,
-		"stopped", stopped,
-		"unchanged", unchanged,
-		"desired", len(desired),
-		"running", len(m.running),
-	)
+	if started > 0 || stopped > 0 {
+		m.logger.Info(
+			"jetstream consumer sync complete",
+			"started", started,
+			"stopped", stopped,
+			"unchanged", unchanged,
+			"desired", len(desired),
+			"running", len(m.running),
+		)
+	} else {
+		m.logger.Debug(
+			"jetstream consumer sync complete",
+			"unchanged", unchanged,
+			"desired", len(desired),
+			"running", len(m.running),
+		)
+	}
 
 	return nil
 }
@@ -141,15 +150,25 @@ func (m *Manager) loadDesiredConfigs(ctx context.Context) (map[string]storage.Bu
 
 func (m *Manager) reconcile(ctx context.Context, desired map[string]storage.BucketJetStreamConfig) (started, stopped, unchanged int) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
+	waiting := []*managedConsumer{}
 	for bucketID, managed := range m.running {
 		cfg, ok := desired[bucketID]
 		if !ok || !cfg.Equal(managed.config) {
-			m.stopUnlocked(bucketID, managed)
+			managed.cancel()
+			delete(m.running, bucketID)
+			waiting = append(waiting, managed)
 			stopped++
 		}
 	}
+	m.mu.Unlock()
+
+	for _, managed := range waiting {
+		<-managed.done
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	for bucketID, cfg := range desired {
 		managed, ok := m.running[bucketID]
@@ -210,12 +229,6 @@ func (m *Manager) startLocked(ctx context.Context, bucketID string, cfg storage.
 	return true
 }
 
-func (m *Manager) stopUnlocked(bucketID string, managed *managedConsumer) {
-	managed.cancel()
-	<-managed.done
-	delete(m.running, bucketID)
-}
-
 func (m *Manager) removeRunning(bucketID string, managed *managedConsumer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -230,10 +243,16 @@ func (m *Manager) removeRunning(bucketID string, managed *managedConsumer) {
 
 func (m *Manager) stopAll() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	waiting := make([]*managedConsumer, 0, len(m.running))
 	for bucketID, managed := range m.running {
-		m.stopUnlocked(bucketID, managed)
+		managed.cancel()
+		waiting = append(waiting, managed)
+		delete(m.running, bucketID)
+	}
+	m.mu.Unlock()
+
+	for _, managed := range waiting {
+		<-managed.done
 	}
 }
 

@@ -130,16 +130,15 @@ func (c *Consumer) Run(ctx context.Context) error {
 	)
 
 	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		msgs, err := sub.Fetch(defaultFetchBatch, nats.MaxWait(defaultFetchWait))
+		fetchCtx, cancel := context.WithTimeout(ctx, defaultFetchWait)
+		msgs, err := sub.Fetch(defaultFetchBatch, nats.Context(fetchCtx))
+		cancel()
 		if err != nil {
-			if errors.Is(err, nats.ErrTimeout) {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, nats.ErrTimeout) {
 				continue
+			}
+			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+				return ctx.Err()
 			}
 			return fmt.Errorf("fetch jetstream messages: %w", err)
 		}
