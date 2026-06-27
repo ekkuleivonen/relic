@@ -153,6 +153,7 @@ func (s *AttributeCatalogStore) UpsertObserved(ctx context.Context, path string,
 	_, err = s.runner.Exec(ctx, `
 		INSERT INTO attribute_catalog (path, value_type, source)
 		VALUES ($1, $2, 'observed')
+		ON CONFLICT (path) DO NOTHING
 	`, path, dbType)
 	if err != nil {
 		return fmt.Errorf("insert observed catalog path: %w", err)

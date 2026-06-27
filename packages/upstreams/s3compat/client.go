@@ -3,6 +3,7 @@ package s3compat
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -12,6 +13,7 @@ import (
 type ObjectClient interface {
 	ListObjects(context.Context, ListObjectsInput) (ObjectPage, error)
 	HeadObject(context.Context, HeadObjectInput) (HeadObjectData, error)
+	GetObject(context.Context, HeadObjectInput) (io.ReadCloser, error)
 	GetObjectTagging(context.Context, HeadObjectInput) (map[string]string, error)
 }
 
@@ -32,6 +34,7 @@ type S3API interface {
 	ListObjectsV2(context.Context, *s3.ListObjectsV2Input, ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
 	ListObjects(context.Context, *s3.ListObjectsInput, ...func(*s3.Options)) (*s3.ListObjectsOutput, error)
 	HeadObject(context.Context, *s3.HeadObjectInput, ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
+	GetObject(context.Context, *s3.GetObjectInput, ...func(*s3.Options)) (*s3.GetObjectOutput, error)
 	GetObjectTagging(context.Context, *s3.GetObjectTaggingInput, ...func(*s3.Options)) (*s3.GetObjectTaggingOutput, error)
 }
 
@@ -102,6 +105,22 @@ func (c *SDKClient) HeadObject(ctx context.Context, input HeadObjectInput) (Head
 		Output:          output,
 		ResponseHeaders: headers,
 	}, nil
+}
+
+func (c *SDKClient) GetObject(ctx context.Context, input HeadObjectInput) (io.ReadCloser, error) {
+	output, err := c.api.GetObject(ctx, &s3.GetObjectInput{
+		Bucket:    aws.String(input.Bucket),
+		Key:       aws.String(input.Key),
+		VersionId: optionalString(input.VersionID),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if output.Body == nil {
+		return nil, fmt.Errorf("get object %q: empty body", input.Key)
+	}
+
+	return output.Body, nil
 }
 
 func (c *SDKClient) GetObjectTagging(ctx context.Context, input HeadObjectInput) (map[string]string, error) {

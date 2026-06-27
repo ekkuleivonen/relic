@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
@@ -44,6 +45,10 @@ func (c *recordingListClient) ListObjects(_ context.Context, input s3compat.List
 
 func (c *recordingListClient) HeadObject(context.Context, s3compat.HeadObjectInput) (s3compat.HeadObjectData, error) {
 	return s3compat.HeadObjectData{}, fmt.Errorf("not implemented")
+}
+
+func (c *recordingListClient) GetObject(context.Context, s3compat.HeadObjectInput) (io.ReadCloser, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (c *recordingListClient) GetObjectTagging(context.Context, s3compat.HeadObjectInput) (map[string]string, error) {

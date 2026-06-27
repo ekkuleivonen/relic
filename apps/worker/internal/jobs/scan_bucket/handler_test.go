@@ -3,6 +3,7 @@ package scan_bucket
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -507,6 +508,10 @@ func (c *fakeObjectClient) ListObjects(ctx context.Context, input s3compat.ListO
 
 func (c *fakeObjectClient) HeadObject(context.Context, s3compat.HeadObjectInput) (s3compat.HeadObjectData, error) {
 	return s3compat.HeadObjectData{Output: &s3.HeadObjectOutput{}}, nil
+}
+
+func (c *fakeObjectClient) GetObject(context.Context, s3compat.HeadObjectInput) (io.ReadCloser, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (c *fakeObjectClient) GetObjectTagging(context.Context, s3compat.HeadObjectInput) (map[string]string, error) {

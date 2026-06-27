@@ -12,6 +12,7 @@ import {
 import { RelicqlEditor } from "@/features/search/components/relicql-editor"
 import { DEFAULT_RELICQL_QUERY, BUILTIN_SEARCH_ATTRIBUTES } from "@/features/search/constants"
 import { useSearchAttributes } from "@/features/search/hooks/use-search-attributes"
+import { useSearchRelationTypes } from "@/features/search/hooks/use-search-relation-types"
 import { useSearchExecute } from "@/features/search/hooks/use-search-execute"
 import { useValidateSearch } from "@/features/search/hooks/use-search-validate"
 import { ObjectsTable } from "@/features/objects/components/objects-table"
@@ -29,6 +30,7 @@ export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
   )
 
   const searchAttributes = useSearchAttributes()
+  const searchRelationTypes = useSearchRelationTypes()
   const attributes = React.useMemo(() => {
     const fromApi = searchAttributes.data?.attributes ?? []
     if (fromApi.length === 0) {
@@ -44,6 +46,7 @@ export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
       left.path.localeCompare(right.path)
     )
   }, [searchAttributes.data?.attributes])
+  const relationTypes = searchRelationTypes.data?.relation_types ?? []
   const validateSearch = useValidateSearch()
   const executeQuery = useSearchExecute({
     query: submittedQuery ?? "",
@@ -127,6 +130,7 @@ export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
           value={draftQuery}
           onChange={setDraftQuery}
           attributes={attributes}
+          relationTypes={relationTypes}
           onSubmit={() => void handleSubmit()}
         />
 

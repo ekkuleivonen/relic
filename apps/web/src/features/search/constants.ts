@@ -12,3 +12,7 @@ export const BUILTIN_SEARCH_ATTRIBUTES: SearchAttribute[] = [
   { path: "core.last_seen_at", type: "timestamp", source: "builtin" },
   { path: "core.object_id", type: "string", source: "builtin" },
 ]
+
+export const BUILTIN_RELATION_TYPES = ["duplicate"] as const
+
+export const RELATION_DIRECTIONS = ["any", "in", "out"] as const

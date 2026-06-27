@@ -110,6 +110,27 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			Body: listSearchAttributesBody{Attributes: attributes},
 		}, nil
 	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "list-search-relation-types",
+		Method:      http.MethodGet,
+		Path:        basePath + "/search/relation-types",
+		Summary:     "List known relation types",
+		Tags:        []string{"Search"},
+	}, func(ctx context.Context, _ *listSearchRelationTypesInput) (*listSearchRelationTypesOutput, error) {
+		if dependencies.Storage == nil {
+			return nil, huma.Error500InternalServerError("search dependencies are not configured")
+		}
+
+		types, err := dependencies.Storage.ListSearchRelationTypes(ctx)
+		if err != nil {
+			return nil, huma.Error500InternalServerError(err.Error())
+		}
+
+		return &listSearchRelationTypesOutput{
+			Body: listSearchRelationTypesBody{RelationTypes: types},
+		}, nil
+	})
 }
 
 type executeSearchInput struct {
@@ -168,6 +189,16 @@ type attributeResponse struct {
 	Path   string `json:"path" example:"upstream.size"`
 	Type   string `json:"type,omitempty" example:"integer"`
 	Source string `json:"source,omitempty" example:"builtin"`
+}
+
+type listSearchRelationTypesInput struct{}
+
+type listSearchRelationTypesOutput struct {
+	Body listSearchRelationTypesBody
+}
+
+type listSearchRelationTypesBody struct {
+	RelationTypes []string `json:"relation_types"`
 }
 
 func dependencyResponsesFromBound(bound search.BoundQuery) []dependencyResponse {

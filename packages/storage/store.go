@@ -51,6 +51,14 @@ func (s *Store) UpstreamEvents() *UpstreamEventStore {
 	return NewUpstreamEventStore(s.pool)
 }
 
+func (s *Store) Relations() *RelationStore {
+	return NewRelationStore(s.pool)
+}
+
+func (s *Store) ListSearchRelationTypes(ctx context.Context) ([]string, error) {
+	return s.Relations().ListRelationTypes(ctx)
+}
+
 func (s *Store) WithTx(ctx context.Context, fn func(context.Context, *Tx) error) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -101,4 +109,8 @@ func (tx *Tx) AttributeCatalog() *AttributeCatalogStore {
 
 func (tx *Tx) UpstreamCaptureFields() *UpstreamCaptureFieldStore {
 	return NewUpstreamCaptureFieldStore(tx.tx)
+}
+
+func (tx *Tx) Relations() *RelationStore {
+	return NewRelationStore(tx.tx)
 }

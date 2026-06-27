@@ -159,6 +159,53 @@ func TestJobRunStoreLastSucceededJobRunFinishedAt(t *testing.T) {
 	}
 }
 
+func TestJobRunStoreHasActiveJobRunMatchesNullTargetID(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	if _, err := store.JobRuns().CreateJobRun(ctx, CreateJobRunParams{
+		Type:       JobTypeDetectDuplicates,
+		TargetType: "catalog",
+	}); err != nil {
+		t.Fatalf("CreateJobRun returned error: %v", err)
+	}
+
+	active, err := store.JobRuns().HasActiveJobRun(ctx, HasActiveJobRunParams{
+		Type:       JobTypeDetectDuplicates,
+		TargetType: "catalog",
+		TargetID:   "",
+	})
+	if err != nil {
+		t.Fatalf("HasActiveJobRun returned error: %v", err)
+	}
+	if !active {
+		t.Fatal("HasActiveJobRun() = false, want true for null target_id row")
+	}
+}
+
+func TestJobRunStoreHasActiveJobRunOfType(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	if _, err := store.JobRuns().CreateJobRun(ctx, CreateJobRunParams{
+		Type:       JobTypeDetectDuplicates,
+		TargetType: "catalog",
+		TargetID:   "catalog",
+	}); err != nil {
+		t.Fatalf("CreateJobRun returned error: %v", err)
+	}
+
+	active, err := store.JobRuns().HasActiveJobRunOfType(ctx, JobTypeDetectDuplicates)
+	if err != nil {
+		t.Fatalf("HasActiveJobRunOfType returned error: %v", err)
+	}
+	if !active {
+		t.Fatal("HasActiveJobRunOfType() = false, want true")
+	}
+}
+
 func secretsEnvelope() secrets.Envelope {
 	return secrets.Envelope{
 		KeyID:      "local-dev",

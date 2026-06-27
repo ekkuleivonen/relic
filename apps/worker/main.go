@@ -9,11 +9,13 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
+	detectduplicates "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/detect_duplicates"
 	importobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/import_objects"
 	refreshobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/refresh_objects"
 	removeobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/remove_objects"
@@ -30,19 +32,22 @@ import (
 )
 
 const (
-	defaultPollInterval          = 2 * time.Second
-	defaultBatchLatency            = 30 * time.Second
-	defaultConfigRefetchInterval   = 5 * time.Minute
+	defaultPollInterval                = 2 * time.Second
+	defaultBatchLatency                = 30 * time.Second
+	defaultConfigRefetchInterval       = 5 * time.Minute
+	defaultDuplicateDetectionInterval  = 24 * time.Hour
 )
 
 type config struct {
-	DatabaseURL           string
-	WorkerID              string
-	PollInterval          time.Duration
-	BatchLatency          time.Duration
-	ConfigRefetchInterval time.Duration
-	EncryptionKeyID       string
-	EncryptionKey         []byte
+	DatabaseURL                 string
+	WorkerID                    string
+	PollInterval                time.Duration
+	BatchLatency                time.Duration
+	ConfigRefetchInterval       time.Duration
+	EncryptionKeyID             string
+	EncryptionKey               []byte
+	DuplicateDetectionEnabled   bool
+	DuplicateDetectionInterval  time.Duration
 }
 
 func main() {
@@ -128,7 +133,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	registry, err := jobs.NewRegistry(syncBucketHandler, scanBucketHandler, importObjectsHandler, refreshObjectsHandler, removeObjectsHandler)
+	detectDuplicatesHandler, err := detectduplicates.NewHandler(detectduplicates.HandlerOptions{
+		Store:   store,
+		Secrets: secretManager,
+		Factory: s3compat.ClientFactory{},
+	})
+	if err != nil {
+		return err
+	}
+	registry, err := jobs.NewRegistry(syncBucketHandler, scanBucketHandler, importObjectsHandler, refreshObjectsHandler, removeObjectsHandler, detectDuplicatesHandler)
 	if err != nil {
 		return err
 	}
@@ -147,7 +160,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	errCh := make(chan error, 4)
+	errCh := make(chan error, 5)
 	running := 4
 
 	go func() {
@@ -181,6 +194,30 @@ func run() error {
 		)
 		errCh <- scanScheduler.Run(ctx)
 	}()
+
+	if cfg.DuplicateDetectionEnabled {
+		running++
+		duplicateDetectionScheduler, err := scanscheduler.NewDuplicateDetectionScheduler(scanscheduler.DuplicateDetectionSchedulerOptions{
+			Store:             store,
+			Logger:            slog.Default(),
+			SchedulerInterval: cfg.PollInterval,
+			Interval:          cfg.DuplicateDetectionInterval,
+		})
+		if err != nil {
+			return err
+		}
+
+		go func() {
+			slog.Info(
+				"duplicate detection scheduler started",
+				"poll_interval", cfg.PollInterval,
+				"duplicate_detection_interval", cfg.DuplicateDetectionInterval,
+			)
+			errCh <- duplicateDetectionScheduler.Run(ctx)
+		}()
+	} else {
+		slog.Info("duplicate detection scheduler disabled")
+	}
 
 	upstreamProcessor, err := upstreamprocessor.NewProcessor(upstreamprocessor.ProcessorOptions{
 		Store:             store,
@@ -275,15 +312,25 @@ func loadConfig() (config, error) {
 	if encryptionKeyID == "" {
 		return config{}, fmt.Errorf("ENCRYPTION_KEY_ID is required")
 	}
+	duplicateDetectionEnabled, err := boolEnv(lookup, "DUPLICATE_DETECTION_ENABLED", false)
+	if err != nil {
+		return config{}, err
+	}
+	duplicateDetectionInterval, err := durationEnv(lookup, "DUPLICATE_DETECTION_INTERVAL", defaultDuplicateDetectionInterval)
+	if err != nil {
+		return config{}, err
+	}
 
 	return config{
-		DatabaseURL:           databaseURL,
-		WorkerID:              stringEnv(lookup, "WORKER_ID", defaultWorkerID()),
-		PollInterval:          pollInterval,
-		BatchLatency:          batchLatency,
-		ConfigRefetchInterval: configRefetchInterval,
-		EncryptionKeyID:       encryptionKeyID,
-		EncryptionKey:         encryptionKey,
+		DatabaseURL:                databaseURL,
+		WorkerID:                   stringEnv(lookup, "WORKER_ID", defaultWorkerID()),
+		PollInterval:               pollInterval,
+		BatchLatency:               batchLatency,
+		ConfigRefetchInterval:      configRefetchInterval,
+		EncryptionKeyID:            encryptionKeyID,
+		EncryptionKey:              encryptionKey,
+		DuplicateDetectionEnabled:  duplicateDetectionEnabled,
+		DuplicateDetectionInterval: duplicateDetectionInterval,
 	}, nil
 }
 
@@ -307,6 +354,20 @@ func durationEnv(lookup lookupFunc, key string, fallback time.Duration) (time.Du
 	parsed, err := time.ParseDuration(value)
 	if err != nil {
 		return 0, fmt.Errorf("parse %s: %w", key, err)
+	}
+
+	return parsed, nil
+}
+
+func boolEnv(lookup lookupFunc, key string, fallback bool) (bool, error) {
+	value, ok := lookup(key)
+	if !ok || value == "" {
+		return fallback, nil
+	}
+
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("parse %s: %w", key, err)
 	}
 
 	return parsed, nil

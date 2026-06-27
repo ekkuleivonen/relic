@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -865,6 +866,10 @@ func (c *fakeObjectClient) HeadObject(ctx context.Context, input s3compat.HeadOb
 	}
 
 	return s3compat.HeadObjectData{Output: &s3.HeadObjectOutput{}}, nil
+}
+
+func (c *fakeObjectClient) GetObject(context.Context, s3compat.HeadObjectInput) (io.ReadCloser, error) {
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (c *fakeObjectClient) GetObjectTagging(ctx context.Context, input s3compat.HeadObjectInput) (map[string]string, error) {

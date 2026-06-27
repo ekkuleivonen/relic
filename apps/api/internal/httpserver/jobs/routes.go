@@ -65,6 +65,37 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 
 		return &jobRunOutput{Body: jobRunResponseFromStorage(run)}, nil
 	})
+
+	huma.Register(api, huma.Operation{
+		OperationID:   "create-detect-duplicates-job",
+		Method:        http.MethodPost,
+		Path:          basePath + "/detect-duplicates",
+		Summary:       "Start duplicate detection",
+		Tags:          []string{"Jobs"},
+		DefaultStatus: http.StatusAccepted,
+	}, func(ctx context.Context, input *createDetectDuplicatesInput) (*createDetectDuplicatesOutput, error) {
+		if dependencies.Storage == nil {
+			return nil, huma.Error500InternalServerError("job dependencies are not configured")
+		}
+
+		payload := storage.JobRunPayload{}
+		if input.Body.Scope != nil {
+			payload["scope"] = input.Body.Scope
+		}
+
+		run, err := dependencies.Storage.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+			Type:            storage.JobTypeDetectDuplicates,
+			RequestedByType: "api",
+			TargetType:      "catalog",
+			TargetID:        "catalog",
+			Input:           payload,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return &createDetectDuplicatesOutput{Body: jobRunResponseFromStorage(run)}, nil
+	})
 }
 
 type listJobRunsInput struct {
@@ -80,6 +111,18 @@ type listJobRunsInput struct {
 
 type getJobRunInput struct {
 	ID string `path:"id" example:"jobrun_0123456789abcdef0123456789abcdef"`
+}
+
+type createDetectDuplicatesInput struct {
+	Body createDetectDuplicatesBody
+}
+
+type createDetectDuplicatesBody struct {
+	Scope map[string]any `json:"scope,omitempty"`
+}
+
+type createDetectDuplicatesOutput struct {
+	Body jobRunResponse
 }
 
 type jobRunOutput struct {

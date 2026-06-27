@@ -2,6 +2,8 @@ package refresh_objects
 
 import (
 	"context"
+	"errors"
+	"io"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -124,6 +126,10 @@ func (c *fakeObjectClient) ListObjects(ctx context.Context, input s3compat.ListO
 
 func (c *fakeObjectClient) HeadObject(ctx context.Context, input s3compat.HeadObjectInput) (s3compat.HeadObjectData, error) {
 	return s3compat.HeadObjectDataFromUpstreamAttributes(c.headAttributes), nil
+}
+
+func (c *fakeObjectClient) GetObject(context.Context, s3compat.HeadObjectInput) (io.ReadCloser, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (c *fakeObjectClient) GetObjectTagging(context.Context, s3compat.HeadObjectInput) (map[string]string, error) {

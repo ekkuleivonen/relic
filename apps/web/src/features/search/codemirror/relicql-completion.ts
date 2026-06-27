@@ -10,7 +10,11 @@ import {
 import { EditorState, Prec, type Extension } from "@codemirror/state"
 import { EditorView, keymap, type ViewUpdate } from "@codemirror/view"
 
-import { BUILTIN_SEARCH_ATTRIBUTES } from "@/features/search/constants"
+import {
+  BUILTIN_RELATION_TYPES,
+  BUILTIN_SEARCH_ATTRIBUTES,
+  RELATION_DIRECTIONS,
+} from "@/features/search/constants"
 import type { SearchAttribute } from "@/types/search"
 
 const KEYWORD_COMPLETIONS: Completion[] = [
@@ -99,19 +103,92 @@ const SNIPPET_COMPLETIONS: Completion[] = [
   },
 ]
 
-const ATTR_CALL_PATTERN = /(?:attr|has_relation)\s*\(\s*'/gi
+const ATTR_CALL_PATTERN = /attr\s*\(\s*'/gi
+const RELATION_CALL_PATTERN = /has_relation\s*\(\s*'/gi
 
 let attributeCatalog: SearchAttribute[] = BUILTIN_SEARCH_ATTRIBUTES
+let relationTypeCatalog: string[] = [...BUILTIN_RELATION_TYPES]
 
 export function setRelicqlAttributeCatalog(attributes: SearchAttribute[]) {
   attributeCatalog =
     attributes.length > 0 ? attributes : BUILTIN_SEARCH_ATTRIBUTES
 }
 
+export function setRelicqlRelationTypes(relationTypes: string[]) {
+  const merged = new Set<string>(BUILTIN_RELATION_TYPES)
+  for (const relationType of relationTypes) {
+    if (relationType.trim()) {
+      merged.add(relationType)
+    }
+  }
+  relationTypeCatalog = [...merged].sort((left, right) =>
+    left.localeCompare(right)
+  )
+}
+
+type QuotedArgContext = {
+  from: number
+  to: number
+  prefix: string
+}
+
+type RelationCallContext = QuotedArgContext & {
+  argument: "type" | "direction"
+}
+
+function quotedArgAt(
+  text: string,
+  pos: number,
+  contentStart: number
+): QuotedArgContext | null {
+  let contentEnd = contentStart
+  while (
+    contentEnd < text.length &&
+    text[contentEnd] !== "'" &&
+    text[contentEnd] !== "\n"
+  ) {
+    contentEnd++
+  }
+
+  const hasClosingQuote = contentEnd < text.length && text[contentEnd] === "'"
+  const maxPos = hasClosingQuote ? contentEnd : pos
+
+  if (pos > maxPos) {
+    const afterQuote = hasClosingQuote && pos === contentEnd + 1
+    const beforeCloseParen =
+      afterQuote && contentEnd + 1 < text.length && text[contentEnd + 1] === ")"
+    if (!beforeCloseParen) {
+      return null
+    }
+
+    const fullValue = text.slice(contentStart, contentEnd)
+    if (!/^[\w.]*$/.test(fullValue)) {
+      return null
+    }
+
+    return {
+      from: contentStart,
+      to: contentEnd,
+      prefix: fullValue,
+    }
+  }
+
+  const prefix = text.slice(contentStart, Math.min(pos, maxPos))
+  if (!/^[\w.]*$/.test(prefix)) {
+    return null
+  }
+
+  return {
+    from: contentStart,
+    to: Math.min(pos, maxPos),
+    prefix,
+  }
+}
+
 export function getAttrPathPrefixAt(state: EditorState, pos: number) {
   const text = state.doc.toString()
   let match: RegExpExecArray | null
-  let active: { from: number; to: number; prefix: string } | null = null
+  let active: QuotedArgContext | null = null
 
   while ((match = ATTR_CALL_PATTERN.exec(text)) !== null) {
     const pathStart = match.index + match[0].length
@@ -119,44 +196,69 @@ export function getAttrPathPrefixAt(state: EditorState, pos: number) {
       continue
     }
 
-    let pathEnd = pathStart
-    while (pathEnd < text.length && text[pathEnd] !== "'" && text[pathEnd] !== "\n") {
-      pathEnd++
+    const context = quotedArgAt(text, pos, pathStart)
+    if (context) {
+      active = context
+    }
+  }
+
+  return active
+}
+
+export function getRelationCallContextAt(
+  state: EditorState,
+  pos: number
+): RelationCallContext | null {
+  const text = state.doc.toString()
+  let match: RegExpExecArray | null
+  let active: RelationCallContext | null = null
+
+  while ((match = RELATION_CALL_PATTERN.exec(text)) !== null) {
+    const typeStart = match.index + match[0].length
+    if (pos < typeStart) {
+      continue
     }
 
-    const hasClosingQuote = pathEnd < text.length && text[pathEnd] === "'"
-    const maxPos = hasClosingQuote ? pathEnd : pos
-
-    if (pos > maxPos) {
-      const afterQuote = hasClosingQuote && pos === pathEnd + 1
-      const beforeCloseParen =
-        afterQuote && pathEnd + 1 < text.length && text[pathEnd + 1] === ")"
-      if (!beforeCloseParen) {
-        continue
-      }
-
-      const fullPath = text.slice(pathStart, pathEnd)
-      if (!/^[\w.]*$/.test(fullPath)) {
-        continue
-      }
-
+    const typeContext = quotedArgAt(text, pos, typeStart)
+    if (typeContext) {
       active = {
-        from: pathStart,
-        to: pathEnd,
-        prefix: fullPath,
+        ...typeContext,
+        argument: "type",
       }
       continue
     }
 
-    const prefix = text.slice(pathStart, Math.min(pos, maxPos))
-    if (!/^[\w.]*$/.test(prefix)) {
+    let afterType = typeStart
+    while (afterType < text.length && text[afterType] !== "'") {
+      afterType++
+    }
+    if (afterType >= text.length || text[afterType] !== "'") {
+      continue
+    }
+    afterType++
+
+    const directionPrefix = text.slice(afterType).match(/^\s*,\s*'/)
+    if (!directionPrefix) {
+      continue
+    }
+
+    const directionStart = afterType + directionPrefix[0].length
+    if (pos < directionStart) {
+      continue
+    }
+
+    const directionContext = quotedArgAt(text, pos, directionStart)
+    if (!directionContext) {
+      continue
+    }
+
+    if (!/^[\w]*$/.test(directionContext.prefix)) {
       continue
     }
 
     active = {
-      from: pathStart,
-      to: Math.min(pos, maxPos),
-      prefix,
+      ...directionContext,
+      argument: "direction",
     }
   }
 
@@ -269,6 +371,36 @@ export function getNextSegmentCompletions(
   )
 }
 
+export function getRelationTypeCompletions(
+  relationTypes: string[],
+  prefix: string
+): Completion[] {
+  const normalized = prefix.toLowerCase()
+  return relationTypes
+    .filter(
+      (relationType) =>
+        !normalized || relationType.toLowerCase().startsWith(normalized)
+    )
+    .map((relationType) => ({
+      label: relationType,
+      type: "enum",
+      detail: "relation type",
+    }))
+}
+
+export function getRelationDirectionCompletions(
+  prefix: string
+): Completion[] {
+  const normalized = prefix.toLowerCase()
+  return RELATION_DIRECTIONS.filter(
+    (direction) => !normalized || direction.startsWith(normalized)
+  ).map((direction) => ({
+    label: direction,
+    type: "keyword",
+    detail: "relation direction",
+  }))
+}
+
 function createSegmentApply(segment: string, isLeaf: boolean): Completion["apply"] {
   return (view, _completion, from, to) => {
     const insert = isLeaf ? segment : `${segment}.`
@@ -320,8 +452,41 @@ function attributePathCompletions(
   }
 }
 
+function relationCallCompletions(
+  context: CompletionContext
+): CompletionResult | null {
+  const relationContext = getRelationCallContextAt(context.state, context.pos)
+  if (!relationContext) {
+    return null
+  }
+
+  const options =
+    relationContext.argument === "type"
+      ? getRelationTypeCompletions(relationTypeCatalog, relationContext.prefix)
+      : getRelationDirectionCompletions(relationContext.prefix)
+
+  if (options.length === 0) {
+    return null
+  }
+
+  return {
+    from: relationContext.from,
+    to: relationContext.to,
+    options,
+    validFor: /^[\w.]*$/,
+    filter: false,
+  }
+}
+
+function isInsideQuotedFunctionArg(state: EditorState, pos: number) {
+  return (
+    getAttrPathPrefixAt(state, pos) !== null ||
+    getRelationCallContextAt(state, pos) !== null
+  )
+}
+
 function generalCompletions(context: CompletionContext): CompletionResult | null {
-  if (getAttrPathPrefixAt(context.state, context.pos)) {
+  if (isInsideQuotedFunctionArg(context.state, context.pos)) {
     return null
   }
 
@@ -343,6 +508,11 @@ function generalCompletions(context: CompletionContext): CompletionResult | null
 }
 
 function relicqlCompletionSource(context: CompletionContext): CompletionResult | null {
+  const relationMatch = relationCallCompletions(context)
+  if (relationMatch) {
+    return relationMatch
+  }
+
   const attributeMatch = attributePathCompletions(context)
   if (attributeMatch) {
     return attributeMatch
@@ -351,7 +521,7 @@ function relicqlCompletionSource(context: CompletionContext): CompletionResult |
   return generalCompletions(context)
 }
 
-function maybeStartAttributeCompletion(update: ViewUpdate) {
+function maybeStartQuotedArgCompletion(update: ViewUpdate) {
   if (!update.docChanged && !update.selectionSet) {
     return
   }
@@ -362,7 +532,7 @@ function maybeStartAttributeCompletion(update: ViewUpdate) {
   }
 
   const pos = update.state.selection.main.head
-  if (!getAttrPathPrefixAt(update.state, pos)) {
+  if (!isInsideQuotedFunctionArg(update.state, pos)) {
     return
   }
 
@@ -380,5 +550,5 @@ export const relicqlAutocompletion: Extension = [
     })
   ),
   Prec.highest(keymap.of(completionKeymap)),
-  EditorView.updateListener.of(maybeStartAttributeCompletion),
+  EditorView.updateListener.of(maybeStartQuotedArgCompletion),
 ]

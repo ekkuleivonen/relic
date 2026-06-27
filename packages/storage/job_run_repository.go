@@ -24,6 +24,8 @@ type JobRunRepository interface {
 	FailJobRun(context.Context, FailJobRunParams) (JobRun, error)
 	HasActiveJobRun(context.Context, HasActiveJobRunParams) (bool, error)
 	LastSucceededJobRunFinishedAt(context.Context, LastSucceededJobRunFinishedAtParams) (*time.Time, error)
+	HasActiveJobRunOfType(context.Context, JobType) (bool, error)
+	LastSucceededJobRunFinishedAtOfType(context.Context, JobType) (*time.Time, error)
 }
 
 type JobRunStore struct {
@@ -164,8 +166,8 @@ func (s *JobRunStore) HasActiveJobRun(ctx context.Context, params HasActiveJobRu
 			SELECT 1
 			FROM job_runs
 			WHERE type = $1
-				AND target_type = $2
-				AND target_id = $3
+				AND target_type IS NOT DISTINCT FROM NULLIF($2, '')
+				AND target_id IS NOT DISTINCT FROM NULLIF($3, '')
 				AND state IN ('pending', 'running')
 		)
 	`, string(params.Type), params.TargetType, params.TargetID)
@@ -178,13 +180,31 @@ func (s *JobRunStore) HasActiveJobRun(ctx context.Context, params HasActiveJobRu
 	return active, nil
 }
 
+func (s *JobRunStore) HasActiveJobRunOfType(ctx context.Context, jobType JobType) (bool, error) {
+	row := s.runner.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM job_runs
+			WHERE type = $1
+				AND state IN ('pending', 'running')
+		)
+	`, string(jobType))
+
+	var active bool
+	if err := row.Scan(&active); err != nil {
+		return false, fmt.Errorf("has active job run of type: %w", err)
+	}
+
+	return active, nil
+}
+
 func (s *JobRunStore) LastSucceededJobRunFinishedAt(ctx context.Context, params LastSucceededJobRunFinishedAtParams) (*time.Time, error) {
 	row := s.runner.QueryRow(ctx, `
 		SELECT finished_at
 		FROM job_runs
 		WHERE type = $1
-			AND target_type = $2
-			AND target_id = $3
+			AND target_type IS NOT DISTINCT FROM NULLIF($2, '')
+			AND target_id IS NOT DISTINCT FROM NULLIF($3, '')
 			AND state = 'succeeded'
 			AND finished_at IS NOT NULL
 		ORDER BY finished_at DESC, id DESC
@@ -197,6 +217,31 @@ func (s *JobRunStore) LastSucceededJobRunFinishedAt(ctx context.Context, params 
 			return nil, nil
 		}
 		return nil, fmt.Errorf("last succeeded job run finished at: %w", err)
+	}
+	if !finishedAt.Valid {
+		return nil, nil
+	}
+
+	return &finishedAt.Time, nil
+}
+
+func (s *JobRunStore) LastSucceededJobRunFinishedAtOfType(ctx context.Context, jobType JobType) (*time.Time, error) {
+	row := s.runner.QueryRow(ctx, `
+		SELECT finished_at
+		FROM job_runs
+		WHERE type = $1
+			AND state = 'succeeded'
+			AND finished_at IS NOT NULL
+		ORDER BY finished_at DESC, id DESC
+		LIMIT 1
+	`, string(jobType))
+
+	var finishedAt sql.NullTime
+	if err := row.Scan(&finishedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("last succeeded job run finished at of type: %w", err)
 	}
 	if !finishedAt.Valid {
 		return nil, nil

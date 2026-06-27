@@ -3,6 +3,7 @@ package s3compat
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -136,6 +137,10 @@ func (c *catalogAttributesFakeClient) ListObjects(context.Context, ListObjectsIn
 
 func (c *catalogAttributesFakeClient) HeadObject(context.Context, HeadObjectInput) (HeadObjectData, error) {
 	return c.head, nil
+}
+
+func (c *catalogAttributesFakeClient) GetObject(context.Context, HeadObjectInput) (io.ReadCloser, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (c *catalogAttributesFakeClient) GetObjectTagging(context.Context, HeadObjectInput) (map[string]string, error) {

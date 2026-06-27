@@ -18,6 +18,10 @@ export type ListSearchAttributesResponse = {
   attributes: SearchAttribute[]
 }
 
+export type ListSearchRelationTypesResponse = {
+  relation_types: string[]
+}
+
 export type ValidateSearchResponse = {
   query: string
   query_version: string

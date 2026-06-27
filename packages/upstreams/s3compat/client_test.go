@@ -230,6 +230,10 @@ type fakeS3API struct {
 	headObjectOutput *s3.HeadObjectOutput
 	headObjectErr    error
 
+	getObjectInput  *s3.GetObjectInput
+	getObjectOutput *s3.GetObjectOutput
+	getObjectErr    error
+
 	getObjectTaggingInput  *s3.GetObjectTaggingInput
 	getObjectTaggingOutput *s3.GetObjectTaggingOutput
 	getObjectTaggingErr    error
@@ -248,6 +252,11 @@ func (api *fakeS3API) ListObjects(ctx context.Context, input *s3.ListObjectsInpu
 func (api *fakeS3API) HeadObject(ctx context.Context, input *s3.HeadObjectInput, options ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
 	api.headObjectInput = input
 	return api.headObjectOutput, api.headObjectErr
+}
+
+func (api *fakeS3API) GetObject(ctx context.Context, input *s3.GetObjectInput, options ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+	api.getObjectInput = input
+	return api.getObjectOutput, api.getObjectErr
 }
 
 func (api *fakeS3API) GetObjectTagging(ctx context.Context, input *s3.GetObjectTaggingInput, options ...func(*s3.Options)) (*s3.GetObjectTaggingOutput, error) {

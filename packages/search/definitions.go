@@ -40,7 +40,9 @@ func BuiltinAttributeDefinitions() []AttributeDefinition {
 }
 
 func RegisteredAttributeDefinitions() []AttributeDefinition {
-	return nil
+	return []AttributeDefinition{
+		{Path: "extracted.content_sha256", Type: TypeString},
+	}
 }
 
 func BuiltinTargetDefinitions() []TargetDefinition {
