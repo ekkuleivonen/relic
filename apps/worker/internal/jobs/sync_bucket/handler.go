@@ -3,7 +3,6 @@ package sync_bucket
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
 	"github.com/ekkuleivonen/relic/packages/secrets"
@@ -48,12 +47,12 @@ func (h *Handler) Type() storage.JobType {
 }
 
 func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRunPayload, error) {
-	bucketID, err := BucketID(run)
+	input, err := ParseSyncBucketInput(run)
 	if err != nil {
 		return nil, err
 	}
 
-	bucket, err := h.store.Buckets().GetBucket(ctx, bucketID)
+	bucket, err := h.store.Buckets().GetBucket(ctx, input.BucketID)
 	if err != nil {
 		return nil, err
 	}
@@ -63,56 +62,48 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 		return nil, err
 	}
 
-	objectsSeen := 0
-	continuationToken := ""
-	marker := ""
+	listPrefix := EffectiveListPrefix(bucket.Prefix, input.ScopePrefix)
 	upstreamObjects := map[string]s3compat.ListedObject{}
 
-	for {
-		page, err := client.ListObjects(ctx, s3compat.ListObjectsInput{
-			Bucket:            bucket.BucketName,
-			Prefix:            bucket.Prefix,
-			ContinuationToken: continuationToken,
-			Marker:            marker,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		for _, listedObject := range page.Objects {
-			upstreamObjects[listedObject.Key] = listedObject
-			objectsSeen++
-		}
-
-		if _, err := h.store.JobRuns().UpdateJobRunProgress(ctx, storage.UpdateJobRunProgressParams{
-			ID: run.ID,
-			Progress: storage.JobRunPayload{
-				"phase":        "listed",
-				"objects_seen": objectsSeen,
-			},
-		}); err != nil {
-			return nil, err
-		}
-
-		if !page.IsTruncated {
-			break
-		}
-		continuationToken = page.NextContinuationToken
-		marker = page.NextMarker
-		if continuationToken == "" && marker == "" {
-			return nil, fmt.Errorf("sync bucket %q: truncated page did not include a continuation token or marker", bucket.ID)
+	var partitionFilter func(s3compat.ListedObject) bool
+	if input.Partition != nil {
+		partition := *input.Partition
+		partitionFilter = func(object s3compat.ListedObject) bool {
+			return KeyMatchesPartition(object.Key, partition)
 		}
 	}
 
-	localObjects, err := h.store.Objects().ListObjectsInScope(ctx, storage.ObjectScopeParams{
-		BucketID: bucket.ID,
-		Prefix:   bucket.Prefix,
+	_, objectsSeen, err := jobs.ListAllObjects(ctx, jobs.ListAllObjectsOptions{
+		Client:      client,
+		BucketName:  bucket.BucketName,
+		Prefix:      listPrefix,
+		BucketLabel: bucket.ID,
+		Filter:      partitionFilter,
+		OnObject: func(listedObject s3compat.ListedObject) error {
+			upstreamObjects[listedObject.Key] = listedObject
+			return nil
+		},
+		OnPage: func(listed int64) error {
+			_, err := h.store.JobRuns().UpdateJobRunProgress(ctx, storage.UpdateJobRunProgressParams{
+				ID: run.ID,
+				Progress: storage.JobRunPayload{
+					"phase":        "listed",
+					"objects_seen": listed,
+				},
+			})
+			return err
+		},
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	importObjects, refreshObjects, removeObjects := planObjectMutations(upstreamObjects, localObjects)
+	localObjects, err := collectLocalObjectsInScope(ctx, h.store.Objects(), ObjectScopeParams(bucket.ID, bucket.Prefix, input), input.Partition)
+	if err != nil {
+		return nil, err
+	}
+
+	importObjects, refreshObjects, removeObjects := jobs.PlanObjectMutations(upstreamObjects, localObjects)
 	importJobIDs, err := h.createChildJobs(ctx, run, bucket.ID, storage.JobTypeImportObjects, importObjects)
 	if err != nil {
 		return nil, err
@@ -126,9 +117,10 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 		return nil, err
 	}
 
-	return storage.JobRunPayload{
+	result := storage.JobRunPayload{
 		"phase":                 "planned",
 		"bucket_id":             bucket.ID,
+		"scope_prefix":          input.ScopePrefix,
 		"objects_seen":          objectsSeen,
 		"import_objects_count":  len(importObjects),
 		"refresh_objects_count": len(refreshObjects),
@@ -138,7 +130,25 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 			"refresh_objects": refreshJobIDs,
 			"remove_objects":  removeJobIDs,
 		},
-	}, nil
+	}
+	for key, value := range syncResultScopeFields(input) {
+		result[key] = value
+	}
+
+	return result, nil
+}
+
+func syncResultScopeFields(input SyncBucketInput) storage.JobRunPayload {
+	result := storage.JobRunPayload{}
+	if input.Partition != nil {
+		result["partition"] = map[string]any{
+			"scheme":  input.Partition.Scheme,
+			"modulus": input.Partition.Modulus,
+			"index":   input.Partition.Index,
+		}
+	}
+
+	return result
 }
 
 func (h *Handler) createChildJobs(ctx context.Context, run storage.JobRun, bucketID string, jobType storage.JobType, objects []jobs.ObjectEvidence) ([]string, error) {
@@ -167,93 +177,6 @@ func (h *Handler) createChildJobs(ctx context.Context, run storage.JobRun, bucke
 	}
 
 	return jobIDs, nil
-}
-
-func planObjectMutations(upstreamObjects map[string]s3compat.ListedObject, localObjects []storage.Object) ([]jobs.ObjectEvidence, []jobs.ObjectEvidence, []jobs.ObjectEvidence) {
-	localByKey := map[string]storage.Object{}
-	for _, object := range localObjects {
-		localByKey[object.Key] = object
-	}
-
-	importObjects := []jobs.ObjectEvidence{}
-	refreshObjects := []jobs.ObjectEvidence{}
-	for key, upstreamObject := range upstreamObjects {
-		evidence := objectEvidenceFromListedObject(upstreamObject)
-		localObject, exists := localByKey[key]
-		if !exists {
-			importObjects = append(importObjects, evidence)
-			continue
-		}
-		evidence.ID = localObject.ID
-		if objectChanged(upstreamObject, localObject) {
-			refreshObjects = append(refreshObjects, evidence)
-		}
-	}
-
-	removeObjects := []jobs.ObjectEvidence{}
-	for key, localObject := range localByKey {
-		if _, exists := upstreamObjects[key]; exists {
-			continue
-		}
-		removeObjects = append(removeObjects, jobs.ObjectEvidence{
-			ID:  localObject.ID,
-			Key: localObject.Key,
-		})
-	}
-
-	return importObjects, refreshObjects, removeObjects
-}
-
-func objectEvidenceFromListedObject(object s3compat.ListedObject) jobs.ObjectEvidence {
-	return jobs.ObjectEvidence{
-		Key:          object.Key,
-		ETag:         object.ETag,
-		Size:         object.Size,
-		LastModified: object.LastModified.UTC().Format(time.RFC3339),
-		StorageClass: object.StorageClass,
-	}
-}
-
-func objectChanged(upstreamObject s3compat.ListedObject, localObject storage.Object) bool {
-	upstreamAttributes, _ := localObject.Attributes["upstream"].(map[string]any)
-	if upstreamAttributes == nil {
-		return true
-	}
-
-	return upstreamAttributes["etag"] != upstreamObject.ETag ||
-		int64Attribute(upstreamAttributes["size"]) != upstreamObject.Size ||
-		upstreamAttributes["last_modified"] != upstreamObject.LastModified.UTC().Format(time.RFC3339) ||
-		storageClassAttribute(upstreamAttributes) != upstreamObject.StorageClass
-}
-
-func int64Attribute(value any) int64 {
-	switch typed := value.(type) {
-	case int64:
-		return typed
-	case int:
-		return int64(typed)
-	case float64:
-		return int64(typed)
-	default:
-		return 0
-	}
-}
-
-func storageClassAttribute(upstreamAttributes map[string]any) string {
-	if value, ok := upstreamAttributes["storage_class"].(string); ok {
-		return value
-	}
-	for _, namespace := range []string{"s3", "gcp"} {
-		nested, ok := upstreamAttributes[namespace].(map[string]any)
-		if !ok {
-			continue
-		}
-		if value, ok := nested["storage_class"].(string); ok {
-			return value
-		}
-	}
-
-	return ""
 }
 
 func objectEvidenceBatches(objects []jobs.ObjectEvidence, size int) [][]jobs.ObjectEvidence {

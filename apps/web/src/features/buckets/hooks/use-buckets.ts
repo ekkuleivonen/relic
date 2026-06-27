@@ -109,3 +109,21 @@ export function useSyncBucket(bucketId: string) {
     },
   })
 }
+
+export function useScanBucket(bucketId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<JobRun>(`/buckets/${bucketId}/scan`, {
+        method: "POST",
+      }),
+    onSuccess: async (jobRun) => {
+      await queryClient.invalidateQueries({ queryKey: jobRunKeys.all })
+      toast.success(`Scan queued (${jobRun.id})`)
+    },
+    onError: (error) => {
+      toast.error(extractApiError(error))
+    },
+  })
+}

@@ -19,6 +19,8 @@ type ObjectRepository interface {
 	GetObject(context.Context, string) (Object, error)
 	ListObjects(context.Context, ListObjectsParams) ([]Object, error)
 	ListObjectsInScope(context.Context, ObjectScopeParams) ([]Object, error)
+	CountObjectsInScope(context.Context, ObjectScopeParams) (int64, error)
+	StreamObjectsInScope(context.Context, ObjectScopeParams, func(Object) error) error
 	DeleteObject(context.Context, string) error
 	DeleteObjects(context.Context, DeleteObjectsParams) (int64, error)
 	DeleteObjectsNotSeenSince(context.Context, DeleteObjectsNotSeenSinceParams) (int64, error)
@@ -285,6 +287,39 @@ func (s *ObjectStore) Search(ctx context.Context, bound search.BoundQuery, scope
 }
 
 func (s *ObjectStore) ListObjectsInScope(ctx context.Context, params ObjectScopeParams) ([]Object, error) {
+	objects := []Object{}
+	err := s.StreamObjectsInScope(ctx, params, func(object Object) error {
+		objects = append(objects, object)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return objects, nil
+}
+
+func (s *ObjectStore) CountObjectsInScope(ctx context.Context, params ObjectScopeParams) (int64, error) {
+	row := s.runner.QueryRow(ctx, `
+		SELECT count(*)
+		FROM objects
+		WHERE ($1 = '' OR bucket_id = $1)
+			AND ($2 = '' OR key LIKE $2 || '%')
+	`, params.BucketID, params.Prefix)
+
+	var count int64
+	if err := row.Scan(&count); err != nil {
+		return 0, fmt.Errorf("count objects in scope: %w", err)
+	}
+
+	return count, nil
+}
+
+func (s *ObjectStore) StreamObjectsInScope(ctx context.Context, params ObjectScopeParams, fn func(Object) error) error {
+	if fn == nil {
+		return fmt.Errorf("stream objects in scope: callback is required")
+	}
+
 	rows, err := s.runner.Query(ctx, `
 		SELECT
 			id,
@@ -300,23 +335,24 @@ func (s *ObjectStore) ListObjectsInScope(ctx context.Context, params ObjectScope
 		ORDER BY bucket_id ASC, key ASC
 	`, params.BucketID, params.Prefix)
 	if err != nil {
-		return nil, fmt.Errorf("list objects in scope: %w", err)
+		return fmt.Errorf("stream objects in scope: %w", err)
 	}
 	defer rows.Close()
 
-	objects := []Object{}
 	for rows.Next() {
 		object, err := scanObject(rows)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		objects = append(objects, object)
+		if err := fn(object); err != nil {
+			return err
+		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list objects in scope: %w", err)
+		return fmt.Errorf("stream objects in scope: %w", err)
 	}
 
-	return objects, nil
+	return nil
 }
 
 func (s *ObjectStore) DeleteObject(ctx context.Context, id string) error {

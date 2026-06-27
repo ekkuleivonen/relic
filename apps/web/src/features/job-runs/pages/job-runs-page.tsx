@@ -1,6 +1,6 @@
-import { Link } from "react-router"
-import { ArrowLeftIcon, Loader2Icon, RefreshCwIcon } from "lucide-react"
+import { Loader2Icon, RefreshCwIcon } from "lucide-react"
 
+import { PageShell } from "@/components/page-shell"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -17,55 +17,38 @@ export function JobRunsPage() {
   const jobRuns = jobRunsQuery.data?.job_runs ?? []
 
   return (
-    <main className="min-h-svh bg-background text-foreground">
-      <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-8">
-        <Button variant="ghost" asChild>
-          <Link to="/">
-            <ArrowLeftIcon />
-            Back home
-          </Link>
-        </Button>
-
-        <header className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <img src="/logo.svg" alt="" className="size-9 rounded-lg" />
-              <div>
-                <div className="text-xs text-muted-foreground">Relic admin</div>
-                <h1 className="text-2xl font-semibold tracking-tight">
-                  Job runs
-                </h1>
-              </div>
-            </div>
-            <p className="mt-4 max-w-2xl text-sm/7 text-muted-foreground">
-              Inspect recent background work, progress updates, failures, and
-              retry attempts.
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            onClick={() => void jobRunsQuery.refetch()}
-            disabled={jobRunsQuery.isFetching}
-          >
-            {jobRunsQuery.isFetching ? (
-              <Loader2Icon className="animate-spin" />
-            ) : (
-              <RefreshCwIcon />
-            )}
-            Refresh
-          </Button>
-        </header>
-
-        <section className="mt-8">
-          {jobRunsQuery.isLoading && <LoadingState />}
-          {jobRunsQuery.isError && (
-            <ErrorState onRetry={() => void jobRunsQuery.refetch()} />
+    <PageShell>
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Job runs</h1>
+          <p className="mt-4 max-w-2xl text-sm/7 text-muted-foreground">
+            Inspect recent background work, progress updates, failures, and
+            retry attempts.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => void jobRunsQuery.refetch()}
+          disabled={jobRunsQuery.isFetching}
+        >
+          {jobRunsQuery.isFetching ? (
+            <Loader2Icon className="animate-spin" />
+          ) : (
+            <RefreshCwIcon />
           )}
-          {jobRunsQuery.isSuccess && jobRuns.length === 0 && <EmptyState />}
-          {jobRuns.length > 0 && <JobRunsTable jobRuns={jobRuns} />}
-        </section>
-      </div>
-    </main>
+          Refresh
+        </Button>
+      </header>
+
+      <section className="mt-8">
+        {jobRunsQuery.isLoading && <LoadingState />}
+        {jobRunsQuery.isError && (
+          <ErrorState onRetry={() => void jobRunsQuery.refetch()} />
+        )}
+        {jobRunsQuery.isSuccess && jobRuns.length === 0 && <EmptyState />}
+        {jobRuns.length > 0 && <JobRunsTable jobRuns={jobRuns} />}
+      </section>
+    </PageShell>
   )
 }
 

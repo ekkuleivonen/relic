@@ -1,6 +1,7 @@
-import { Link, useNavigate, useParams } from "react-router"
-import { ArrowLeftIcon, Loader2Icon } from "lucide-react"
+import { useNavigate, useParams } from "react-router"
+import { Loader2Icon } from "lucide-react"
 
+import { PageShell } from "@/components/page-shell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,6 +13,7 @@ import {
 } from "@/components/ui/card"
 import { DeleteBucketDialog } from "@/features/buckets/components/delete-bucket-dialog"
 import { EditBucketDialog } from "@/features/buckets/components/edit-bucket-dialog"
+import { ScanBucketButton } from "@/features/buckets/components/scan-bucket-button"
 import { SyncBucketButton } from "@/features/buckets/components/sync-bucket-button"
 import { useBucket } from "@/features/buckets/hooks/use-buckets"
 
@@ -22,16 +24,8 @@ export function BucketDetailPage() {
   const bucket = bucketQuery.data
 
   return (
-    <main className="min-h-svh bg-background text-foreground">
-      <div className="mx-auto w-full max-w-5xl px-6 py-8 lg:px-8">
-        <Button variant="ghost" asChild>
-          <Link to="/buckets">
-            <ArrowLeftIcon />
-            Back to buckets
-          </Link>
-        </Button>
-
-        {bucketQuery.isLoading && (
+    <PageShell maxWidth="5xl">
+      {bucketQuery.isLoading && (
           <Card className="mt-6">
             <CardContent className="flex items-center gap-3 py-8 text-muted-foreground">
               <Loader2Icon className="size-4 animate-spin" />
@@ -108,17 +102,18 @@ export function BucketDetailPage() {
               <CardHeader>
                 <CardTitle>Next actions</CardTitle>
                 <CardDescription>
-                  Queue a bucket sync job to refresh the active object catalog.
+                  Queue a scan to sample catalog drift, or a full sync to
+                  reconcile the active object catalog.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex flex-wrap gap-2">
+                <ScanBucketButton bucketId={bucket.id} />
                 <SyncBucketButton bucketId={bucket.id} />
               </CardContent>
             </Card>
           </div>
         )}
-      </div>
-    </main>
+    </PageShell>
   )
 }
 

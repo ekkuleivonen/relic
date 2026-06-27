@@ -1,6 +1,7 @@
-import { Link, useParams } from "react-router"
-import { ArrowLeftIcon, Loader2Icon } from "lucide-react"
+import { useParams } from "react-router"
+import { Loader2Icon } from "lucide-react"
 
+import { PageShell } from "@/components/page-shell"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -30,17 +31,9 @@ export function JobRunDetailPage() {
   )
 
   return (
-    <main className="min-h-svh bg-background text-foreground">
-      <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-8">
-        <Button variant="ghost" asChild>
-          <Link to="/job-runs">
-            <ArrowLeftIcon />
-            Back to job runs
-          </Link>
-        </Button>
-
-        <section className="mt-6">
-          {jobRunQuery.isLoading && (
+    <PageShell>
+      <section>
+        {jobRunQuery.isLoading && (
             <Card>
               <CardContent className="flex items-center gap-3 py-8 text-muted-foreground">
                 <Loader2Icon className="size-4 animate-spin" />
@@ -84,8 +77,7 @@ export function JobRunDetailPage() {
             </div>
           )}
         </section>
-      </div>
-    </main>
+    </PageShell>
   )
 }
 

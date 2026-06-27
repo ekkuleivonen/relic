@@ -1,7 +1,8 @@
 import { Link, useParams } from "react-router"
-import { ArrowLeftIcon, Loader2Icon } from "lucide-react"
+import { Loader2Icon } from "lucide-react"
 import type { ReactNode } from "react"
 
+import { PageShell } from "@/components/page-shell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,16 +23,8 @@ export function ObjectDetailPage() {
   const bucket = bucketQuery.data
 
   return (
-    <main className="min-h-svh bg-background text-foreground">
-      <div className="mx-auto w-full max-w-5xl px-6 py-8 lg:px-8">
-        <Button variant="ghost" asChild>
-          <Link to="/objects">
-            <ArrowLeftIcon />
-            Back to objects
-          </Link>
-        </Button>
-
-        {objectQuery.isLoading && (
+    <PageShell maxWidth="5xl">
+      {objectQuery.isLoading && (
           <Card className="mt-6">
             <CardContent className="flex items-center gap-3 py-8 text-muted-foreground">
               <Loader2Icon className="size-4 animate-spin" />
@@ -181,8 +174,7 @@ export function ObjectDetailPage() {
             />
           </div>
         )}
-      </div>
-    </main>
+    </PageShell>
   )
 }
 

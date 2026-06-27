@@ -126,6 +126,9 @@ func TestOpenAPI(t *testing.T) {
 	if _, ok := spec.Paths["/api/buckets/{id}/sync"]; !ok {
 		t.Fatal("OpenAPI spec does not include /api/buckets/{id}/sync")
 	}
+	if _, ok := spec.Paths["/api/buckets/{id}/scan"]; !ok {
+		t.Fatal("OpenAPI spec does not include /api/buckets/{id}/scan")
+	}
 	bucketPath, ok := spec.Paths["/api/buckets/{id}"].(map[string]any)
 	if !ok {
 		t.Fatal("OpenAPI spec does not include /api/buckets/{id}")

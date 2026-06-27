@@ -18,6 +18,7 @@ import (
 	"github.com/ekkuleivonen/relic/packages/storage"
 	"github.com/ekkuleivonen/relic/packages/testdb"
 	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
+	"github.com/ekkuleivonen/relic/packages/verification"
 )
 
 var (
@@ -465,6 +466,162 @@ func TestHandlerFailsWhenTruncatedPageHasNoCursor(t *testing.T) {
 	assertChildJobCount(t, ctx, store, run.ID, storage.JobTypeImportObjects, 0)
 }
 
+func TestHandlerScopesListPrefixToEffectiveScope(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "raw/")
+	run := createSyncRunWithInput(t, ctx, store, bucket.ID, storage.JobRunPayload{
+		"bucket_id":    bucket.ID,
+		"scope_prefix": "batch/",
+	})
+	client := &fakeObjectClient{page: s3compat.ObjectPage{}}
+	handler, err := newTestHandler(store, &fakeObjectClientFactory{client: client})
+	if err != nil {
+		t.Fatalf("newTestHandler returned error: %v", err)
+	}
+
+	if _, err := handler.Handle(ctx, run); err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if len(client.listInputs) != 1 {
+		t.Fatalf("list calls = %d, want 1", len(client.listInputs))
+	}
+	if client.listInputs[0].Prefix != "raw/batch/" {
+		t.Fatalf("list prefix = %q, want raw/batch/", client.listInputs[0].Prefix)
+	}
+}
+
+func TestHandlerPartitionSyncOnlyReconcilesMatchingKeys(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "")
+	partition := verification.PartitionFromIndex(42, verification.DefaultModulus)
+	keyInPartition := keyForPartitionIndex(t, partition.Index, partition.Modulus)
+	keyOutPartition := keyForPartitionIndex(t, 99, partition.Modulus)
+	listedAt := time.Now().UTC()
+
+	if _, err := store.Objects().UpsertObject(ctx, storage.UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      keyOutPartition,
+	}); err != nil {
+		t.Fatalf("UpsertObject out-of-partition returned error: %v", err)
+	}
+
+	client := &fakeObjectClient{
+		page: s3compat.ObjectPage{
+			Objects: []s3compat.ListedObject{
+				listedObject(keyInPartition, "\"in-partition\"", 100, listedAt),
+				listedObject(keyOutPartition, "\"out-partition\"", 200, listedAt),
+			},
+		},
+	}
+	handler, err := newTestHandler(store, &fakeObjectClientFactory{client: client})
+	if err != nil {
+		t.Fatalf("newTestHandler returned error: %v", err)
+	}
+
+	run := createSyncRunWithInput(t, ctx, store, bucket.ID, storage.JobRunPayload{
+		"bucket_id": bucket.ID,
+		"partition": map[string]any{
+			"scheme":  verification.SchemeHash,
+			"modulus": float64(partition.Modulus),
+			"index":   float64(partition.Index),
+		},
+	})
+	result, err := handler.Handle(ctx, run)
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if result["import_objects_count"] != 1 {
+		t.Fatalf("import count = %#v, want 1", result["import_objects_count"])
+	}
+	if result["remove_objects_count"] != 0 {
+		t.Fatalf("remove count = %#v, want 0", result["remove_objects_count"])
+	}
+
+	children, err := store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
+		Type:     storage.JobTypeImportObjects,
+		TargetID: bucket.ID,
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("ListJobRuns returned error: %v", err)
+	}
+	if len(children) != 1 {
+		t.Fatalf("import child count = %d, want 1", len(children))
+	}
+	var input jobs.ObjectMutationInput
+	if err := jobs.DecodePayload(children[0].Input, &input); err != nil {
+		t.Fatalf("DecodePayload returned error: %v", err)
+	}
+	if len(input.Objects) != 1 || input.Objects[0].Key != keyInPartition {
+		t.Fatalf("import input objects = %#v, want only %q", input.Objects, keyInPartition)
+	}
+}
+
+func TestHandlerPartitionSyncRemovesMissingRemoteObjectsInPartition(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "")
+	partition := verification.PartitionFromIndex(42, verification.DefaultModulus)
+	keyInPartition := keyForPartitionIndex(t, partition.Index, partition.Modulus)
+
+	stale, err := store.Objects().UpsertObject(ctx, storage.UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      keyInPartition,
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject returned error: %v", err)
+	}
+
+	client := &fakeObjectClient{page: s3compat.ObjectPage{Objects: []s3compat.ListedObject{}}}
+	handler, err := newTestHandler(store, &fakeObjectClientFactory{client: client})
+	if err != nil {
+		t.Fatalf("newTestHandler returned error: %v", err)
+	}
+
+	run := createSyncRunWithInput(t, ctx, store, bucket.ID, storage.JobRunPayload{
+		"bucket_id": bucket.ID,
+		"partition": map[string]any{
+			"scheme":  verification.SchemeHash,
+			"modulus": float64(partition.Modulus),
+			"index":   float64(partition.Index),
+		},
+	})
+	result, err := handler.Handle(ctx, run)
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if result["remove_objects_count"] != 1 {
+		t.Fatalf("remove count = %#v, want 1", result["remove_objects_count"])
+	}
+
+	children, err := store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
+		Type:     storage.JobTypeRemoveObjects,
+		TargetID: bucket.ID,
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("ListJobRuns returned error: %v", err)
+	}
+	if len(children) != 1 {
+		t.Fatalf("remove child count = %d, want 1", len(children))
+	}
+	var input jobs.ObjectMutationInput
+	if err := jobs.DecodePayload(children[0].Input, &input); err != nil {
+		t.Fatalf("DecodePayload returned error: %v", err)
+	}
+	if len(input.Objects) != 1 || input.Objects[0].ID != stale.ID {
+		t.Fatalf("remove input objects = %#v, want stale ID %q", input.Objects, stale.ID)
+	}
+}
+
 func TestHandlerFailsBeforeListingWithInvalidCredentials(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := testStore(t, ctx)
@@ -772,17 +929,44 @@ func createTestBucket(t *testing.T, ctx context.Context, store *storage.Store, p
 func createSyncRun(t *testing.T, ctx context.Context, store *storage.Store, bucketID string) storage.JobRun {
 	t.Helper()
 
+	return createSyncRunWithInput(t, ctx, store, bucketID, storage.JobRunPayload{
+		"bucket_id": bucketID,
+	})
+}
+
+func createSyncRunWithInput(t *testing.T, ctx context.Context, store *storage.Store, bucketID string, input storage.JobRunPayload) storage.JobRun {
+	t.Helper()
+
+	if input == nil {
+		input = storage.JobRunPayload{}
+	}
+	if _, ok := input["bucket_id"]; !ok {
+		input["bucket_id"] = bucketID
+	}
+
 	run, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
 		Type:       storage.JobTypeSyncBucket,
 		TargetType: "bucket",
 		TargetID:   bucketID,
-		Input: storage.JobRunPayload{
-			"bucket_id": bucketID,
-		},
+		Input:      input,
 	})
 	if err != nil {
 		t.Fatalf("CreateJobRun returned error: %v", err)
 	}
 
 	return run
+}
+
+func keyForPartitionIndex(t *testing.T, index, modulus uint32) string {
+	t.Helper()
+
+	for i := range 10_000 {
+		key := fmt.Sprintf("objects/%d.dat", i)
+		if verification.PartitionIndex(key, modulus) == index {
+			return key
+		}
+	}
+
+	t.Fatalf("could not find key for partition %d/%d", index, modulus)
+	return ""
 }

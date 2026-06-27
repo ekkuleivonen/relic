@@ -1,5 +1,6 @@
 import { ArchiveIcon, Loader2Icon } from "lucide-react"
 
+import { PageShell } from "@/components/page-shell"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -17,39 +18,29 @@ export function BucketsPage() {
   const buckets = bucketsQuery.data?.buckets ?? []
 
   return (
-    <main className="min-h-svh bg-background text-foreground">
-      <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-8">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <img src="/logo.svg" alt="" className="size-9 rounded-lg" />
-              <div>
-                <div className="text-xs text-muted-foreground">Relic admin</div>
-                <h1 className="text-2xl font-semibold tracking-tight">
-                  Buckets
-                </h1>
-              </div>
-            </div>
-            <p className="mt-4 max-w-2xl text-sm/7 text-muted-foreground">
-              Connect S3-compatible buckets, store encrypted credentials, and
-              prepare them for inventory imports.
-            </p>
-          </div>
-          <CreateBucketDialog />
-        </header>
+    <PageShell>
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Buckets</h1>
+          <p className="mt-4 max-w-2xl text-sm/7 text-muted-foreground">
+            Connect S3-compatible buckets, store encrypted credentials, and
+            prepare them for inventory imports.
+          </p>
+        </div>
+        <CreateBucketDialog />
+      </header>
 
-        <section className="mt-8">
-          {bucketsQuery.isLoading && <LoadingState />}
-          {bucketsQuery.isError && (
-            <ErrorState onRetry={() => void bucketsQuery.refetch()} />
-          )}
-          {bucketsQuery.isSuccess && buckets.length === 0 && <EmptyState />}
-          {bucketsQuery.isSuccess && buckets.length > 0 && (
-            <BucketsTable buckets={buckets} />
-          )}
-        </section>
-      </div>
-    </main>
+      <section className="mt-8">
+        {bucketsQuery.isLoading && <LoadingState />}
+        {bucketsQuery.isError && (
+          <ErrorState onRetry={() => void bucketsQuery.refetch()} />
+        )}
+        {bucketsQuery.isSuccess && buckets.length === 0 && <EmptyState />}
+        {bucketsQuery.isSuccess && buckets.length > 0 && (
+          <BucketsTable buckets={buckets} />
+        )}
+      </section>
+    </PageShell>
   )
 }
 

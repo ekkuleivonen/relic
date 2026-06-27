@@ -17,6 +17,7 @@ import (
 	importobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/import_objects"
 	refreshobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/refresh_objects"
 	removeobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/remove_objects"
+	scanbucket "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/scan_bucket"
 	syncbucket "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/sync_bucket"
 	workerRunner "github.com/ekkuleivonen/relic/apps/worker/internal/runner"
 	"github.com/ekkuleivonen/relic/packages/db"
@@ -105,7 +106,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	registry, err := jobs.NewRegistry(syncBucketHandler, importObjectsHandler, refreshObjectsHandler, removeObjectsHandler)
+	scanBucketHandler, err := scanbucket.NewHandler(scanbucket.HandlerOptions{
+		Store:   store,
+		Secrets: secretManager,
+		Factory: s3compat.ClientFactory{},
+	})
+	if err != nil {
+		return err
+	}
+	registry, err := jobs.NewRegistry(syncBucketHandler, scanBucketHandler, importObjectsHandler, refreshObjectsHandler, removeObjectsHandler)
 	if err != nil {
 		return err
 	}

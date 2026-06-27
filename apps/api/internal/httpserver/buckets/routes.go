@@ -193,6 +193,39 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 	})
 
 	huma.Register(api, huma.Operation{
+		OperationID: "scan-bucket",
+		Method:      http.MethodPost,
+		Path:        basePath + "/buckets/{id}/scan",
+		Summary:     "Scan bucket",
+		Tags:        []string{"Buckets"},
+	}, func(ctx context.Context, input *scanBucketInput) (*scanBucketOutput, error) {
+		if dependencies.Storage == nil {
+			return nil, huma.Error500InternalServerError("bucket dependencies are not configured")
+		}
+
+		if _, err := dependencies.Storage.Buckets().GetBucket(ctx, input.ID); errors.Is(err, storage.ErrNotFound) {
+			return nil, huma.Error404NotFound("bucket not found")
+		} else if err != nil {
+			return nil, err
+		}
+
+		prefix := ""
+		if input.Body != nil {
+			prefix = input.Body.Prefix
+		}
+
+		run, err := createScanBucketJob(ctx, dependencies.Storage.JobRuns(), input.ID, prefix)
+		if err != nil {
+			return nil, err
+		}
+
+		return &scanBucketOutput{
+			Status: http.StatusAccepted,
+			Body:   jobs.JobRunResponseFromStorage(run),
+		}, nil
+	})
+
+	huma.Register(api, huma.Operation{
 		OperationID: "delete-bucket",
 		Method:      http.MethodDelete,
 		Path:        basePath + "/buckets/{id}",
@@ -224,6 +257,23 @@ func createSyncBucketJob(ctx context.Context, jobRuns storage.JobRunRepository, 
 		Input: storage.JobRunPayload{
 			"bucket_id": bucketID,
 		},
+	})
+}
+
+func createScanBucketJob(ctx context.Context, jobRuns storage.JobRunRepository, bucketID string, prefix string) (storage.JobRun, error) {
+	input := storage.JobRunPayload{
+		"bucket_id": bucketID,
+	}
+	if prefix != "" {
+		input["prefix"] = prefix
+	}
+
+	return jobRuns.CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:            storage.JobTypeScanBucket,
+		RequestedByType: "api",
+		TargetType:      "bucket",
+		TargetID:        bucketID,
+		Input:           input,
 	})
 }
 
@@ -262,6 +312,15 @@ type syncBucketInput struct {
 	ID string `path:"id" example:"bucket_0123456789abcdef0123456789abcdef"`
 }
 
+type scanBucketInput struct {
+	ID   string `path:"id" example:"bucket_0123456789abcdef0123456789abcdef"`
+	Body *scanBucketBody
+}
+
+type scanBucketBody struct {
+	Prefix string `json:"prefix,omitempty" example:"photos/"`
+}
+
 type deleteBucketInput struct {
 	ID string `path:"id" example:"bucket_0123456789abcdef0123456789abcdef"`
 }
@@ -285,6 +344,11 @@ type listBucketsOutput struct {
 }
 
 type syncBucketOutput struct {
+	Status int
+	Body   jobs.JobRunResponse
+}
+
+type scanBucketOutput struct {
 	Status int
 	Body   jobs.JobRunResponse
 }
