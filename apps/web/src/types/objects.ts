@@ -1,3 +1,21 @@
+export type UserAttributeValueType =
+  | "string"
+  | "integer"
+  | "float"
+  | "boolean"
+  | "timestamp"
+
+export const userAttributeValueTypes: Array<{
+  value: UserAttributeValueType
+  label: string
+}> = [
+  { value: "string", label: "String" },
+  { value: "integer", label: "Integer" },
+  { value: "float", label: "Float" },
+  { value: "boolean", label: "Boolean" },
+  { value: "timestamp", label: "Timestamp" },
+]
+
 export type ObjectAttributes = {
   core?: {
     object_id?: string
@@ -22,6 +40,7 @@ export type ObjectAttributes = {
     gcp?: Record<string, unknown>
     b2?: Record<string, unknown>
   }
+  user?: Record<string, unknown>
   [key: string]: unknown
 }
 
@@ -48,4 +67,9 @@ export type ListObjectsParams = {
   keyContains?: string
   limit?: number
   offset?: number
+}
+
+export type PatchObjectAttributesInput = {
+  set?: Record<string, unknown>
+  delete?: string[]
 }

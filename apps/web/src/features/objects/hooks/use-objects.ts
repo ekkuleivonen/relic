@@ -14,6 +14,8 @@ const objectKeys = {
     [...objectKeys.all, "detail", objectId] as const,
 }
 
+export { objectKeys }
+
 export function useObjects(
   params: ListObjectsParams,
   options?: { live?: boolean }

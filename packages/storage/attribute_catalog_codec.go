@@ -50,6 +50,12 @@ func widenCatalogValueType(existing, incoming search.ValueType) (search.ValueTyp
 	if existing == incoming {
 		return existing, true
 	}
+	if existing == search.TypeUnknown {
+		return incoming, true
+	}
+	if incoming == search.TypeUnknown {
+		return existing, true
+	}
 	if isCatalogNumericType(existing) && isCatalogNumericType(incoming) {
 		if existing == search.TypeFloat || incoming == search.TypeFloat {
 			return search.TypeFloat, true

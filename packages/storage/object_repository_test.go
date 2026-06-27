@@ -196,6 +196,70 @@ func TestObjectStoreUpsertObjectsInsertUpdateAndEmpty(t *testing.T) {
 	}
 }
 
+func TestObjectStoreUpsertPreservesUserAttributes(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createObjectTestBucket(t, ctx, store)
+	objects := store.Objects()
+	seenAt := time.Now().UTC()
+
+	created, err := objects.UpsertObject(ctx, UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "preserve/user.jpg",
+		Attributes: ObjectAttributes{
+			"user": map[string]any{
+				"owner": "finance",
+			},
+		},
+		AttributeProvenance: ObjectAttributeProvenance{
+			"user.owner": "user_admin",
+		},
+		SeenAt: &seenAt,
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject returned error: %v", err)
+	}
+
+	laterSeenAt := seenAt.Add(time.Minute)
+	synced, err := objects.UpsertObject(ctx, UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "preserve/user.jpg",
+		Attributes: ObjectAttributes{
+			"upstream": map[string]any{
+				"etag": "\"synced\"",
+				"size": 2048,
+			},
+		},
+		AttributeProvenance: ObjectAttributeProvenance{
+			"upstream": "jobrun_sync",
+		},
+		SeenAt: &laterSeenAt,
+	})
+	if err != nil {
+		t.Fatalf("second UpsertObject returned error: %v", err)
+	}
+	if synced.ID != created.ID {
+		t.Fatalf("synced ID = %q, want %q", synced.ID, created.ID)
+	}
+
+	owner, ok := attributeValue(synced.Attributes, "user.owner")
+	if !ok || owner != "finance" {
+		t.Fatalf("user.owner = %#v, want finance", owner)
+	}
+	etag, ok := attributeValue(synced.Attributes, "upstream.etag")
+	if !ok || etag != "\"synced\"" {
+		t.Fatalf("upstream.etag = %#v, want synced etag", etag)
+	}
+	if synced.AttributeProvenance["user.owner"] != "user_admin" {
+		t.Fatalf("user.owner provenance = %q, want user_admin", synced.AttributeProvenance["user.owner"])
+	}
+	if synced.AttributeProvenance["upstream"] != "jobrun_sync" {
+		t.Fatalf("upstream provenance = %q, want jobrun_sync", synced.AttributeProvenance["upstream"])
+	}
+}
+
 func TestObjectStoreDelete(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := testStore(t, ctx)

@@ -1,10 +1,12 @@
 package middleware
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
 	"github.com/ekkuleivonen/relic/packages/auth"
 )
@@ -80,6 +82,17 @@ func RequireAdmin(w http.ResponseWriter, r *http.Request) (auth.Principal, bool)
 		return auth.Principal{}, false
 	}
 	return principal, true
+}
+
+func RequireAdminContext(ctx context.Context) (auth.Principal, error) {
+	principal, ok := auth.PrincipalFromContext(ctx)
+	if !ok {
+		return auth.Principal{}, huma.Error401Unauthorized("Authentication is required.")
+	}
+	if err := auth.RequireAdmin(principal); err != nil {
+		return auth.Principal{}, huma.Error403Forbidden("Admin access is required.")
+	}
+	return principal, nil
 }
 
 func writeServiceUnavailable(w http.ResponseWriter) {

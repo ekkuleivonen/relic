@@ -83,6 +83,79 @@ func TestObserveAttributeCatalogOnUpsert(t *testing.T) {
 	if entry.ValueType != search.TypeString {
 		t.Fatalf("value type = %q, want %q", entry.ValueType, search.TypeString)
 	}
+
+	userPrefix, ok, err := store.AttributeCatalog().Resolve(ctx, "user")
+	if err != nil {
+		t.Fatalf("Resolve user returned error: %v", err)
+	}
+	if !ok {
+		t.Fatal("Resolve returned false for user prefix path")
+	}
+	if userPrefix.ValueType != search.TypeUnknown {
+		t.Fatalf("user value type = %q, want %q", userPrefix.ValueType, search.TypeUnknown)
+	}
+}
+
+func TestObserveAttributeCatalogRegistersNestedUserPaths(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createObjectTestBucket(t, ctx, store)
+	if err := SeedAttributeCatalog(ctx, store.AttributeCatalog()); err != nil {
+		t.Fatalf("SeedAttributeCatalog returned error: %v", err)
+	}
+
+	_, err := store.Objects().MutateObjectAttributes(ctx, mustCreateNestedUserAttributeObject(t, ctx, store, bucket.ID), AttributeMutation{
+		AllowedPrefix: UserAttributePrefix,
+		Sets: map[string]any{
+			"user.review.status": "approved",
+		},
+	})
+	if err != nil {
+		t.Fatalf("MutateObjectAttributes returned error: %v", err)
+	}
+
+	for _, path := range []string{"user.review.status", "user.review", "user"} {
+		entry, ok, err := store.AttributeCatalog().Resolve(ctx, path)
+		if err != nil {
+			t.Fatalf("Resolve %q returned error: %v", path, err)
+		}
+		if !ok {
+			t.Fatalf("Resolve returned false for %q", path)
+		}
+		if entry.Source != CatalogSourceObserved {
+			t.Fatalf("%q source = %q, want %q", path, entry.Source, CatalogSourceObserved)
+		}
+		if path != "user.review.status" && entry.ValueType != search.TypeUnknown {
+			t.Fatalf("%q value type = %q, want %q", path, entry.ValueType, search.TypeUnknown)
+		}
+	}
+
+	status, ok, err := store.AttributeCatalog().Resolve(ctx, "user.review.status")
+	if err != nil {
+		t.Fatalf("Resolve user.review.status returned error: %v", err)
+	}
+	if !ok || status.ValueType != search.TypeString {
+		t.Fatalf("user.review.status = %#v, want observed string", status)
+	}
+}
+
+func mustCreateNestedUserAttributeObject(t *testing.T, ctx context.Context, store *Store, bucketID string) string {
+	t.Helper()
+
+	object, err := store.Objects().UpsertObject(ctx, UpsertObjectParams{
+		BucketID: bucketID,
+		Key:      "attrs/nested-user.jpg",
+		Attributes: ObjectAttributes{
+			"upstream": map[string]any{"etag": "\"abc\""},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject returned error: %v", err)
+	}
+
+	return object.ID
 }
 
 func TestValidateRelicQL(t *testing.T) {

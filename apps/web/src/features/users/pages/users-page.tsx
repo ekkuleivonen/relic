@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useSearchParams } from "react-router"
 
 import { PageShell } from "@/components/page-shell"
 import { UserForm } from "@/features/users/components/user-form"
@@ -16,12 +17,30 @@ import { useCreateUser, useUpdateUser, useUsers } from "@/hooks/use-users"
 import type { User, UserCreateInput, UserUpdateInput } from "@/types/auth"
 
 export function UsersPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const usersQuery = useUsers()
   const createUser = useCreateUser()
   const updateUser = useUpdateUser()
 
   const [isCreateOpen, setIsCreateOpen] = React.useState(false)
   const [editingUser, setEditingUser] = React.useState<User | null>(null)
+
+  React.useEffect(() => {
+    const editUserId = searchParams.get("edit")
+    if (!editUserId || !usersQuery.data) {
+      return
+    }
+
+    const user = usersQuery.data.find((entry) => entry.id === editUserId)
+    if (!user) {
+      return
+    }
+
+    setEditingUser(user)
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.delete("edit")
+    setSearchParams(nextParams, { replace: true })
+  }, [searchParams, setSearchParams, usersQuery.data])
 
   async function handleCreate(values: UserCreateInput) {
     await createUser.mutateAsync(values)

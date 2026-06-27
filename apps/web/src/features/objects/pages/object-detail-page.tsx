@@ -1,6 +1,6 @@
 import { Link, useParams } from "react-router"
 import { Loader2Icon } from "lucide-react"
-import type { ReactNode } from "react"
+import { useMemo, type ReactNode } from "react"
 
 import { PageShell } from "@/components/page-shell"
 import { Badge } from "@/components/ui/badge"
@@ -13,7 +13,16 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { useBucket } from "@/features/buckets/hooks/use-buckets"
+import { ProvenanceReferenceLink } from "@/features/objects/components/provenance-reference-link"
+import { UserAttributesCard } from "@/features/objects/components/user-attributes-card"
+import {
+  provenanceJobRunIds,
+  useProvenanceJobRunTypes,
+} from "@/features/objects/hooks/use-provenance-job-runs"
 import { useObject } from "@/features/objects/hooks/use-objects"
+import { useSession } from "@/hooks/use-session"
+import { useUsers } from "@/hooks/use-users"
+import type { User } from "@/types/auth"
 
 export function ObjectDetailPage() {
   const { objectId } = useParams()
@@ -21,6 +30,9 @@ export function ObjectDetailPage() {
   const object = objectQuery.data
   const bucketQuery = useBucket(object?.bucket_id)
   const bucket = bucketQuery.data
+  const sessionQuery = useSession()
+  const isAdmin = sessionQuery.data?.user.role === "admin"
+  const usersQuery = useUsers({ enabled: isAdmin })
 
   return (
     <PageShell maxWidth="5xl">
@@ -163,8 +175,16 @@ export function ObjectDetailPage() {
               </CardContent>
             </Card>
 
+            <UserAttributesCard
+              objectId={object.id}
+              userAttributes={object.attributes.user}
+              isAdmin={isAdmin}
+            />
+
             <ProvenanceCard
               provenance={object.attribute_provenance}
+              users={usersQuery.data}
+              canLinkToUser={isAdmin}
             />
 
             <JsonCard
@@ -180,17 +200,23 @@ export function ObjectDetailPage() {
 
 function ProvenanceCard({
   provenance,
+  users,
+  canLinkToUser,
 }: {
   provenance: Record<string, string>
+  users: User[] | undefined
+  canLinkToUser: boolean
 }) {
   const entries = Object.entries(provenance)
+  const jobRunIds = useMemo(() => provenanceJobRunIds(provenance), [provenance])
+  const jobRunTypes = useProvenanceJobRunTypes(jobRunIds)
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Attribute provenance</CardTitle>
         <CardDescription>
-          The job run that last wrote each attribute namespace.
+          The user or job run that last wrote each attribute path.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -200,7 +226,7 @@ function ProvenanceCard({
           </p>
         ) : (
           <div className="grid gap-3">
-            {entries.map(([path, jobRunId]) => (
+            {entries.map(([path, reference]) => (
               <div
                 key={path}
                 className="flex flex-col gap-1 rounded-lg border bg-background/60 p-3 sm:flex-row sm:items-center sm:justify-between"
@@ -211,12 +237,12 @@ function ProvenanceCard({
                   </div>
                   <div className="mt-1 font-mono text-sm">{path}</div>
                 </div>
-                <Link
-                  className="font-mono text-sm underline-offset-4 hover:underline"
-                  to={`/job-runs/${jobRunId}`}
-                >
-                  {jobRunId}
-                </Link>
+                <ProvenanceReferenceLink
+                  reference={reference}
+                  users={users}
+                  jobRunTypes={jobRunTypes}
+                  canLinkToUser={canLinkToUser}
+                />
               </div>
             ))}
           </div>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/ekkuleivonen/relic/packages/search"
@@ -21,6 +22,11 @@ func observeAttributeCatalog(ctx context.Context, runner Runner, params []Upsert
 		for path, typ := range flattenObjectAttributes(param.Attributes) {
 			if err := mergeObservedCatalogType(observed, path, typ); err != nil {
 				return err
+			}
+			for _, prefix := range attributePathPrefixes(path) {
+				if err := mergeObservedCatalogType(observed, prefix, search.TypeUnknown); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -48,6 +54,20 @@ func mergeObservedCatalogType(observed map[string]search.ValueType, path string,
 
 	observed[path] = widened
 	return nil
+}
+
+func attributePathPrefixes(path string) []string {
+	parts := splitAttributePath(path)
+	if len(parts) <= 1 {
+		return nil
+	}
+
+	prefixes := make([]string, 0, len(parts)-1)
+	for index := 1; index < len(parts); index++ {
+		prefixes = append(prefixes, strings.Join(parts[:index], "."))
+	}
+
+	return prefixes
 }
 
 func flattenObjectAttributes(attributes ObjectAttributes) map[string]search.ValueType {

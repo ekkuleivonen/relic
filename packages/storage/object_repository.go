@@ -25,6 +25,7 @@ type ObjectRepository interface {
 	DeleteObject(context.Context, string) error
 	DeleteObjects(context.Context, DeleteObjectsParams) (int64, error)
 	DeleteObjectsNotSeenSince(context.Context, DeleteObjectsNotSeenSinceParams) (int64, error)
+	MutateObjectAttributes(context.Context, string, AttributeMutation) (Object, error)
 	Search(context.Context, search.BoundQuery, SearchScope) ([]Object, error)
 }
 
@@ -136,7 +137,9 @@ func (s *ObjectStore) UpsertObjects(ctx context.Context, params []UpsertObjectPa
 			ORDER BY ordinal
 		ON CONFLICT (bucket_id, key)
 		DO UPDATE SET
-			attributes = EXCLUDED.attributes || jsonb_build_object(
+			attributes = objects.attributes
+				|| EXCLUDED.attributes
+				|| jsonb_build_object(
 				'core',
 				jsonb_build_object(
 					'object_id', objects.id,
@@ -147,7 +150,8 @@ func (s *ObjectStore) UpsertObjects(ctx context.Context, params []UpsertObjectPa
 					'last_seen_at', EXCLUDED.attributes #>> '{core,last_seen_at}'
 				)
 			),
-			attribute_provenance = EXCLUDED.attribute_provenance,
+			attribute_provenance = COALESCE(objects.attribute_provenance, '{}'::jsonb)
+				|| EXCLUDED.attribute_provenance,
 			updated_at = now()
 		RETURNING
 			id,

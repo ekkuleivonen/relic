@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/middleware"
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
@@ -64,6 +66,64 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 
 		return &objectOutput{Body: ObjectResponseFromStorage(object)}, nil
 	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "patch-object-attributes",
+		Method:      http.MethodPatch,
+		Path:        basePath + "/objects/{id}/attributes",
+		Summary:     "Patch user-owned object attributes",
+		Tags:        []string{"Objects"},
+	}, func(ctx context.Context, input *patchObjectAttributesInput) (*objectOutput, error) {
+		if dependencies.Storage == nil {
+			return nil, huma.Error500InternalServerError("object dependencies are not configured")
+		}
+
+		principal, err := middleware.RequireAdminContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(input.Body.Set) == 0 && len(input.Body.Delete) == 0 {
+			return nil, huma.Error400BadRequest("set or delete is required")
+		}
+
+		for path := range input.Body.Set {
+			if err := validateUserAttributePath(path); err != nil {
+				return nil, huma.Error400BadRequest(err.Error())
+			}
+		}
+		for _, path := range input.Body.Delete {
+			if err := validateUserAttributePath(path); err != nil {
+				return nil, huma.Error400BadRequest(err.Error())
+			}
+		}
+
+		provenance := make(map[string]string, len(input.Body.Set))
+		for path := range input.Body.Set {
+			provenance[path] = principal.ID
+		}
+
+		object, err := dependencies.Storage.Objects().MutateObjectAttributes(ctx, input.ID, storage.AttributeMutation{
+			AllowedPrefix: storage.UserAttributePrefix,
+			Sets:          input.Body.Set,
+			Deletes:       input.Body.Delete,
+			Provenance:    provenance,
+		})
+		if errors.Is(err, storage.ErrNotFound) {
+			return nil, huma.Error404NotFound("object not found")
+		}
+		if errors.Is(err, storage.ErrCatalogTypeConflict) {
+			return nil, huma.Error422UnprocessableEntity(err.Error())
+		}
+		if err != nil {
+			if strings.Contains(err.Error(), "must start with") {
+				return nil, huma.Error400BadRequest(err.Error())
+			}
+			return nil, err
+		}
+
+		return &objectOutput{Body: ObjectResponseFromStorage(object)}, nil
+	})
 }
 
 type listObjectsInput struct {
@@ -77,6 +137,30 @@ type listObjectsInput struct {
 
 type getObjectInput struct {
 	ID string `path:"id" example:"object_0123456789abcdef0123456789abcdef"`
+}
+
+type patchObjectAttributesInput struct {
+	ID   string `path:"id" example:"object_0123456789abcdef0123456789abcdef"`
+	Body patchObjectAttributesBody
+}
+
+type patchObjectAttributesBody struct {
+	Set    map[string]any `json:"set,omitempty" doc:"User attribute paths to set"`
+	Delete []string       `json:"delete,omitempty" doc:"User attribute paths to delete"`
+}
+
+func validateUserAttributePath(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return errors.New("attribute path is required")
+	}
+	if !strings.HasPrefix(path, "user.") {
+		return errors.New("attribute paths must start with user.")
+	}
+	if strings.TrimPrefix(path, "user.") == "" {
+		return errors.New("attribute path is invalid")
+	}
+	return nil
 }
 
 type objectOutput struct {

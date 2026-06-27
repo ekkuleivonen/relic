@@ -103,9 +103,6 @@ const SNIPPET_COMPLETIONS: Completion[] = [
   },
 ]
 
-const ATTR_CALL_PATTERN = /attr\s*\(\s*'/gi
-const RELATION_CALL_PATTERN = /has_relation\s*\(\s*'/gi
-
 let attributeCatalog: SearchAttribute[] = BUILTIN_SEARCH_ATTRIBUTES
 let relationTypeCatalog: string[] = [...BUILTIN_RELATION_TYPES]
 
@@ -187,11 +184,10 @@ function quotedArgAt(
 
 export function getAttrPathPrefixAt(state: EditorState, pos: number) {
   const text = state.doc.toString()
-  let match: RegExpExecArray | null
   let active: QuotedArgContext | null = null
 
-  while ((match = ATTR_CALL_PATTERN.exec(text)) !== null) {
-    const pathStart = match.index + match[0].length
+  for (const match of text.matchAll(/attr\s*\(\s*'/gi)) {
+    const pathStart = match.index! + match[0].length
     if (pos < pathStart) {
       continue
     }
@@ -210,11 +206,10 @@ export function getRelationCallContextAt(
   pos: number
 ): RelationCallContext | null {
   const text = state.doc.toString()
-  let match: RegExpExecArray | null
   let active: RelationCallContext | null = null
 
-  while ((match = RELATION_CALL_PATTERN.exec(text)) !== null) {
-    const typeStart = match.index + match[0].length
+  for (const match of text.matchAll(/has_relation\s*\(\s*'/gi)) {
+    const typeStart = match.index! + match[0].length
     if (pos < typeStart) {
       continue
     }
@@ -371,6 +366,38 @@ export function getNextSegmentCompletions(
   )
 }
 
+export function getFullPathPrefixCompletions(
+  catalog: SearchAttribute[],
+  prefix: string
+) {
+  const normalizedPrefix = prefix.toLowerCase()
+  if (normalizedPrefix === "") {
+    return []
+  }
+
+  const seen = new Set<string>()
+  const matches: SearchAttribute[] = []
+
+  for (const attribute of catalog) {
+    const path = attribute.path
+    const normalizedPath = path.toLowerCase()
+    if (!normalizedPath.startsWith(normalizedPrefix)) {
+      continue
+    }
+    if (normalizedPath === normalizedPrefix) {
+      continue
+    }
+    if (seen.has(path)) {
+      continue
+    }
+
+    seen.add(path)
+    matches.push(attribute)
+  }
+
+  return matches.sort((left, right) => left.path.localeCompare(right.path))
+}
+
 export function getRelationTypeCompletions(
   relationTypes: string[],
   prefix: string
@@ -401,16 +428,34 @@ export function getRelationDirectionCompletions(
   }))
 }
 
-function createSegmentApply(segment: string, isLeaf: boolean): Completion["apply"] {
-  return (view, _completion, from, to) => {
-    const insert = isLeaf ? segment : `${segment}.`
+function createSegmentPathApply(
+  pathStart: number,
+  completedPath: string,
+  segment: string,
+  isLeaf: boolean
+): Completion["apply"] {
+  return (view, _completion, _from, to) => {
+    const nextPath = completedPath ? `${completedPath}.${segment}` : segment
+    const insert = isLeaf ? nextPath : `${nextPath}.`
     view.dispatch({
-      changes: { from, to, insert },
-      selection: { anchor: from + insert.length },
+      changes: { from: pathStart, to, insert },
+      selection: { anchor: pathStart + insert.length },
     })
     if (!isLeaf) {
       startCompletion(view)
     }
+  }
+}
+
+function createAbsolutePathApply(
+  pathStart: number,
+  absolutePath: string
+): Completion["apply"] {
+  return (view, _completion, _from, to) => {
+    view.dispatch({
+      changes: { from: pathStart, to, insert: absolutePath },
+      selection: { anchor: pathStart + absolutePath.length },
+    })
   }
 }
 
@@ -423,29 +468,60 @@ function attributePathCompletions(
   }
 
   const { prefix, from: pathStart, to } = pathContext
-  const { completedPath, partialSegment, replaceFrom, replaceTo } =
-    splitAttrPathPrefix(pathStart, prefix, to)
+  const { completedPath, partialSegment } = splitAttrPathPrefix(
+    pathStart,
+    prefix,
+    to
+  )
 
-  const segments = getNextSegmentCompletions(
+  const options: Completion[] = []
+  const seen = new Set<string>()
+
+  for (const entry of getNextSegmentCompletions(
     attributeCatalog,
     completedPath,
     partialSegment
-  )
+  )) {
+    if (seen.has(entry.fullPath)) {
+      continue
+    }
+    seen.add(entry.fullPath)
 
-  if (segments.length === 0) {
+    options.push({
+      label:
+        partialSegment.length > 0 && entry.isLeaf ? entry.fullPath : entry.segment,
+      type: entry.isLeaf ? "property" : "namespace",
+      detail: entry.isLeaf ? (entry.type ?? "unknown") : entry.fullPath,
+      apply: createSegmentPathApply(
+        pathStart,
+        completedPath,
+        entry.segment,
+        entry.isLeaf
+      ),
+    })
+  }
+
+  for (const attribute of getFullPathPrefixCompletions(attributeCatalog, prefix)) {
+    if (seen.has(attribute.path)) {
+      continue
+    }
+    seen.add(attribute.path)
+
+    options.push({
+      label: attribute.path,
+      type: "property",
+      detail: attribute.type ?? "unknown",
+      apply: createAbsolutePathApply(pathStart, attribute.path),
+    })
+  }
+
+  if (options.length === 0) {
     return null
   }
 
-  const options: Completion[] = segments.map((entry) => ({
-    label: entry.segment,
-    type: entry.isLeaf ? "property" : "namespace",
-    detail: entry.isLeaf ? (entry.type ?? "unknown") : entry.fullPath,
-    apply: createSegmentApply(entry.segment, entry.isLeaf),
-  }))
-
   return {
-    from: replaceFrom,
-    to: replaceTo,
+    from: pathStart,
+    to,
     options,
     validFor: /^[\w.]*$/,
     filter: false,

@@ -10,13 +10,14 @@ type UsersListResponse = {
   items: User[]
 }
 
-export function useUsers() {
+export function useUsers(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: usersQueryKey,
     queryFn: async () => {
       const response = await apiRequest<UsersListResponse>("/users")
       return response.items
     },
+    enabled: options?.enabled ?? true,
   })
 }
 
