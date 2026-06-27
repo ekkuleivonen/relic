@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/ekkuleivonen/relic/packages/secrets"
 )
 
 func TestUpstreamEventStoreCreateLockAndMarkProcessed(t *testing.T) {
@@ -11,14 +13,34 @@ func TestUpstreamEventStoreCreateLockAndMarkProcessed(t *testing.T) {
 	store, cleanup := testStore(t, ctx)
 	defer cleanup()
 
+	bucket, err := store.Buckets().CreateBucket(ctx, CreateBucketParams{
+		Name:        "upstream-events-test-" + time.Now().Format("20060102150405.000000000"),
+		Upstream:    BucketUpstreamS3,
+		EndpointURL: "https://s3.amazonaws.com",
+		Region:      "us-east-1",
+		BucketName:  "upstream-events-test",
+		EncryptedCredentials: secrets.Envelope{
+			KeyID:      "local-dev",
+			Algorithm:  secrets.AlgorithmXChaCha20Poly1305,
+			Nonce:      []byte("012345678901234567890123"),
+			Ciphertext: []byte("encrypted-credentials"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateBucket returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.Buckets().DeleteBucket(context.Background(), bucket.ID)
+	})
+
 	events := store.UpstreamEvents()
 	created, err := events.CreateUpstreamEvent(ctx, CreateUpstreamEventParams{
-		UpstreamBucketName: "upstream-events-test",
-		EventName:          "ObjectCreated:Put",
-		ObjectKey:          "photos/a.jpg",
-		Envelope:           JobRunPayload{"event": "ObjectCreated:Put"},
-		DedupeKey:          "dedupe-" + time.Now().Format("20060102150405.000000000"),
-		Transport:          UpstreamEventTransportWebhook,
+		BucketID:  bucket.ID,
+		EventName: "ObjectCreated:Put",
+		ObjectKey: "photos/a.jpg",
+		Envelope:  JobRunPayload{"event": "ObjectCreated:Put"},
+		DedupeKey: "dedupe-" + time.Now().Format("20060102150405.000000000"),
+		Transport: UpstreamEventTransportJetstream,
 	})
 	if err != nil {
 		t.Fatalf("CreateUpstreamEvent returned error: %v", err)
@@ -27,6 +49,9 @@ func TestUpstreamEventStoreCreateLockAndMarkProcessed(t *testing.T) {
 		_, _ = store.pool.Exec(context.Background(), "DELETE FROM upstream_events WHERE id = $1", created.ID)
 	})
 
+	if created.BucketID != bucket.ID {
+		t.Fatalf("bucket_id = %q, want %q", created.BucketID, bucket.ID)
+	}
 	if created.State != UpstreamEventStatePending {
 		t.Fatalf("state = %q, want pending", created.State)
 	}
@@ -59,5 +84,18 @@ func TestUpstreamEventStoreCreateLockAndMarkProcessed(t *testing.T) {
 	}
 	if got.ProcessedAt == nil {
 		t.Fatal("processed_at is nil, want timestamp")
+	}
+}
+
+func TestUpstreamEventDedupeKeyUsesBucketID(t *testing.T) {
+	withEventID := UpstreamEventDedupeKey("bucket_abc", "ObjectCreated:Put", "photos/a.jpg", "evt-1", time.Time{})
+	if withEventID != "bucket_abc:ObjectCreated:Put:photos/a.jpg:evt-1" {
+		t.Fatalf("dedupe key = %q", withEventID)
+	}
+
+	eventTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	withoutEventID := UpstreamEventDedupeKey("bucket_abc", "ObjectCreated:Put", "photos/a.jpg", "", eventTime)
+	if withoutEventID == "" || withoutEventID == withEventID {
+		t.Fatalf("dedupe key = %q, want hashed fallback", withoutEventID)
 	}
 }

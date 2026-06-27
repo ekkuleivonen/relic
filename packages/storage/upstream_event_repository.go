@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -20,7 +21,6 @@ var ErrUpstreamEventDuplicate = errors.New("upstream event duplicate")
 type UpstreamEventTransport string
 
 const (
-	UpstreamEventTransportWebhook   UpstreamEventTransport = "webhook"
 	UpstreamEventTransportJetstream UpstreamEventTransport = "jetstream"
 )
 
@@ -49,38 +49,30 @@ func NewUpstreamEventStore(runner Runner) *UpstreamEventStore {
 }
 
 type UpstreamEvent struct {
-	ID                 string
-	BucketID           string
-	UpstreamBucketName string
-	UpstreamPlatform   string
-	UpstreamRegion     string
-	UpstreamOrigin     string
-	EventName          string
-	ObjectKey          string
-	Envelope           JobRunPayload
-	DedupeKey          string
-	Transport          UpstreamEventTransport
-	State              UpstreamEventState
-	EventTime          *time.Time
-	ReceivedAt         time.Time
-	ProcessedAt        *time.Time
-	ErrorMessage       string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	ID           string
+	BucketID     string
+	EventName    string
+	ObjectKey    string
+	Envelope     JobRunPayload
+	DedupeKey    string
+	Transport    UpstreamEventTransport
+	State        UpstreamEventState
+	EventTime    *time.Time
+	ReceivedAt   time.Time
+	ProcessedAt  *time.Time
+	ErrorMessage string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type CreateUpstreamEventParams struct {
-	BucketID           *string
-	UpstreamBucketName string
-	UpstreamPlatform   string
-	UpstreamRegion     string
-	UpstreamOrigin     string
-	EventName          string
-	ObjectKey          string
-	Envelope           JobRunPayload
-	DedupeKey          string
-	Transport          UpstreamEventTransport
-	EventTime          *time.Time
+	BucketID    string
+	EventName   string
+	ObjectKey   string
+	Envelope    JobRunPayload
+	DedupeKey   string
+	Transport   UpstreamEventTransport
+	EventTime   *time.Time
 }
 
 type MarkUpstreamEventParams struct {
@@ -97,6 +89,10 @@ type IngestUpstreamEventsResult struct {
 }
 
 func (s *UpstreamEventStore) CreateUpstreamEvent(ctx context.Context, params CreateUpstreamEventParams) (UpstreamEvent, error) {
+	if strings.TrimSpace(params.BucketID) == "" {
+		return UpstreamEvent{}, fmt.Errorf("create upstream event: bucket id is required")
+	}
+
 	id, err := newUpstreamEventID()
 	if err != nil {
 		return UpstreamEvent{}, err
@@ -111,10 +107,6 @@ func (s *UpstreamEventStore) CreateUpstreamEvent(ctx context.Context, params Cre
 		INSERT INTO upstream_events (
 			id,
 			bucket_id,
-			upstream_bucket_name,
-			upstream_platform,
-			upstream_region,
-			upstream_origin,
 			event_name,
 			object_key,
 			envelope,
@@ -126,17 +118,13 @@ func (s *UpstreamEventStore) CreateUpstreamEvent(ctx context.Context, params Cre
 			$2,
 			$3,
 			$4,
-			$5,
+			$5::jsonb,
 			$6,
 			$7,
-			$8,
-			$9::jsonb,
-			$10,
-			$11,
-			$12
+			$8
 		)
 		RETURNING `+upstreamEventSelectColumns+`
-	`, id, params.BucketID, params.UpstreamBucketName, params.UpstreamPlatform, params.UpstreamRegion, params.UpstreamOrigin, params.EventName, params.ObjectKey, envelope, params.DedupeKey, params.Transport, params.EventTime))
+	`, id, params.BucketID, params.EventName, params.ObjectKey, envelope, params.DedupeKey, params.Transport, params.EventTime))
 	if err != nil {
 		return UpstreamEvent{}, mapCreateUpstreamEventError(err)
 	}
@@ -208,10 +196,6 @@ func (s *UpstreamEventStore) MarkUpstreamEvent(ctx context.Context, params MarkU
 const upstreamEventSelectColumns = `
 	id,
 	bucket_id,
-	upstream_bucket_name,
-	upstream_platform,
-	upstream_region,
-	upstream_origin,
 	event_name,
 	object_key,
 	envelope,
@@ -233,7 +217,6 @@ func scanUpstreamEvent(row pgx.Row) (UpstreamEvent, error) {
 func scanUpstreamEventRow(row pgx.Row) (UpstreamEvent, error) {
 	var (
 		event         UpstreamEvent
-		bucketID      sql.NullString
 		transport     string
 		state         string
 		envelopeBytes []byte
@@ -244,11 +227,7 @@ func scanUpstreamEventRow(row pgx.Row) (UpstreamEvent, error) {
 
 	err := row.Scan(
 		&event.ID,
-		&bucketID,
-		&event.UpstreamBucketName,
-		&event.UpstreamPlatform,
-		&event.UpstreamRegion,
-		&event.UpstreamOrigin,
+		&event.BucketID,
 		&event.EventName,
 		&event.ObjectKey,
 		&envelopeBytes,
@@ -269,9 +248,6 @@ func scanUpstreamEventRow(row pgx.Row) (UpstreamEvent, error) {
 		return UpstreamEvent{}, fmt.Errorf("scan upstream event: %w", err)
 	}
 
-	if bucketID.Valid {
-		event.BucketID = bucketID.String
-	}
 	event.Transport = UpstreamEventTransport(transport)
 	event.State = UpstreamEventState(state)
 	if eventTime.Valid {
@@ -313,28 +289,13 @@ func newUpstreamEventID() (string, error) {
 	return "upevt_" + hex.EncodeToString(random), nil
 }
 
-func UpstreamEventDedupeKey(platform, origin, bucketName, eventName, objectKey, eventID string, eventTime time.Time) string {
+func UpstreamEventDedupeKey(bucketID, eventName, objectKey, eventID string, eventTime time.Time) string {
 	if eventID != "" {
-		return platform + ":" + origin + ":" + bucketName + ":" + eventName + ":" + objectKey + ":" + eventID
+		return bucketID + ":" + eventName + ":" + objectKey + ":" + eventID
 	}
 
-	material := platform + "|" + origin + "|" + bucketName + "|" + eventName + "|" + objectKey + "|" + eventTime.UTC().Format(time.RFC3339Nano)
+	material := bucketID + "|" + eventName + "|" + objectKey + "|" + eventTime.UTC().Format(time.RFC3339Nano)
 	sum := sha256.Sum256([]byte(material))
 
 	return hex.EncodeToString(sum[:])
-}
-
-func (event UpstreamEvent) EventMatch(objectKey string) BucketEventMatch {
-	key := objectKey
-	if key == "" {
-		key = event.ObjectKey
-	}
-
-	return BucketEventMatch{
-		Platform:           event.UpstreamPlatform,
-		Region:             event.UpstreamRegion,
-		Origin:             event.UpstreamOrigin,
-		UpstreamBucketName: event.UpstreamBucketName,
-		ObjectKey:          key,
-	}
 }

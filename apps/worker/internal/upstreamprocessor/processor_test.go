@@ -25,13 +25,12 @@ func TestProcessorTickEnqueuesImportObjects(t *testing.T) {
 
 	bucket := createProcessorTestBucket(t, ctx, store, "raw/", "processor-import-data")
 	if _, err := store.UpstreamEvents().CreateUpstreamEvent(ctx, storage.CreateUpstreamEventParams{
-		BucketID:           &bucket.ID,
-		UpstreamBucketName: bucket.BucketName,
-		EventName:          "ObjectCreated:Put",
-		ObjectKey:          "raw/photos/a.jpg",
-		Envelope:           storage.JobRunPayload{"event": "ObjectCreated:Put"},
-		DedupeKey:          uniqueDedupeKey("import"),
-		Transport:          storage.UpstreamEventTransportWebhook,
+		BucketID:  bucket.ID,
+		EventName: "ObjectCreated:Put",
+		ObjectKey: "raw/photos/a.jpg",
+		Envelope:  storage.JobRunPayload{"event": "ObjectCreated:Put"},
+		DedupeKey: uniqueDedupeKey("import"),
+		Transport: storage.UpstreamEventTransportJetstream,
 	}); err != nil {
 		t.Fatalf("CreateUpstreamEvent returned error: %v", err)
 	}
@@ -72,13 +71,12 @@ func TestProcessorTickCoalescesDuplicateImports(t *testing.T) {
 	bucket := createProcessorTestBucket(t, ctx, store, "", "processor-coalesce-data")
 	for i, dedupe := range []string{uniqueDedupeKey("coalesce-1"), uniqueDedupeKey("coalesce-2")} {
 		if _, err := store.UpstreamEvents().CreateUpstreamEvent(ctx, storage.CreateUpstreamEventParams{
-			BucketID:           &bucket.ID,
-			UpstreamBucketName: bucket.BucketName,
-			EventName:          "ObjectCreated:Put",
-			ObjectKey:          "photos/a.jpg",
-			Envelope:           storage.JobRunPayload{"seq": i},
-			DedupeKey:          dedupe,
-			Transport:          storage.UpstreamEventTransportWebhook,
+			BucketID:  bucket.ID,
+			EventName: "ObjectCreated:Put",
+			ObjectKey: "photos/a.jpg",
+			Envelope:  storage.JobRunPayload{"seq": i},
+			DedupeKey: dedupe,
+			Transport: storage.UpstreamEventTransportJetstream,
 		}); err != nil {
 			t.Fatalf("CreateUpstreamEvent returned error: %v", err)
 		}
@@ -111,46 +109,6 @@ func TestProcessorTickCoalescesDuplicateImports(t *testing.T) {
 	}
 }
 
-func TestProcessorTickResolvesBucketByUpstreamName(t *testing.T) {
-	ctx := context.Background()
-	store, cleanup := processorTestStore(t, ctx)
-	defer cleanup()
-
-	bucket := createProcessorTestBucket(t, ctx, store, "", "processor-resolve-data")
-	if _, err := store.UpstreamEvents().CreateUpstreamEvent(ctx, storage.CreateUpstreamEventParams{
-		UpstreamBucketName: bucket.BucketName,
-		EventName:          "ObjectCreated:Put",
-		ObjectKey:          "photos/a.jpg",
-		Envelope:           storage.JobRunPayload{"event": "ObjectCreated:Put"},
-		DedupeKey:          uniqueDedupeKey("resolve"),
-		Transport:          storage.UpstreamEventTransportWebhook,
-	}); err != nil {
-		t.Fatalf("CreateUpstreamEvent returned error: %v", err)
-	}
-
-	processor, err := NewProcessor(ProcessorOptions{Store: store, BatchSize: 10})
-	if err != nil {
-		t.Fatalf("NewProcessor returned error: %v", err)
-	}
-
-	if _, err := processor.Tick(ctx); err != nil {
-		t.Fatalf("Tick returned error: %v", err)
-	}
-
-	runs, err := store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
-		Type:       storage.JobTypeImportObjects,
-		TargetType: "bucket",
-		TargetID:   bucket.ID,
-		Limit:      10,
-	})
-	if err != nil {
-		t.Fatalf("ListJobRuns returned error: %v", err)
-	}
-	if len(runs) != 1 {
-		t.Fatalf("import job count = %d, want 1", len(runs))
-	}
-}
-
 func TestProcessorTickEnqueuesRemoveObjectsWithResolvedID(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := processorTestStore(t, ctx)
@@ -166,13 +124,12 @@ func TestProcessorTickEnqueuesRemoveObjectsWithResolvedID(t *testing.T) {
 	}
 
 	if _, err := store.UpstreamEvents().CreateUpstreamEvent(ctx, storage.CreateUpstreamEventParams{
-		BucketID:           &bucket.ID,
-		UpstreamBucketName: bucket.BucketName,
-		EventName:          "ObjectRemoved:Delete",
-		ObjectKey:          object.Key,
-		Envelope:           storage.JobRunPayload{"event": "ObjectRemoved:Delete"},
-		DedupeKey:          uniqueDedupeKey("remove"),
-		Transport:          storage.UpstreamEventTransportWebhook,
+		BucketID:  bucket.ID,
+		EventName: "ObjectRemoved:Delete",
+		ObjectKey: object.Key,
+		Envelope:  storage.JobRunPayload{"event": "ObjectRemoved:Delete"},
+		DedupeKey: uniqueDedupeKey("remove"),
+		Transport: storage.UpstreamEventTransportJetstream,
 	}); err != nil {
 		t.Fatalf("CreateUpstreamEvent returned error: %v", err)
 	}
@@ -197,56 +154,6 @@ func TestProcessorTickEnqueuesRemoveObjectsWithResolvedID(t *testing.T) {
 	}
 	if len(runs) != 1 {
 		t.Fatalf("remove job count = %d, want 1", len(runs))
-	}
-}
-
-func TestProcessorTickSkipsOutOfScopeKey(t *testing.T) {
-	ctx := context.Background()
-	store, cleanup := processorTestStore(t, ctx)
-	defer cleanup()
-
-	bucket := createProcessorTestBucket(t, ctx, store, "raw/", "processor-scope-data")
-	event, err := store.UpstreamEvents().CreateUpstreamEvent(ctx, storage.CreateUpstreamEventParams{
-		BucketID:           &bucket.ID,
-		UpstreamBucketName: bucket.BucketName,
-		EventName:          "ObjectCreated:Put",
-		ObjectKey:          "other/a.jpg",
-		Envelope:           storage.JobRunPayload{"event": "ObjectCreated:Put"},
-		DedupeKey:          uniqueDedupeKey("scope"),
-		Transport:          storage.UpstreamEventTransportWebhook,
-	})
-	if err != nil {
-		t.Fatalf("CreateUpstreamEvent returned error: %v", err)
-	}
-
-	processor, err := NewProcessor(ProcessorOptions{Store: store, BatchSize: 10})
-	if err != nil {
-		t.Fatalf("NewProcessor returned error: %v", err)
-	}
-
-	if _, err := processor.Tick(ctx); err != nil {
-		t.Fatalf("Tick returned error: %v", err)
-	}
-
-	got, err := store.UpstreamEvents().GetUpstreamEvent(ctx, event.ID)
-	if err != nil {
-		t.Fatalf("GetUpstreamEvent returned error: %v", err)
-	}
-	if got.State != storage.UpstreamEventStateSkipped {
-		t.Fatalf("state = %q, want skipped", got.State)
-	}
-
-	runs, err := store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
-		Type:       storage.JobTypeImportObjects,
-		TargetType: "bucket",
-		TargetID:   bucket.ID,
-		Limit:      10,
-	})
-	if err != nil {
-		t.Fatalf("ListJobRuns returned error: %v", err)
-	}
-	if len(runs) != 0 {
-		t.Fatalf("import job count = %d, want 0", len(runs))
 	}
 }
 
@@ -283,87 +190,6 @@ func processorTestStore(t *testing.T, ctx context.Context) (*storage.Store, func
 	}
 
 	return store, pool.Close
-}
-
-func TestProcessorTickResolvesBucketByAWSOrigin(t *testing.T) {
-	ctx := context.Background()
-	store, cleanup := processorTestStore(t, ctx)
-	defer cleanup()
-
-	bucket := createProcessorTestBucketWithEndpoint(t, ctx, store, "", "shared-origin-data", "https://s3.amazonaws.com", "us-west-2")
-	other := createProcessorTestBucketWithEndpoint(t, ctx, store, "", "shared-origin-data", "https://s3.amazonaws.com", "us-east-1")
-	_ = other
-
-	if _, err := store.UpstreamEvents().CreateUpstreamEvent(ctx, storage.CreateUpstreamEventParams{
-		UpstreamBucketName: bucket.BucketName,
-		UpstreamPlatform:   "aws",
-		UpstreamRegion:     "us-west-2",
-		UpstreamOrigin:     "aws:us-west-2",
-		EventName:          "ObjectCreated:Put",
-		ObjectKey:          "photos/a.jpg",
-		Envelope:           storage.JobRunPayload{"event": "ObjectCreated:Put"},
-		DedupeKey:          uniqueDedupeKey("origin"),
-		Transport:          storage.UpstreamEventTransportWebhook,
-	}); err != nil {
-		t.Fatalf("CreateUpstreamEvent returned error: %v", err)
-	}
-
-	processor, err := NewProcessor(ProcessorOptions{Store: store, BatchSize: 10})
-	if err != nil {
-		t.Fatalf("NewProcessor returned error: %v", err)
-	}
-
-	if _, err := processor.Tick(ctx); err != nil {
-		t.Fatalf("Tick returned error: %v", err)
-	}
-
-	runs, err := store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
-		Type:       storage.JobTypeImportObjects,
-		TargetType: "bucket",
-		TargetID:   bucket.ID,
-		Limit:      10,
-	})
-	if err != nil {
-		t.Fatalf("ListJobRuns returned error: %v", err)
-	}
-	if len(runs) != 1 {
-		t.Fatalf("import job count = %d, want 1", len(runs))
-	}
-}
-
-func createProcessorTestBucketWithEndpoint(
-	t *testing.T,
-	ctx context.Context,
-	store *storage.Store,
-	prefix string,
-	bucketName string,
-	endpointURL string,
-	region string,
-) storage.Bucket {
-	t.Helper()
-
-	bucket, err := store.Buckets().CreateBucket(ctx, storage.CreateBucketParams{
-		Name:        "processor-test-" + time.Now().Format("20060102150405.000000000"),
-		Upstream:    storage.BucketUpstreamS3,
-		EndpointURL: endpointURL,
-		Region:      region,
-		BucketName:  bucketName,
-		Prefix:      prefix,
-		EncryptedCredentials: secrets.Envelope{
-			KeyID:      "local-dev",
-			Algorithm:  secrets.AlgorithmXChaCha20Poly1305,
-			Nonce:      []byte("012345678901234567890123"),
-			Ciphertext: []byte("encrypted-credentials"),
-		},
-	})
-	if err != nil {
-		t.Fatalf("CreateBucket returned error: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = store.Buckets().DeleteBucket(context.Background(), bucket.ID)
-	})
-
-	return bucket
 }
 
 func createProcessorTestBucket(

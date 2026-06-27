@@ -113,20 +113,20 @@ func (p *Processor) processLockedEvents(ctx context.Context, tx *storage.Tx, eve
 	processed := 0
 
 	for _, event := range events {
-		bucket, skipReason, err := p.resolveBucket(ctx, tx, event)
-		if err != nil {
-			return processed, err
-		}
-		if skipReason != "" {
+		bucket, err := tx.Buckets().GetBucket(ctx, event.BucketID)
+		if errors.Is(err, storage.ErrNotFound) {
 			if err := tx.UpstreamEvents().MarkUpstreamEvent(ctx, storage.MarkUpstreamEventParams{
 				ID:           event.ID,
 				State:        storage.UpstreamEventStateSkipped,
-				ErrorMessage: skipReason,
+				ErrorMessage: "bucket_not_found",
 			}); err != nil {
 				return processed, err
 			}
 			processed++
 			continue
+		}
+		if err != nil {
+			return processed, err
 		}
 
 		jobType, ok := JobTypeForEventName(event.EventName)
@@ -135,18 +135,6 @@ func (p *Processor) processLockedEvents(ctx context.Context, tx *storage.Tx, eve
 				ID:           event.ID,
 				State:        storage.UpstreamEventStateSkipped,
 				ErrorMessage: "unsupported_event_name",
-			}); err != nil {
-				return processed, err
-			}
-			processed++
-			continue
-		}
-
-		if !storage.KeyInBucketPrefix(bucket.Prefix, event.ObjectKey) {
-			if err := tx.UpstreamEvents().MarkUpstreamEvent(ctx, storage.MarkUpstreamEventParams{
-				ID:           event.ID,
-				State:        storage.UpstreamEventStateSkipped,
-				ErrorMessage: "out_of_scope",
 			}); err != nil {
 				return processed, err
 			}
@@ -200,32 +188,6 @@ func (p *Processor) processLockedEvents(ctx context.Context, tx *storage.Tx, eve
 	}
 
 	return processed, nil
-}
-
-func (p *Processor) resolveBucket(ctx context.Context, tx *storage.Tx, event storage.UpstreamEvent) (storage.Bucket, string, error) {
-	if event.BucketID != "" {
-		bucket, err := tx.Buckets().GetBucket(ctx, event.BucketID)
-		if errors.Is(err, storage.ErrNotFound) {
-			return storage.Bucket{}, "bucket_not_found", nil
-		}
-		if err != nil {
-			return storage.Bucket{}, "", err
-		}
-
-		return bucket, "", nil
-	}
-
-	buckets, err := tx.Buckets().FindBucketsByUpstreamBucketName(ctx, event.UpstreamBucketName)
-	if err != nil {
-		return storage.Bucket{}, "", err
-	}
-
-	bucket, skipReason := storage.ResolveBucketForEvent(buckets, event.EventMatch(event.ObjectKey))
-	if skipReason != "" {
-		return storage.Bucket{}, skipReason, nil
-	}
-
-	return bucket, "", nil
 }
 
 func (p *Processor) enqueueMutationGroup(ctx context.Context, tx *storage.Tx, group MutationJobGroup) error {

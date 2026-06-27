@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ekkuleivonen/relic/packages/storage"
@@ -15,9 +16,12 @@ func IngestS3Notification(
 	ctx context.Context,
 	events *storage.UpstreamEventStore,
 	body []byte,
-	transport storage.UpstreamEventTransport,
-	bucketID *string,
+	bucketID string,
 ) (storage.IngestUpstreamEventsResult, error) {
+	if strings.TrimSpace(bucketID) == "" {
+		return storage.IngestUpstreamEventsResult{}, fmt.Errorf("ingest s3 notification: bucket id is required")
+	}
+
 	parsed, err := s3events.Parse(body)
 	if err != nil {
 		return storage.IngestUpstreamEventsResult{}, err
@@ -40,32 +44,24 @@ func IngestS3Notification(
 			eventTime = &value
 		}
 
-		platform := string(event.Upstream)
-		origin := event.OriginKey()
 		envelope := storage.JobRunPayload{}
 		if encoded, err := json.Marshal(event); err == nil {
 			_ = json.Unmarshal(encoded, &envelope)
 		}
 
 		created, err := events.CreateUpstreamEvent(ctx, storage.CreateUpstreamEventParams{
-			BucketID:           bucketID,
-			UpstreamBucketName: event.BucketName,
-			UpstreamPlatform:   platform,
-			UpstreamRegion:     event.Region,
-			UpstreamOrigin:     origin,
-			EventName:          event.EventName,
-			ObjectKey:          event.Key,
-			Envelope:           envelope,
+			BucketID:  bucketID,
+			EventName: event.EventName,
+			ObjectKey: event.Key,
+			Envelope:  envelope,
 			DedupeKey: storage.UpstreamEventDedupeKey(
-				platform,
-				origin,
-				event.BucketName,
+				bucketID,
 				event.EventName,
 				event.Key,
 				event.EventID,
 				event.EventTime,
 			),
-			Transport: transport,
+			Transport: storage.UpstreamEventTransportJetstream,
 			EventTime: eventTime,
 		})
 		if errors.Is(err, storage.ErrUpstreamEventDuplicate) {

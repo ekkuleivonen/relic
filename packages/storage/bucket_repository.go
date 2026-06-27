@@ -17,7 +17,6 @@ type BucketRepository interface {
 	CreateBucket(context.Context, CreateBucketParams) (Bucket, error)
 	GetBucket(context.Context, string) (Bucket, error)
 	ListBuckets(context.Context, ListBucketsParams) ([]Bucket, error)
-	FindBucketsByUpstreamBucketName(context.Context, string) ([]Bucket, error)
 	UpdateBucket(context.Context, UpdateBucketParams) (Bucket, error)
 	DeleteBucket(context.Context, string) error
 }
@@ -247,48 +246,6 @@ func (s *BucketStore) ListBuckets(ctx context.Context, params ListBucketsParams)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("list buckets: %w", err)
-	}
-
-	return buckets, nil
-}
-
-func (s *BucketStore) FindBucketsByUpstreamBucketName(ctx context.Context, upstreamBucketName string) ([]Bucket, error) {
-	rows, err := s.runner.Query(ctx, `
-		SELECT
-			id,
-			name,
-			upstream,
-			endpoint_url,
-			region,
-			bucket_name,
-			prefix,
-			upstream_config,
-			credential_key_id,
-			credential_algorithm,
-			credential_nonce,
-			credential_ciphertext,
-			relic_config,
-			created_at,
-			updated_at
-		FROM buckets
-		WHERE bucket_name = $1
-		ORDER BY created_at ASC, id ASC
-	`, upstreamBucketName)
-	if err != nil {
-		return nil, fmt.Errorf("find buckets by upstream bucket name: %w", err)
-	}
-	defer rows.Close()
-
-	buckets := []Bucket{}
-	for rows.Next() {
-		bucket, err := scanBucket(rows)
-		if err != nil {
-			return nil, err
-		}
-		buckets = append(buckets, bucket)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("find buckets by upstream bucket name: %w", err)
 	}
 
 	return buckets, nil

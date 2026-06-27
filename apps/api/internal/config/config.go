@@ -23,8 +23,7 @@ type Config struct {
 	AuthEnabled     bool
 	EncryptionKeyID string
 	EncryptionKey   []byte
-	LogLevel                      string
-	UpstreamEventsWebhookSecret   string
+	LogLevel        string
 }
 
 type lookupFunc func(string) (string, bool)
@@ -67,8 +66,7 @@ func LoadFromLookup(lookup lookupFunc) (Config, error) {
 		AuthEnabled:     authEnabled,
 		EncryptionKeyID: stringEnv(lookup, "ENCRYPTION_KEY_ID", ""),
 		EncryptionKey:   encryptionKey,
-		LogLevel:                    stringEnv(lookup, "LOG_LEVEL", defaultLogLevel),
-		UpstreamEventsWebhookSecret: stringEnv(lookup, "UPSTREAM_EVENTS_WEBHOOK_SECRET", ""),
+		LogLevel:        stringEnv(lookup, "LOG_LEVEL", defaultLogLevel),
 	}
 
 	if cfg.DatabaseURL == "" {

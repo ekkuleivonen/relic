@@ -163,8 +163,7 @@ func (c *Consumer) handleMessage(msg *nats.Msg) {
 		ctx,
 		c.store.UpstreamEvents(),
 		msg.Data,
-		storage.UpstreamEventTransportJetstream,
-		&bucketID,
+		bucketID,
 	)
 	if err != nil {
 		c.logger.Error(

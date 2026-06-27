@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ekkuleivonen/relic/packages/db"
+	"github.com/ekkuleivonen/relic/packages/secrets"
 	"github.com/ekkuleivonen/relic/packages/storage"
 	"github.com/ekkuleivonen/relic/packages/testdb"
 )
@@ -22,13 +24,32 @@ func TestIngestS3NotificationJetstreamTransport(t *testing.T) {
 	store, cleanup := testStore(t, ctx)
 	defer cleanup()
 
+	bucket, err := store.Buckets().CreateBucket(ctx, storage.CreateBucketParams{
+		Name:        "ingest-test-" + time.Now().Format("20060102150405.000000000"),
+		Upstream:    storage.BucketUpstreamS3,
+		EndpointURL: "https://rustfs.example.test:9000",
+		Region:      "us-east-1",
+		BucketName:  "relic-test-01",
+		EncryptedCredentials: secrets.Envelope{
+			KeyID:      "local-dev",
+			Algorithm:  secrets.AlgorithmXChaCha20Poly1305,
+			Nonce:      []byte("012345678901234567890123"),
+			Ciphertext: []byte("encrypted-credentials"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateBucket returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = store.Buckets().DeleteBucket(context.Background(), bucket.ID)
+	})
+
 	body := loadFixture(t, "rustfs_object_created.json")
 	result, err := IngestS3Notification(
 		ctx,
 		store.UpstreamEvents(),
 		body,
-		storage.UpstreamEventTransportJetstream,
-		nil,
+		bucket.ID,
 	)
 	if err != nil {
 		t.Fatalf("IngestS3Notification returned error: %v", err)
@@ -44,8 +65,8 @@ func TestIngestS3NotificationJetstreamTransport(t *testing.T) {
 	if event.Transport != storage.UpstreamEventTransportJetstream {
 		t.Fatalf("transport = %q, want jetstream", event.Transport)
 	}
-	if event.UpstreamPlatform != "rustfs" {
-		t.Fatalf("upstream platform = %q, want rustfs", event.UpstreamPlatform)
+	if event.BucketID != bucket.ID {
+		t.Fatalf("bucket_id = %q, want %q", event.BucketID, bucket.ID)
 	}
 	if event.ObjectKey != "photos/a.jpg" {
 		t.Fatalf("object key = %q, want photos/a.jpg", event.ObjectKey)
