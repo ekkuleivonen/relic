@@ -10,6 +10,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/jobs"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/middleware"
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
@@ -56,7 +57,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 				return err
 			}
 
-			if _, err := createSyncBucketJob(ctx, tx.JobRuns(), createdBucket.ID); err != nil {
+			if _, err := createSyncBucketJob(ctx, dependencies, tx.JobRuns(), createdBucket.ID); err != nil {
 				return err
 			}
 
@@ -191,7 +192,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			return nil, err
 		}
 
-		run, err := createSyncBucketJob(ctx, dependencies.Storage.JobRuns(), input.ID)
+		run, err := createSyncBucketJob(ctx, dependencies, dependencies.Storage.JobRuns(), input.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -224,7 +225,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			prefix = input.Body.Prefix
 		}
 
-		run, err := createScanBucketJob(ctx, dependencies.Storage.JobRuns(), input.ID, prefix)
+		run, err := createScanBucketJob(ctx, dependencies, dependencies.Storage.JobRuns(), input.ID, prefix)
 		if err != nil {
 			return nil, err
 		}
@@ -258,10 +259,12 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 	})
 }
 
-func createSyncBucketJob(ctx context.Context, jobRuns storage.JobRunRepository, bucketID string) (storage.JobRun, error) {
+func createSyncBucketJob(ctx context.Context, dependencies deps.Dependencies, jobRuns storage.JobRunRepository, bucketID string) (storage.JobRun, error) {
+	requestedBy := middleware.RequestedByFromContext(ctx, dependencies)
 	return jobRuns.CreateJobRun(ctx, storage.CreateJobRunParams{
 		Type:            storage.JobTypeSyncBucket,
-		RequestedByType: "api",
+		RequestedByType: requestedBy.Type,
+		RequestedByID:   requestedBy.ID,
 		TargetType:      "bucket",
 		TargetID:        bucketID,
 		Input: storage.JobRunPayload{
@@ -270,7 +273,7 @@ func createSyncBucketJob(ctx context.Context, jobRuns storage.JobRunRepository, 
 	})
 }
 
-func createScanBucketJob(ctx context.Context, jobRuns storage.JobRunRepository, bucketID string, prefix string) (storage.JobRun, error) {
+func createScanBucketJob(ctx context.Context, dependencies deps.Dependencies, jobRuns storage.JobRunRepository, bucketID string, prefix string) (storage.JobRun, error) {
 	input := storage.JobRunPayload{
 		"bucket_id": bucketID,
 	}
@@ -278,9 +281,11 @@ func createScanBucketJob(ctx context.Context, jobRuns storage.JobRunRepository, 
 		input["prefix"] = prefix
 	}
 
+	requestedBy := middleware.RequestedByFromContext(ctx, dependencies)
 	return jobRuns.CreateJobRun(ctx, storage.CreateJobRunParams{
 		Type:            storage.JobTypeScanBucket,
-		RequestedByType: "api",
+		RequestedByType: requestedBy.Type,
+		RequestedByID:   requestedBy.ID,
 		TargetType:      "bucket",
 		TargetID:        bucketID,
 		Input:           input,

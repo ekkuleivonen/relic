@@ -6,9 +6,11 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	authhttp "github.com/ekkuleivonen/relic/apps/api/internal/httpserver/auth"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/buckets"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/jobs"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/middleware"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/objects"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/search"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/system"
@@ -30,7 +32,9 @@ func New(dependencies deps.Dependencies) *http.Server {
 
 func Handler(dependencies deps.Dependencies) http.Handler {
 	mux := http.NewServeMux()
+	authhttp.RegisterRawHandlers(mux, dependencies)
 	api := humago.New(mux, apiConfig())
+	authhttp.Register(api, dependencies, apiBasePath)
 	buckets.Register(api, dependencies, apiBasePath)
 	jobs.Register(api, dependencies, apiBasePath)
 	objects.Register(api, dependencies, apiBasePath)
@@ -38,7 +42,7 @@ func Handler(dependencies deps.Dependencies) http.Handler {
 	system.Register(api, dependencies, apiBasePath)
 	upstreamcapture.Register(api, dependencies, apiBasePath)
 
-	return noStoreMiddleware(mux)
+	return noStoreMiddleware(middleware.Auth(mux, dependencies))
 }
 
 func noStoreMiddleware(next http.Handler) http.Handler {
@@ -64,6 +68,10 @@ func apiConfig() huma.Config {
 		{
 			Name:        "System",
 			Description: "Operational endpoints for health, readiness, and diagnostics.",
+		},
+		{
+			Name:        "Auth",
+			Description: "Authentication, sessions, and user management.",
 		},
 		{
 			Name:        "Buckets",

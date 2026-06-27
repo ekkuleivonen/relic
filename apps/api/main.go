@@ -13,6 +13,7 @@ import (
 	"github.com/ekkuleivonen/relic/apps/api/internal/config"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
+	"github.com/ekkuleivonen/relic/packages/auth"
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/secrets"
 	"github.com/ekkuleivonen/relic/packages/storage"
@@ -65,10 +66,20 @@ func run() error {
 		return err
 	}
 
+	authService, err := auth.NewService(cfg.AuthServiceConfig(), store)
+	if err != nil {
+		return err
+	}
+	if err := authService.EnsureBootstrapAdmin(ctx); err != nil {
+		return err
+	}
+	slog.Info("bootstrap admin ensured")
+
 	srv := httpserver.New(deps.Dependencies{
 		Config:  cfg,
 		Secrets: secretManager,
 		Storage: store,
+		Auth:    authService,
 	})
 	errCh := make(chan error, 1)
 

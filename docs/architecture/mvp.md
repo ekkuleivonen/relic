@@ -60,22 +60,24 @@ Every API endpoint should be designed as authenticated by default, except explic
 
 Initial auth modes:
 
-* Human auth through OIDC.
-* Machine auth through API keys or API tokens.
+* Human auth through password and/or OIDC for provisioned users.
+* Machine auth through API keys or API tokens (deferred to Phase 2).
 
 Likely flow:
 
-1. A human logs into the UI through OIDC.
-2. The human creates API tokens in Relic.
-3. Machines use those API tokens for API access.
+1. An admin provisions a user in Relic.
+2. The user logs into the UI with password and/or OIDC.
+3. Later, the user creates API tokens in Relic for machine access.
 
 Configuration:
 
 ```text
-AUTH_ENABLED=false
+SUPERUSER_EMAIL=admin@example.com
+SUPERUSER_PASSWORD=...
+SESSION_SECRET_BASE64=...
 ```
 
-For now, `AUTH_ENABLED` should default to `false`. If set to `true` before auth is implemented, Relic should fail clearly with a "not implemented" error rather than silently running with partial auth.
+Auth is always enabled. Relic requires bootstrap and session configuration at startup.
 
 Go implementation direction:
 
@@ -250,7 +252,7 @@ Status:
 * Done: HTTP server.
 * Done: Health endpoint.
 * Done: Generated OpenAPI and docs through Huma.
-* Done: `AUTH_ENABLED=false` by default, with `AUTH_ENABLED=true` failing clearly until implemented.
+* Done: UI auth always enabled with bootstrap admin, sessions, password login, and optional OIDC.
 * Done: Structured startup/shutdown logging with Go `slog`.
 * Done: Database connection.
 * Done: Basic request/response error handling.

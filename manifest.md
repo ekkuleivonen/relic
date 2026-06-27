@@ -1063,10 +1063,12 @@ Every API endpoint should be designed as authenticated by default, except explic
 Auth should be configurable:
 
 ```text
-AUTH_ENABLED=false
+SUPERUSER_EMAIL=admin@example.com
+SUPERUSER_PASSWORD=...
+SESSION_SECRET_BASE64=...
 ```
 
-For early development, auth may be disabled by default. If `AUTH_ENABLED=true` before auth is implemented, Relic should fail clearly with a "not implemented" error rather than silently running with partial auth.
+Auth is always enabled. Relic requires bootstrap and session configuration at startup.
 
 ---
 

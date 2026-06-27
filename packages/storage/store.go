@@ -55,6 +55,14 @@ func (s *Store) Relations() *RelationStore {
 	return NewRelationStore(s.pool)
 }
 
+func (s *Store) Users() *UserStore {
+	return NewUserStore(s.pool)
+}
+
+func (s *Store) Sessions() *SessionStore {
+	return NewSessionStore(s.pool)
+}
+
 func (s *Store) ListSearchRelationTypes(ctx context.Context) ([]string, error) {
 	return s.Relations().ListRelationTypes(ctx)
 }
@@ -113,4 +121,12 @@ func (tx *Tx) UpstreamCaptureFields() *UpstreamCaptureFieldStore {
 
 func (tx *Tx) Relations() *RelationStore {
 	return NewRelationStore(tx.tx)
+}
+
+func (tx *Tx) Users() *UserStore {
+	return NewUserStore(tx.tx)
+}
+
+func (tx *Tx) Sessions() *SessionStore {
+	return NewSessionStore(tx.tx)
 }

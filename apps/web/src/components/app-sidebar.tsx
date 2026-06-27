@@ -1,12 +1,16 @@
 import {
   ArchiveIcon,
   BoxIcon,
+  LayersIcon,
   ListTodoIcon,
+  LogOutIcon,
   MoonIcon,
   Settings2Icon,
   SunIcon,
+  UsersIcon,
+  type LucideIcon,
 } from "lucide-react"
-import { Link, useLocation } from "react-router"
+import { Link, useLocation, useNavigate } from "react-router"
 
 import { useTheme } from "@/components/theme-provider"
 import {
@@ -22,41 +26,84 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { useLogout, useSession } from "@/hooks/use-session"
 
-const navItems = [
-  {
-    title: "Buckets",
-    url: "/buckets",
-    icon: ArchiveIcon,
-    match: (pathname: string) => pathname.startsWith("/buckets"),
-  },
-  {
-    title: "Objects",
-    url: "/objects",
-    icon: BoxIcon,
-    match: (pathname: string) => pathname.startsWith("/objects"),
-  },
-  {
-    title: "Job runs",
-    url: "/job-runs",
-    icon: ListTodoIcon,
-    match: (pathname: string) => pathname.startsWith("/job-runs"),
-  },
-] as const
+type SidebarNavItem = {
+  title: string
+  icon: LucideIcon
+  url?: string
+  match?: (pathname: string) => boolean
+  adminOnly?: boolean
+  comingSoon?: boolean
+}
 
-const settingsItems = [
+const sidebarGroups: Array<{ label: string; items: SidebarNavItem[] }> = [
   {
-    title: "Upstream capture",
-    url: "/settings/upstream-capture",
-    icon: Settings2Icon,
-    match: (pathname: string) => pathname.startsWith("/settings/upstream-capture"),
+    label: "Data",
+    items: [
+      {
+        title: "Objects",
+        url: "/objects",
+        icon: BoxIcon,
+        match: (pathname) => pathname.startsWith("/objects"),
+      },
+      {
+        title: "Collections",
+        icon: LayersIcon,
+        comingSoon: true,
+      },
+    ],
   },
-] as const
+  {
+    label: "Settings",
+    items: [
+      {
+        title: "Buckets",
+        url: "/buckets",
+        icon: ArchiveIcon,
+        match: (pathname) => pathname.startsWith("/buckets"),
+      },
+      {
+        title: "Users",
+        url: "/users",
+        icon: UsersIcon,
+        match: (pathname) => pathname.startsWith("/users"),
+        adminOnly: true,
+      },
+      {
+        title: "Upstream capture",
+        url: "/settings/upstream-capture",
+        icon: Settings2Icon,
+        match: (pathname) => pathname.startsWith("/settings/upstream-capture"),
+      },
+    ],
+  },
+  {
+    label: "Observability",
+    items: [
+      {
+        title: "Job runs",
+        url: "/job-runs",
+        icon: ListTodoIcon,
+        match: (pathname) => pathname.startsWith("/job-runs"),
+      },
+    ],
+  },
+]
 
 export function AppSidebar() {
   const { pathname } = useLocation()
+  const navigate = useNavigate()
   const { resolvedTheme, setTheme } = useTheme()
+  const sessionQuery = useSession()
+  const logout = useLogout()
   const nextTheme = resolvedTheme === "dark" ? "light" : "dark"
+  const isAdmin = sessionQuery.data?.user.role === "admin"
+
+  async function handleLogout() {
+    await logout.mutateAsync()
+    navigate("/login", { replace: true })
+  }
 
   return (
     <Sidebar collapsible="icon">
@@ -79,53 +126,43 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Admin</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.url}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={item.match(pathname)}
-                    tooltip={item.title}
-                  >
-                    <Link to={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {sidebarGroups.map((group) => {
+          const items = group.items.filter((item) => !item.adminOnly || isAdmin)
+          if (items.length === 0) {
+            return null
+          }
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Settings</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {settingsItems.map((item) => (
-                <SidebarMenuItem key={item.url}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={item.match(pathname)}
-                    tooltip={item.title}
-                  >
-                    <Link to={item.url}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+          return (
+            <SidebarGroup key={group.label}>
+              <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {items.map((item) => (
+                    <SidebarNavMenuItem
+                      key={item.title}
+                      item={item}
+                      pathname={pathname}
+                    />
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )
+        })}
       </SidebarContent>
 
       <SidebarFooter>
         <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              onClick={() => void handleLogout()}
+              tooltip="Sign out"
+              disabled={logout.isPending}
+            >
+              <LogOutIcon />
+              <span>{logout.isPending ? "Signing out..." : "Sign out"}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton
               onClick={() => setTheme(nextTheme)}
@@ -140,5 +177,41 @@ export function AppSidebar() {
 
       <SidebarRail />
     </Sidebar>
+  )
+}
+
+type SidebarNavMenuItemProps = {
+  item: SidebarNavItem
+  pathname: string
+}
+
+function SidebarNavMenuItem({ item, pathname }: SidebarNavMenuItemProps) {
+  if (item.comingSoon) {
+    return (
+      <SidebarMenuItem>
+        <SidebarMenuButton disabled tooltip="Coming soon">
+          <item.icon />
+          <span>{item.title}</span>
+          <span className="ml-auto text-[10px] text-muted-foreground group-data-[collapsible=icon]:hidden">
+            Soon
+          </span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    )
+  }
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        asChild
+        isActive={item.match?.(pathname) ?? false}
+        tooltip={item.title}
+      >
+        <Link to={item.url ?? "/"}>
+          <item.icon />
+          <span>{item.title}</span>
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   )
 }

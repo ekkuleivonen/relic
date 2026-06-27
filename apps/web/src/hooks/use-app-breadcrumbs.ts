@@ -65,5 +65,10 @@ export function useAppBreadcrumbs(): AppBreadcrumbItem[] {
     return crumbs
   }
 
+  if (pathname.startsWith("/users")) {
+    crumbs.push({ label: "Users" })
+    return crumbs
+  }
+
   return crumbs
 }

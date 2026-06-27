@@ -6,37 +6,22 @@ import (
 )
 
 func TestLoadFromLookupDefaults(t *testing.T) {
-	cfg, err := LoadFromLookup(mapLookup(map[string]string{
+	_, err := LoadFromLookup(mapLookup(map[string]string{
 		"DATABASE_URL":          "postgres://relic:relic@localhost:5432/relic",
 		"ENCRYPTION_KEY_ID":     "local-dev",
 		"ENCRYPTION_KEY_BASE64": testEncryptionKeyBase64(),
 	}))
-	if err != nil {
-		t.Fatalf("LoadFromLookup returned error: %v", err)
-	}
-
-	if cfg.HTTPAddr != ":8080" {
-		t.Fatalf("HTTPAddr = %q, want :8080", cfg.HTTPAddr)
-	}
-
-	if cfg.AuthEnabled {
-		t.Fatal("AuthEnabled = true, want false")
-	}
-
-	if cfg.LogLevel != "info" {
-		t.Fatalf("LogLevel = %q, want info", cfg.LogLevel)
+	if err == nil {
+		t.Fatal("LoadFromLookup returned nil error")
 	}
 }
 
 func TestLoadFromLookupOverrides(t *testing.T) {
-	cfg, err := LoadFromLookup(mapLookup(map[string]string{
-		"HTTP_ADDR":             ":9090",
-		"DATABASE_URL":          "postgres://relic:relic@localhost:5432/relic",
-		"AUTH_ENABLED":          "false",
-		"ENCRYPTION_KEY_ID":     "local-dev",
-		"ENCRYPTION_KEY_BASE64": testEncryptionKeyBase64(),
-		"LOG_LEVEL":             "debug",
-	}))
+	cfg, err := LoadFromLookup(mapLookup(mergeEnv(map[string]string{
+		"HTTP_ADDR":    ":9090",
+		"DATABASE_URL": "postgres://relic:relic@localhost:5432/relic",
+		"LOG_LEVEL":    "debug",
+	})))
 	if err != nil {
 		t.Fatalf("LoadFromLookup returned error: %v", err)
 	}
@@ -62,24 +47,35 @@ func TestLoadFromLookupOverrides(t *testing.T) {
 	}
 }
 
-func TestLoadFromLookupRejectsAuthEnabled(t *testing.T) {
-	_, err := LoadFromLookup(mapLookup(map[string]string{
-		"AUTH_ENABLED":          "true",
-		"DATABASE_URL":          "postgres://relic:relic@localhost:5432/relic",
-		"ENCRYPTION_KEY_ID":     "local-dev",
-		"ENCRYPTION_KEY_BASE64": testEncryptionKeyBase64(),
-	}))
+func TestLoadFromLookupRequiresAuthConfig(t *testing.T) {
+	cfg, err := LoadFromLookup(mapLookup(mergeEnv(map[string]string{
+		"DATABASE_URL": "postgres://relic:relic@localhost:5432/relic",
+	})))
+	if err != nil {
+		t.Fatalf("LoadFromLookup returned error: %v", err)
+	}
+	if cfg.SuperuserEmail != "admin@example.com" {
+		t.Fatalf("SuperuserEmail = %q, want admin@example.com", cfg.SuperuserEmail)
+	}
+}
+
+func TestLoadFromLookupRejectsPartialOIDCConfig(t *testing.T) {
+	_, err := LoadFromLookup(mapLookup(mergeEnv(map[string]string{
+		"DATABASE_URL":    "postgres://relic:relic@localhost:5432/relic",
+		"OIDC_ISSUER_URL": "https://issuer.example",
+	})))
 	if err == nil {
 		t.Fatal("LoadFromLookup returned nil error")
 	}
 }
 
-func TestLoadFromLookupRejectsInvalidBool(t *testing.T) {
+func TestLoadFromLookupRejectsMissingSessionSecret(t *testing.T) {
 	_, err := LoadFromLookup(mapLookup(map[string]string{
-		"AUTH_ENABLED":          "sometimes",
 		"DATABASE_URL":          "postgres://relic:relic@localhost:5432/relic",
 		"ENCRYPTION_KEY_ID":     "local-dev",
 		"ENCRYPTION_KEY_BASE64": testEncryptionKeyBase64(),
+		"SUPERUSER_EMAIL":       "admin@example.com",
+		"SUPERUSER_PASSWORD":    "secret-password",
 	}))
 	if err == nil {
 		t.Fatal("LoadFromLookup returned nil error")
@@ -138,6 +134,20 @@ func TestLoadFromLookupRejectsWrongLengthEncryptionKey(t *testing.T) {
 	}
 }
 
+func mergeEnv(values map[string]string) map[string]string {
+	merged := map[string]string{
+		"ENCRYPTION_KEY_ID":     "local-dev",
+		"ENCRYPTION_KEY_BASE64": testEncryptionKeyBase64(),
+		"SUPERUSER_EMAIL":       "admin@example.com",
+		"SUPERUSER_PASSWORD":    "secret-password",
+		"SESSION_SECRET_BASE64": testSessionSecretBase64(),
+	}
+	for key, value := range values {
+		merged[key] = value
+	}
+	return merged
+}
+
 func mapLookup(values map[string]string) lookupFunc {
 	return func(key string) (string, bool) {
 		value, ok := values[key]
@@ -146,5 +156,9 @@ func mapLookup(values map[string]string) lookupFunc {
 }
 
 func testEncryptionKeyBase64() string {
+	return base64.StdEncoding.EncodeToString(make([]byte, 32))
+}
+
+func testSessionSecretBase64() string {
 	return base64.StdEncoding.EncodeToString(make([]byte, 32))
 }

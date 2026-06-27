@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/middleware"
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
@@ -83,9 +84,11 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			payload["scope"] = input.Body.Scope
 		}
 
+		requestedBy := middleware.RequestedByFromContext(ctx, dependencies)
 		run, err := dependencies.Storage.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
 			Type:            storage.JobTypeDetectDuplicates,
-			RequestedByType: "api",
+			RequestedByType: requestedBy.Type,
+			RequestedByID:   requestedBy.ID,
 			TargetType:      "catalog",
 			TargetID:        "catalog",
 			Input:           payload,

@@ -6,24 +6,35 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
 const (
-	defaultHTTPAddr = ":8080"
-	defaultLogLevel = "info"
+	defaultHTTPAddr    = ":8080"
+	defaultLogLevel    = "info"
+	defaultSessionTTL  = 168 * time.Hour
+	defaultOIDCRedirect = "http://localhost:8080/api/auth/oidc/callback"
+	defaultWebAppURL    = "http://localhost:5173"
 )
 
 type Config struct {
-	HTTPAddr        string
-	DatabaseURL     string
-	AuthEnabled     bool
-	EncryptionKeyID string
-	EncryptionKey   []byte
-	LogLevel        string
+	HTTPAddr            string
+	DatabaseURL         string
+	SuperuserEmail      string
+	SuperuserPassword   string
+	SessionSecret       []byte
+	SessionTTL          time.Duration
+	OIDCIssuerURL       string
+	OIDCClientID        string
+	OIDCClientSecret    string
+	OIDCRedirectURL     string
+	WebAppURL           string
+	EncryptionKeyID     string
+	EncryptionKey       []byte
+	LogLevel            string
 }
 
 type lookupFunc func(string) (string, bool)
@@ -45,28 +56,41 @@ func Load() (Config, error) {
 }
 
 func LoadFromLookup(lookup lookupFunc) (Config, error) {
-	authEnabled, err := boolEnv(lookup, "AUTH_ENABLED", false)
-	if err != nil {
-		return Config{}, err
-	}
-
-	if authEnabled {
-		return Config{}, errors.New("AUTH_ENABLED=true is not implemented yet")
-	}
-
 	encryptionKeyBase64 := stringEnv(lookup, "ENCRYPTION_KEY_BASE64", "")
 	encryptionKey, err := encryptionKeyEnv(encryptionKeyBase64)
 	if err != nil {
 		return Config{}, err
 	}
 
+	sessionTTL, err := durationEnv(lookup, "SESSION_TTL", defaultSessionTTL)
+	if err != nil {
+		return Config{}, err
+	}
+
+	sessionSecretBase64 := stringEnv(lookup, "SESSION_SECRET_BASE64", "")
+	var sessionSecret []byte
+	if sessionSecretBase64 != "" {
+		sessionSecret, err = sessionSecretEnv(sessionSecretBase64)
+		if err != nil {
+			return Config{}, err
+		}
+	}
+
 	cfg := Config{
-		HTTPAddr:        stringEnv(lookup, "HTTP_ADDR", defaultHTTPAddr),
-		DatabaseURL:     stringEnv(lookup, "DATABASE_URL", ""),
-		AuthEnabled:     authEnabled,
-		EncryptionKeyID: stringEnv(lookup, "ENCRYPTION_KEY_ID", ""),
-		EncryptionKey:   encryptionKey,
-		LogLevel:        stringEnv(lookup, "LOG_LEVEL", defaultLogLevel),
+		HTTPAddr:          stringEnv(lookup, "HTTP_ADDR", defaultHTTPAddr),
+		DatabaseURL:       stringEnv(lookup, "DATABASE_URL", ""),
+		SuperuserEmail:    stringEnv(lookup, "SUPERUSER_EMAIL", ""),
+		SuperuserPassword: stringEnv(lookup, "SUPERUSER_PASSWORD", ""),
+		SessionSecret:     sessionSecret,
+		SessionTTL:        sessionTTL,
+		OIDCIssuerURL:     stringEnv(lookup, "OIDC_ISSUER_URL", ""),
+		OIDCClientID:      stringEnv(lookup, "OIDC_CLIENT_ID", ""),
+		OIDCClientSecret:  stringEnv(lookup, "OIDC_CLIENT_SECRET", ""),
+		OIDCRedirectURL:   stringEnv(lookup, "OIDC_REDIRECT_URL", defaultOIDCRedirect),
+		WebAppURL:         stringEnv(lookup, "WEB_APP_URL", defaultWebAppURL),
+		EncryptionKeyID:   stringEnv(lookup, "ENCRYPTION_KEY_ID", ""),
+		EncryptionKey:     encryptionKey,
+		LogLevel:          stringEnv(lookup, "LOG_LEVEL", defaultLogLevel),
 	}
 
 	if cfg.DatabaseURL == "" {
@@ -75,8 +99,32 @@ func LoadFromLookup(lookup lookupFunc) (Config, error) {
 	if cfg.EncryptionKeyID == "" {
 		return Config{}, errors.New("ENCRYPTION_KEY_ID is required")
 	}
+	if cfg.SuperuserEmail == "" {
+		return Config{}, errors.New("SUPERUSER_EMAIL is required")
+	}
+	if len(cfg.SessionSecret) == 0 {
+		return Config{}, errors.New("SESSION_SECRET_BASE64 is required")
+	}
+	if cfg.SuperuserPassword == "" {
+		return Config{}, errors.New("SUPERUSER_PASSWORD is required")
+	}
+
+	oidcValues := []string{cfg.OIDCIssuerURL, cfg.OIDCClientID, cfg.OIDCClientSecret}
+	oidcSet := 0
+	for _, value := range oidcValues {
+		if value != "" {
+			oidcSet++
+		}
+	}
+	if oidcSet > 0 && oidcSet < len(oidcValues) {
+		return Config{}, errors.New("OIDC_ISSUER_URL, OIDC_CLIENT_ID, and OIDC_CLIENT_SECRET must all be set together")
+	}
 
 	return cfg, nil
+}
+
+func (c Config) SecureCookies() bool {
+	return !strings.Contains(c.HTTPAddr, "localhost") && !strings.HasSuffix(c.HTTPAddr, ":8080")
 }
 
 func stringEnv(lookup lookupFunc, key string, fallback string) string {
@@ -88,15 +136,18 @@ func stringEnv(lookup lookupFunc, key string, fallback string) string {
 	return value
 }
 
-func boolEnv(lookup lookupFunc, key string, fallback bool) (bool, error) {
+func durationEnv(lookup lookupFunc, key string, fallback time.Duration) (time.Duration, error) {
 	value, ok := lookup(key)
 	if !ok || value == "" {
 		return fallback, nil
 	}
 
-	parsed, err := strconv.ParseBool(value)
+	parsed, err := time.ParseDuration(value)
 	if err != nil {
-		return false, fmt.Errorf("parse %s: %w", key, err)
+		return 0, fmt.Errorf("parse %s: %w", key, err)
+	}
+	if parsed <= 0 {
+		return 0, fmt.Errorf("parse %s: duration must be positive", key)
 	}
 
 	return parsed, nil
@@ -113,6 +164,18 @@ func encryptionKeyEnv(value string) ([]byte, error) {
 	}
 	if len(decoded) != chacha20poly1305.KeySize {
 		return nil, fmt.Errorf("parse ENCRYPTION_KEY_BASE64: decoded key is %d bytes, want %d", len(decoded), chacha20poly1305.KeySize)
+	}
+
+	return decoded, nil
+}
+
+func sessionSecretEnv(value string) ([]byte, error) {
+	decoded, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		return nil, fmt.Errorf("parse SESSION_SECRET_BASE64: %w", err)
+	}
+	if len(decoded) != chacha20poly1305.KeySize {
+		return nil, fmt.Errorf("parse SESSION_SECRET_BASE64: decoded key is %d bytes, want %d", len(decoded), chacha20poly1305.KeySize)
 	}
 
 	return decoded, nil
