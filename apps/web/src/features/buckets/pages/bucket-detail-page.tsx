@@ -16,6 +16,8 @@ import { EditBucketDialog } from "@/features/buckets/components/edit-bucket-dial
 import { ScanBucketButton } from "@/features/buckets/components/scan-bucket-button"
 import { SyncBucketButton } from "@/features/buckets/components/sync-bucket-button"
 import { useBucket } from "@/features/buckets/hooks/use-buckets"
+import { formatScanScheduleSummary } from "@/features/buckets/lib/scan-schedule"
+import type { BucketRelicConfig } from "@/types/buckets"
 
 export function BucketDetailPage() {
   const { bucketId } = useParams()
@@ -100,6 +102,18 @@ export function BucketDetailPage() {
 
             <Card>
               <CardHeader>
+                <CardTitle>Scheduled scan</CardTitle>
+                <CardDescription>
+                  Background verification runs managed by the worker scheduler.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 sm:grid-cols-2">
+                <ScanScheduleSummary relicConfig={bucket.relic_config} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
                 <CardTitle>Next actions</CardTitle>
                 <CardDescription>
                   Queue a scan to sample catalog drift, or a full sync to
@@ -114,6 +128,21 @@ export function BucketDetailPage() {
           </div>
         )}
     </PageShell>
+  )
+}
+
+function ScanScheduleSummary({
+  relicConfig,
+}: {
+  relicConfig: BucketRelicConfig
+}) {
+  const summary = formatScanScheduleSummary(relicConfig)
+
+  return (
+    <>
+      <Detail label="Status" value={summary.enabledLabel} />
+      <Detail label="Interval" value={summary.intervalLabel} />
+    </>
   )
 }
 

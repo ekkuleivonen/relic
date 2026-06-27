@@ -2,12 +2,14 @@ export type BucketUpstream = "s3"
 
 export type BucketUpstreamConfig = Record<string, unknown>
 
-export type BucketPluginSettings = {
+export type BucketScanConfig = {
   enabled: boolean
-  settings: Record<string, unknown>
+  interval?: string
 }
 
-export type BucketPluginSettingsMap = Record<string, BucketPluginSettings>
+export type BucketRelicConfig = {
+  scan?: BucketScanConfig
+}
 
 export type Bucket = {
   id: string
@@ -18,7 +20,7 @@ export type Bucket = {
   bucket_name: string
   prefix: string
   upstream_config: BucketUpstreamConfig
-  plugin_settings: BucketPluginSettingsMap
+  relic_config: BucketRelicConfig
   created_at: string
   updated_at: string
 }
@@ -36,7 +38,7 @@ export type CreateBucketInput = {
   prefix: string
   upstream_config: BucketUpstreamConfig
   credentials: Record<string, unknown>
-  plugin_settings: BucketPluginSettingsMap
+  relic_config: BucketRelicConfig
 }
 
 export type UpdateBucketInput = {
@@ -46,5 +48,5 @@ export type UpdateBucketInput = {
   prefix?: string
   upstream_config?: BucketUpstreamConfig
   credentials?: Record<string, unknown>
-  plugin_settings?: BucketPluginSettingsMap
+  relic_config?: BucketRelicConfig
 }

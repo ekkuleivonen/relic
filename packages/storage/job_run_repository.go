@@ -22,6 +22,8 @@ type JobRunRepository interface {
 	SucceedJobRun(context.Context, SucceedJobRunParams) (JobRun, error)
 	RetryJobRun(context.Context, RetryJobRunParams) (JobRun, error)
 	FailJobRun(context.Context, FailJobRunParams) (JobRun, error)
+	HasActiveJobRun(context.Context, HasActiveJobRunParams) (bool, error)
+	LastSucceededJobRunFinishedAt(context.Context, LastSucceededJobRunFinishedAtParams) (*time.Time, error)
 }
 
 type JobRunStore struct {
@@ -142,6 +144,65 @@ type RetryJobRunParams struct {
 type FailJobRunParams struct {
 	ID           string
 	ErrorMessage string
+}
+
+type HasActiveJobRunParams struct {
+	Type       JobType
+	TargetType string
+	TargetID   string
+}
+
+type LastSucceededJobRunFinishedAtParams struct {
+	Type       JobType
+	TargetType string
+	TargetID   string
+}
+
+func (s *JobRunStore) HasActiveJobRun(ctx context.Context, params HasActiveJobRunParams) (bool, error) {
+	row := s.runner.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM job_runs
+			WHERE type = $1
+				AND target_type = $2
+				AND target_id = $3
+				AND state IN ('pending', 'running')
+		)
+	`, string(params.Type), params.TargetType, params.TargetID)
+
+	var active bool
+	if err := row.Scan(&active); err != nil {
+		return false, fmt.Errorf("has active job run: %w", err)
+	}
+
+	return active, nil
+}
+
+func (s *JobRunStore) LastSucceededJobRunFinishedAt(ctx context.Context, params LastSucceededJobRunFinishedAtParams) (*time.Time, error) {
+	row := s.runner.QueryRow(ctx, `
+		SELECT finished_at
+		FROM job_runs
+		WHERE type = $1
+			AND target_type = $2
+			AND target_id = $3
+			AND state = 'succeeded'
+			AND finished_at IS NOT NULL
+		ORDER BY finished_at DESC, id DESC
+		LIMIT 1
+	`, string(params.Type), params.TargetType, params.TargetID)
+
+	var finishedAt sql.NullTime
+	if err := row.Scan(&finishedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("last succeeded job run finished at: %w", err)
+	}
+	if !finishedAt.Valid {
+		return nil, nil
+	}
+
+	return &finishedAt.Time, nil
 }
 
 func (s *JobRunStore) CreateJobRun(ctx context.Context, params CreateJobRunParams) (JobRun, error) {

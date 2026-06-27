@@ -11,7 +11,7 @@ CREATE TABLE buckets (
     credential_algorithm text NOT NULL,
     credential_nonce bytea NOT NULL,
     credential_ciphertext bytea NOT NULL,
-    plugin_settings jsonb NOT NULL DEFAULT '{}'::jsonb,
+    relic_config jsonb NOT NULL DEFAULT '{"scan":{"enabled":true,"interval":"24h"}}'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT buckets_name_not_empty CHECK (length(trim(name)) > 0),
@@ -24,4 +24,4 @@ CREATE TABLE buckets (
 CREATE UNIQUE INDEX buckets_name_idx ON buckets (name);
 CREATE INDEX buckets_upstream_idx ON buckets (upstream);
 CREATE INDEX buckets_upstream_config_gin_idx ON buckets USING gin (upstream_config);
-CREATE INDEX buckets_plugin_settings_gin_idx ON buckets USING gin (plugin_settings);
+CREATE INDEX buckets_relic_config_gin_idx ON buckets USING gin (relic_config);

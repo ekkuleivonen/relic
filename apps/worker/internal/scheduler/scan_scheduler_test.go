@@ -1,0 +1,204 @@
+package scheduler
+
+import (
+	"context"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/ekkuleivonen/relic/packages/db"
+	"github.com/ekkuleivonen/relic/packages/secrets"
+	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/ekkuleivonen/relic/packages/testdb"
+)
+
+var (
+	migrateSchedulerTestStoreOnce sync.Once
+	migrateSchedulerTestStoreErr  error
+)
+
+func TestScanSchedulerTickEnqueuesDueScan(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := schedulerTestStore(t, ctx)
+	defer cleanup()
+
+	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketRelicConfig{
+		Scan: storage.BucketScanConfig{Enabled: storage.BoolPtr(true), Interval: "24h"},
+	})
+
+	scheduler, err := NewScanScheduler(ScanSchedulerOptions{
+		Store:   store,
+		Now:     func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+		Stagger: 0,
+	})
+	if err != nil {
+		t.Fatalf("NewScanScheduler returned error: %v", err)
+	}
+
+	enqueued, err := scheduler.Tick(ctx)
+	if err != nil {
+		t.Fatalf("Tick returned error: %v", err)
+	}
+	if enqueued != 1 {
+		t.Fatalf("enqueued = %d, want 1", enqueued)
+	}
+
+	runs, err := store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
+		Type:       storage.JobTypeScanBucket,
+		TargetType: "bucket",
+		TargetID:   bucket.ID,
+		Limit:      10,
+	})
+	if err != nil {
+		t.Fatalf("ListJobRuns returned error: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("scan job count = %d, want 1", len(runs))
+	}
+	if runs[0].RequestedByType != "scheduler" {
+		t.Fatalf("requested_by_type = %q, want scheduler", runs[0].RequestedByType)
+	}
+}
+
+func TestScanSchedulerTickDedupesActiveScan(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := schedulerTestStore(t, ctx)
+	defer cleanup()
+
+	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketRelicConfig{
+		Scan: storage.BucketScanConfig{Enabled: storage.BoolPtr(true)},
+	})
+	if _, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:       storage.JobTypeScanBucket,
+		TargetType: "bucket",
+		TargetID:   bucket.ID,
+		Input: storage.JobRunPayload{
+			"bucket_id": bucket.ID,
+		},
+	}); err != nil {
+		t.Fatalf("CreateJobRun returned error: %v", err)
+	}
+
+	scheduler, err := NewScanScheduler(ScanSchedulerOptions{
+		Store: store,
+		Now:   func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatalf("NewScanScheduler returned error: %v", err)
+	}
+
+	enqueued, err := scheduler.Tick(ctx)
+	if err != nil {
+		t.Fatalf("Tick returned error: %v", err)
+	}
+	if enqueued != 0 {
+		t.Fatalf("enqueued = %d, want 0", enqueued)
+	}
+}
+
+func TestScanSchedulerTickSkipsWhenNotDue(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := schedulerTestStore(t, ctx)
+	defer cleanup()
+
+	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketRelicConfig{
+		Scan: storage.BucketScanConfig{Enabled: storage.BoolPtr(true), Interval: "24h"},
+	})
+	run, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:       storage.JobTypeScanBucket,
+		TargetType: "bucket",
+		TargetID:   bucket.ID,
+		Input: storage.JobRunPayload{
+			"bucket_id": bucket.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateJobRun returned error: %v", err)
+	}
+	if _, err := store.JobRuns().SucceedJobRun(ctx, storage.SucceedJobRunParams{
+		ID:     run.ID,
+		Result: storage.JobRunPayload{"status": "healthy"},
+	}); err != nil {
+		t.Fatalf("SucceedJobRun returned error: %v", err)
+	}
+
+	scheduler, err := NewScanScheduler(ScanSchedulerOptions{
+		Store: store,
+		Now:   func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatalf("NewScanScheduler returned error: %v", err)
+	}
+
+	enqueued, err := scheduler.Tick(ctx)
+	if err != nil {
+		t.Fatalf("Tick returned error: %v", err)
+	}
+	if enqueued != 0 {
+		t.Fatalf("enqueued = %d, want 0", enqueued)
+	}
+}
+
+func schedulerTestStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
+	t.Helper()
+
+	databaseURL := testdb.URL(t, ctx)
+	migrationDir, err := filepath.Abs("../../../../packages/storage/migrations")
+	if err != nil {
+		t.Fatalf("resolve migration dir: %v", err)
+	}
+	migrateSchedulerTestStoreOnce.Do(func() {
+		migrateSchedulerTestStoreErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
+			return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+		})
+	})
+	if migrateSchedulerTestStoreErr != nil {
+		t.Fatal(testdb.MigrationTimeoutError(migrateSchedulerTestStoreErr))
+	}
+
+	pool, err := db.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("Connect returned error: %v", err)
+	}
+
+	store, err := storage.New(pool)
+	if err != nil {
+		pool.Close()
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	return store, pool.Close
+}
+
+func createSchedulerTestBucket(t *testing.T, ctx context.Context, store *storage.Store, relicConfig storage.BucketRelicConfig) storage.Bucket {
+	t.Helper()
+
+	bucket, err := store.Buckets().CreateBucket(ctx, storage.CreateBucketParams{
+		Name:        "scheduler-test-" + time.Now().Format("20060102150405.000000000"),
+		Upstream:    storage.BucketUpstreamS3,
+		EndpointURL: "https://s3.example.test",
+		Region:      "us-east-1",
+		BucketName:  "scheduler-test-data",
+		EncryptedCredentials: secrets.Envelope{
+			KeyID:      "local-dev",
+			Algorithm:  secrets.AlgorithmXChaCha20Poly1305,
+			Nonce:      []byte("012345678901234567890123"),
+			Ciphertext: []byte("encrypted-credentials"),
+		},
+		RelicConfig: relicConfig,
+	})
+	if err != nil {
+		t.Fatalf("CreateBucket returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{})
+		_, _ = store.Objects().DeleteObjectsNotSeenSince(context.Background(), storage.DeleteObjectsNotSeenSinceParams{
+			BucketID: bucket.ID,
+			SeenAt:   time.Now().Add(time.Hour),
+		})
+		_ = store.Buckets().DeleteBucket(context.Background(), bucket.ID)
+	})
+
+	return bucket
+}

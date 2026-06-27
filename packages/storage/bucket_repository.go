@@ -39,7 +39,7 @@ type Bucket struct {
 	Prefix               string
 	UpstreamConfig       BucketUpstreamConfig
 	EncryptedCredentials secrets.Envelope
-	PluginSettings       BucketPluginSettingsMap
+	RelicConfig          BucketRelicConfig
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 }
@@ -52,13 +52,6 @@ const (
 
 type BucketUpstreamConfig map[string]any
 
-type BucketPluginSettingsMap map[string]BucketPluginSettings
-
-type BucketPluginSettings struct {
-	Enabled  bool           `json:"enabled"`
-	Settings map[string]any `json:"settings"`
-}
-
 type CreateBucketParams struct {
 	Name                 string
 	Upstream             BucketUpstream
@@ -68,7 +61,7 @@ type CreateBucketParams struct {
 	Prefix               string
 	UpstreamConfig       BucketUpstreamConfig
 	EncryptedCredentials secrets.Envelope
-	PluginSettings       BucketPluginSettingsMap
+	RelicConfig          BucketRelicConfig
 }
 
 type ListBucketsParams struct {
@@ -85,7 +78,7 @@ type UpdateBucketParams struct {
 	Prefix               *string
 	UpstreamConfig       *BucketUpstreamConfig
 	EncryptedCredentials *secrets.Envelope
-	PluginSettings       *BucketPluginSettingsMap
+	RelicConfig          *BucketRelicConfig
 }
 
 func (s *BucketStore) CreateBucket(ctx context.Context, params CreateBucketParams) (Bucket, error) {
@@ -94,7 +87,7 @@ func (s *BucketStore) CreateBucket(ctx context.Context, params CreateBucketParam
 		return Bucket{}, err
 	}
 
-	pluginSettings, err := encodePluginSettings(params.PluginSettings)
+	relicConfig, err := encodeRelicConfig(relicConfigForCreate(params.RelicConfig))
 	if err != nil {
 		return Bucket{}, err
 	}
@@ -117,7 +110,7 @@ func (s *BucketStore) CreateBucket(ctx context.Context, params CreateBucketParam
 			credential_algorithm,
 			credential_nonce,
 			credential_ciphertext,
-			plugin_settings
+			relic_config
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING
@@ -133,7 +126,7 @@ func (s *BucketStore) CreateBucket(ctx context.Context, params CreateBucketParam
 			credential_algorithm,
 			credential_nonce,
 			credential_ciphertext,
-			plugin_settings,
+			relic_config,
 			created_at,
 			updated_at
 	`, id,
@@ -148,7 +141,7 @@ func (s *BucketStore) CreateBucket(ctx context.Context, params CreateBucketParam
 		params.EncryptedCredentials.Algorithm,
 		params.EncryptedCredentials.Nonce,
 		params.EncryptedCredentials.Ciphertext,
-		pluginSettings,
+		relicConfig,
 	))
 }
 
@@ -167,7 +160,7 @@ func (s *BucketStore) GetBucket(ctx context.Context, id string) (Bucket, error) 
 			credential_algorithm,
 			credential_nonce,
 			credential_ciphertext,
-			plugin_settings,
+			relic_config,
 			created_at,
 			updated_at
 		FROM buckets
@@ -207,7 +200,7 @@ func (s *BucketStore) ListBuckets(ctx context.Context, params ListBucketsParams)
 				credential_algorithm,
 				credential_nonce,
 				credential_ciphertext,
-				plugin_settings,
+				relic_config,
 				created_at,
 				updated_at
 			FROM buckets
@@ -229,7 +222,7 @@ func (s *BucketStore) ListBuckets(ctx context.Context, params ListBucketsParams)
 				credential_algorithm,
 				credential_nonce,
 				credential_ciphertext,
-				plugin_settings,
+				relic_config,
 				created_at,
 				updated_at
 			FROM buckets
@@ -269,14 +262,14 @@ func (s *BucketStore) UpdateBucket(ctx context.Context, params UpdateBucketParam
 		upstreamConfig = &value
 	}
 
-	var pluginSettings *string
-	if params.PluginSettings != nil {
-		encoded, err := encodePluginSettings(*params.PluginSettings)
+	var relicConfig *string
+	if params.RelicConfig != nil {
+		encoded, err := encodeRelicConfig(*params.RelicConfig)
 		if err != nil {
 			return Bucket{}, err
 		}
 		value := string(encoded)
-		pluginSettings = &value
+		relicConfig = &value
 	}
 
 	var (
@@ -305,7 +298,7 @@ func (s *BucketStore) UpdateBucket(ctx context.Context, params UpdateBucketParam
 			credential_algorithm = COALESCE($8, credential_algorithm),
 			credential_nonce = COALESCE($9::bytea, credential_nonce),
 			credential_ciphertext = COALESCE($10::bytea, credential_ciphertext),
-			plugin_settings = COALESCE($11::jsonb, plugin_settings),
+			relic_config = COALESCE($11::jsonb, relic_config),
 			updated_at = now()
 		WHERE id = $1
 		RETURNING
@@ -321,7 +314,7 @@ func (s *BucketStore) UpdateBucket(ctx context.Context, params UpdateBucketParam
 			credential_algorithm,
 			credential_nonce,
 			credential_ciphertext,
-			plugin_settings,
+			relic_config,
 			created_at,
 			updated_at
 	`, params.ID,
@@ -334,7 +327,7 @@ func (s *BucketStore) UpdateBucket(ctx context.Context, params UpdateBucketParam
 		credentialAlgorithm,
 		credentialNonce,
 		credentialCiphertext,
-		pluginSettings,
+		relicConfig,
 	))
 }
 
@@ -352,10 +345,10 @@ func (s *BucketStore) DeleteBucket(ctx context.Context, id string) error {
 
 func scanBucket(row pgx.Row) (Bucket, error) {
 	var (
-		bucket              Bucket
-		upstream            string
+		bucket           Bucket
+		upstream         string
 		upstreamConfigBytes []byte
-		pluginSettingsBytes []byte
+		relicConfigBytes []byte
 	)
 
 	err := row.Scan(
@@ -371,7 +364,7 @@ func scanBucket(row pgx.Row) (Bucket, error) {
 		&bucket.EncryptedCredentials.Algorithm,
 		&bucket.EncryptedCredentials.Nonce,
 		&bucket.EncryptedCredentials.Ciphertext,
-		&pluginSettingsBytes,
+		&relicConfigBytes,
 		&bucket.CreatedAt,
 		&bucket.UpdatedAt,
 	)
@@ -392,15 +385,11 @@ func scanBucket(row pgx.Row) (Bucket, error) {
 		bucket.UpstreamConfig = BucketUpstreamConfig{}
 	}
 
-	if len(pluginSettingsBytes) == 0 {
-		bucket.PluginSettings = BucketPluginSettingsMap{}
+	if len(relicConfigBytes) == 0 {
 		return bucket, nil
 	}
-	if err := json.Unmarshal(pluginSettingsBytes, &bucket.PluginSettings); err != nil {
-		return Bucket{}, fmt.Errorf("decode bucket plugin settings: %w", err)
-	}
-	if bucket.PluginSettings == nil {
-		bucket.PluginSettings = BucketPluginSettingsMap{}
+	if err := json.Unmarshal(relicConfigBytes, &bucket.RelicConfig); err != nil {
+		return Bucket{}, fmt.Errorf("decode bucket relic config: %w", err)
 	}
 
 	return bucket, nil
@@ -419,17 +408,21 @@ func encodeUpstreamConfig(config BucketUpstreamConfig) ([]byte, error) {
 	return encoded, nil
 }
 
-func encodePluginSettings(settings BucketPluginSettingsMap) ([]byte, error) {
-	if settings == nil {
-		settings = BucketPluginSettingsMap{}
-	}
-
-	encoded, err := json.Marshal(settings)
+func encodeRelicConfig(config BucketRelicConfig) ([]byte, error) {
+	encoded, err := json.Marshal(config)
 	if err != nil {
-		return nil, fmt.Errorf("encode bucket plugin settings: %w", err)
+		return nil, fmt.Errorf("encode bucket relic config: %w", err)
 	}
 
 	return encoded, nil
+}
+
+func relicConfigForCreate(config BucketRelicConfig) BucketRelicConfig {
+	if config.Scan.Enabled == nil && config.Scan.Interval == "" {
+		return DefaultBucketRelicConfig()
+	}
+
+	return config
 }
 
 func newBucketID() (string, error) {

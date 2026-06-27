@@ -15,6 +15,11 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useUpdateBucket } from "@/features/buckets/hooks/use-buckets"
+import { ScanScheduleFields } from "@/features/buckets/components/scan-schedule-fields"
+import {
+  relicConfigFromScanSchedule,
+  scanScheduleFromRelicConfig,
+} from "@/features/buckets/lib/scan-schedule"
 import type { Bucket, UpdateBucketInput } from "@/types/buckets"
 
 type EditBucketDialogProps = {
@@ -59,6 +64,10 @@ export function EditBucketDialog({
           signing_region: form.region,
         },
       },
+      relic_config: relicConfigFromScanSchedule({
+        enabled: form.scanEnabled,
+        interval: form.scanInterval,
+      }),
     }
     if (form.rotateCredentials) {
       input.credentials = {
@@ -93,8 +102,9 @@ export function EditBucketDialog({
           <DialogHeader>
             <DialogTitle>Edit bucket</DialogTitle>
             <DialogDescription>
-              Update Relic's connection metadata for this bucket. Stored
-              credentials are left unchanged.
+              Update Relic's connection metadata and scheduled scan settings for
+              this bucket. Stored credentials are left unchanged unless you
+              rotate them below.
             </DialogDescription>
           </DialogHeader>
 
@@ -159,6 +169,14 @@ export function EditBucketDialog({
               </span>
             </span>
           </label>
+
+          <ScanScheduleFields
+            idPrefix={`edit-${bucket.id}`}
+            enabled={form.scanEnabled}
+            interval={form.scanInterval}
+            onEnabledChange={(enabled) => updateField("scanEnabled", enabled)}
+            onIntervalChange={(interval) => updateField("scanInterval", interval)}
+          />
 
           <div className="grid gap-4 rounded-lg border bg-background/60 p-3 sm:grid-cols-2">
             <label className="flex items-start gap-3 sm:col-span-2">
@@ -252,6 +270,7 @@ function formStateFromBucket(bucket: Bucket) {
   const s3Config = isRecord(bucket.upstream_config.s3)
     ? bucket.upstream_config.s3
     : {}
+  const scanSchedule = scanScheduleFromRelicConfig(bucket.relic_config)
 
   return {
     name: bucket.name,
@@ -259,6 +278,8 @@ function formStateFromBucket(bucket: Bucket) {
     region: bucket.region,
     prefix: bucket.prefix,
     forcePathStyle: s3Config.force_path_style === true,
+    scanEnabled: scanSchedule.enabled,
+    scanInterval: scanSchedule.interval,
     rotateCredentials: false,
     accessKeyId: "",
     secretAccessKey: "",

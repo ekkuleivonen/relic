@@ -18,6 +18,7 @@ import (
 	refreshobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/refresh_objects"
 	removeobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/remove_objects"
 	scanbucket "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/scan_bucket"
+	scanscheduler "github.com/ekkuleivonen/relic/apps/worker/internal/scheduler"
 	syncbucket "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/sync_bucket"
 	workerRunner "github.com/ekkuleivonen/relic/apps/worker/internal/runner"
 	"github.com/ekkuleivonen/relic/packages/db"
@@ -29,11 +30,15 @@ import (
 const defaultPollInterval = 2 * time.Second
 
 type config struct {
-	DatabaseURL     string
-	WorkerID        string
-	PollInterval    time.Duration
-	EncryptionKeyID string
-	EncryptionKey   []byte
+	DatabaseURL              string
+	WorkerID                 string
+	PollInterval             time.Duration
+	EncryptionKeyID          string
+	EncryptionKey            []byte
+	ScanSchedulerEnabled     bool
+	ScanSchedulerInterval    time.Duration
+	ScanDefaultInterval      time.Duration
+	ScanStagger              time.Duration
 }
 
 func main() {
@@ -132,9 +137,50 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	slog.Info("worker started", "worker_id", cfg.WorkerID, "poll_interval", cfg.PollInterval)
-	if err := jobRunner.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		return err
+	errCh := make(chan error, 2)
+
+	go func() {
+		slog.Info("worker started", "worker_id", cfg.WorkerID, "poll_interval", cfg.PollInterval)
+		errCh <- jobRunner.Run(ctx)
+	}()
+
+	if cfg.ScanSchedulerEnabled {
+		scanScheduler, err := scanscheduler.NewScanScheduler(scanscheduler.ScanSchedulerOptions{
+			Store:             store,
+			Logger:            slog.Default(),
+			SchedulerInterval: cfg.ScanSchedulerInterval,
+			DefaultInterval:   cfg.ScanDefaultInterval,
+			Stagger:           cfg.ScanStagger,
+		})
+		if err != nil {
+			return err
+		}
+
+		go func() {
+			slog.Info(
+				"scan scheduler started",
+				"scheduler_interval", cfg.ScanSchedulerInterval,
+				"default_scan_interval", cfg.ScanDefaultInterval,
+				"stagger", cfg.ScanStagger,
+			)
+			errCh <- scanScheduler.Run(ctx)
+		}()
+	}
+
+	running := 1
+	if cfg.ScanSchedulerEnabled {
+		running = 2
+	}
+
+	var runErr error
+	for i := 0; i < running; i++ {
+		if err := <-errCh; err != nil && !errors.Is(err, context.Canceled) {
+			runErr = err
+		}
+	}
+
+	if runErr != nil {
+		return runErr
 	}
 
 	slog.Info("worker stopped")
@@ -165,6 +211,18 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	schedulerInterval, err := durationEnv(lookup, "SCAN_SCHEDULER_INTERVAL", pollInterval)
+	if err != nil {
+		return config{}, err
+	}
+	scanDefaultInterval, err := durationEnv(lookup, "SCAN_DEFAULT_INTERVAL", storage.DefaultScanInterval)
+	if err != nil {
+		return config{}, err
+	}
+	scanStagger, err := durationEnv(lookup, "SCAN_STAGGER", 30*time.Second)
+	if err != nil {
+		return config{}, err
+	}
 	encryptionKeyBase64 := stringEnv(lookup, "ENCRYPTION_KEY_BASE64", "")
 	if encryptionKeyBase64 == "" {
 		return config{}, fmt.Errorf("ENCRYPTION_KEY_BASE64 is required")
@@ -179,11 +237,15 @@ func loadConfig() (config, error) {
 	}
 
 	return config{
-		DatabaseURL:     databaseURL,
-		WorkerID:        stringEnv(lookup, "WORKER_ID", defaultWorkerID()),
-		PollInterval:    pollInterval,
-		EncryptionKeyID: encryptionKeyID,
-		EncryptionKey:   encryptionKey,
+		DatabaseURL:           databaseURL,
+		WorkerID:              stringEnv(lookup, "WORKER_ID", defaultWorkerID()),
+		PollInterval:          pollInterval,
+		EncryptionKeyID:       encryptionKeyID,
+		EncryptionKey:         encryptionKey,
+		ScanSchedulerEnabled:  boolEnv(lookup, "SCAN_SCHEDULER_ENABLED", true),
+		ScanSchedulerInterval: schedulerInterval,
+		ScanDefaultInterval:   scanDefaultInterval,
+		ScanStagger:           scanStagger,
 	}, nil
 }
 
@@ -210,6 +272,22 @@ func durationEnv(lookup lookupFunc, key string, fallback time.Duration) (time.Du
 	}
 
 	return parsed, nil
+}
+
+func boolEnv(lookup lookupFunc, key string, fallback bool) bool {
+	value, ok := lookup(key)
+	if !ok || value == "" {
+		return fallback
+	}
+
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "t", "yes", "y", "on":
+		return true
+	case "0", "false", "f", "no", "n", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func defaultWorkerID() string {

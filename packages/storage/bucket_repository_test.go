@@ -43,17 +43,10 @@ func TestBucketStoreCreateGetList(t *testing.T) {
 			Nonce:      []byte("012345678901234567890123"),
 			Ciphertext: []byte("encrypted-credentials"),
 		},
-		PluginSettings: BucketPluginSettingsMap{
-			"duplicate_detection": {
-				Enabled:  false,
-				Settings: map[string]any{},
-			},
-			"background_verification": {
-				Enabled: true,
-				Settings: map[string]any{
-					"interval":    "24h",
-					"sample_rate": 0.01,
-				},
+		RelicConfig: BucketRelicConfig{
+			Scan: BucketScanConfig{
+				Enabled:  BoolPtr(true),
+				Interval: "24h",
 			},
 		},
 	}
@@ -82,8 +75,11 @@ func TestBucketStoreCreateGetList(t *testing.T) {
 	if forcePathStyle, ok := s3Config["force_path_style"].(bool); !ok || !forcePathStyle {
 		t.Fatalf("force_path_style = %#v, want true", s3Config["force_path_style"])
 	}
-	if !created.PluginSettings["background_verification"].Enabled {
-		t.Fatal("background_verification plugin is not enabled")
+	if !created.RelicConfig.ScanEnabled() {
+		t.Fatal("scan is not enabled in relic_config")
+	}
+	if created.RelicConfig.Scan.Interval != "24h" {
+		t.Fatalf("scan interval = %q, want 24h", created.RelicConfig.Scan.Interval)
 	}
 
 	got, err := buckets.GetBucket(ctx, created.ID)
@@ -93,8 +89,8 @@ func TestBucketStoreCreateGetList(t *testing.T) {
 	if got.ID != created.ID {
 		t.Fatalf("got ID = %q, want %q", got.ID, created.ID)
 	}
-	if got.PluginSettings["duplicate_detection"].Enabled {
-		t.Fatal("duplicate_detection plugin is enabled")
+	if !got.RelicConfig.ScanEnabled() {
+		t.Fatal("scan is not enabled in relic_config")
 	}
 
 	listed, err := buckets.ListBuckets(ctx, ListBucketsParams{
@@ -144,7 +140,7 @@ func TestBucketStoreUpdate(t *testing.T) {
 			Nonce:      []byte("012345678901234567890123"),
 			Ciphertext: []byte("encrypted-credentials"),
 		},
-		PluginSettings: BucketPluginSettingsMap{},
+		RelicConfig: BucketRelicConfig{},
 	})
 	if err != nil {
 		t.Fatalf("CreateBucket returned error: %v", err)

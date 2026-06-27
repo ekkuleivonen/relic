@@ -46,7 +46,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 				Prefix:               input.Body.Prefix,
 				UpstreamConfig:       input.Body.UpstreamConfig,
 				EncryptedCredentials: envelope,
-				PluginSettings:       input.Body.PluginSettings,
+				RelicConfig:          input.Body.RelicConfig,
 			})
 			if err != nil {
 				return err
@@ -133,7 +133,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			Region:         input.Body.Region,
 			Prefix:         input.Body.Prefix,
 			UpstreamConfig: input.Body.UpstreamConfig,
-			PluginSettings: input.Body.PluginSettings,
+			RelicConfig: input.Body.RelicConfig,
 		}
 
 		if input.Body.Credentials != nil {
@@ -290,7 +290,7 @@ type createBucketBody struct {
 	Prefix         string                          `json:"prefix" example:"raw/"`
 	UpstreamConfig storage.BucketUpstreamConfig    `json:"upstream_config"`
 	Credentials    map[string]any                  `json:"credentials"`
-	PluginSettings storage.BucketPluginSettingsMap `json:"plugin_settings"`
+	RelicConfig    storage.BucketRelicConfig    `json:"relic_config"`
 }
 
 type listBucketsInput struct {
@@ -332,7 +332,7 @@ type updateBucketBody struct {
 	Prefix         *string                          `json:"prefix,omitempty" example:"raw/"`
 	UpstreamConfig *storage.BucketUpstreamConfig    `json:"upstream_config,omitempty"`
 	Credentials    *map[string]any                  `json:"credentials,omitempty"`
-	PluginSettings *storage.BucketPluginSettingsMap `json:"plugin_settings,omitempty"`
+	RelicConfig    *storage.BucketRelicConfig    `json:"relic_config,omitempty"`
 }
 
 type bucketOutput struct {
@@ -370,7 +370,7 @@ type bucketResponse struct {
 	BucketName     string                          `json:"bucket_name" example:"example-bucket"`
 	Prefix         string                          `json:"prefix" example:"raw/"`
 	UpstreamConfig storage.BucketUpstreamConfig    `json:"upstream_config"`
-	PluginSettings storage.BucketPluginSettingsMap `json:"plugin_settings"`
+	RelicConfig    storage.BucketRelicConfig    `json:"relic_config"`
 	CreatedAt      time.Time                       `json:"created_at"`
 	UpdatedAt      time.Time                       `json:"updated_at"`
 }
@@ -385,7 +385,7 @@ func bucketResponseFromStorage(bucket storage.Bucket) bucketResponse {
 		BucketName:     bucket.BucketName,
 		Prefix:         bucket.Prefix,
 		UpstreamConfig: bucket.UpstreamConfig,
-		PluginSettings: bucket.PluginSettings,
+		RelicConfig:    bucket.RelicConfig,
 		CreatedAt:      bucket.CreatedAt,
 		UpdatedAt:      bucket.UpdatedAt,
 	}
