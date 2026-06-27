@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
 	importobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/import_objects"
 	refreshobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/refresh_objects"
@@ -204,7 +205,9 @@ func TestHandlerPlansRefreshJobsForChangedObjects(t *testing.T) {
 				"etag":          "\"old\"",
 				"size":          123,
 				"last_modified": "2026-06-26T00:00:00Z",
-				"storage_class": "STANDARD",
+				"s3": map[string]any{
+					"storage_class": "STANDARD",
+				},
 			},
 		},
 	})
@@ -852,16 +855,20 @@ func (c *fakeObjectClient) ListObjects(ctx context.Context, input s3compat.ListO
 	return c.page, c.err
 }
 
-func (c *fakeObjectClient) HeadObject(ctx context.Context, input s3compat.HeadObjectInput) (storage.ObjectAttributes, error) {
+func (c *fakeObjectClient) HeadObject(ctx context.Context, input s3compat.HeadObjectInput) (s3compat.HeadObjectData, error) {
 	c.headInputs = append(c.headInputs, input)
 	if err := c.headErrByKey[input.Key]; err != nil {
-		return nil, err
+		return s3compat.HeadObjectData{}, err
 	}
 	if attributes, ok := c.headAttributesByKey[input.Key]; ok {
-		return attributes, nil
+		return s3compat.HeadObjectDataFromUpstreamAttributes(attributes), nil
 	}
 
-	return storage.ObjectAttributes{"upstream": map[string]any{}}, nil
+	return s3compat.HeadObjectData{Output: &s3.HeadObjectOutput{}}, nil
+}
+
+func (c *fakeObjectClient) GetObjectTagging(ctx context.Context, input s3compat.HeadObjectInput) (map[string]string, error) {
+	return nil, nil
 }
 
 func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
@@ -890,6 +897,10 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	if err != nil {
 		pool.Close()
 		t.Fatalf("New returned error: %v", err)
+	}
+	if err := storage.PrepareTestStore(ctx, store); err != nil {
+		pool.Close()
+		t.Fatalf("PrepareTestStore returned error: %v", err)
 	}
 
 	return store, pool.Close

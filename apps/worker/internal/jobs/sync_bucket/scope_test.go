@@ -90,6 +90,10 @@ func scopeTestStore(t *testing.T, ctx context.Context) (*storage.Store, func()) 
 		pool.Close()
 		t.Fatalf("New returned error: %v", err)
 	}
+	if err := storage.PrepareTestStore(ctx, store); err != nil {
+		pool.Close()
+		t.Fatalf("PrepareTestStore returned error: %v", err)
+	}
 
 	return store, pool.Close
 }
@@ -136,7 +140,9 @@ func upsertScopeObject(t *testing.T, ctx context.Context, store *storage.Store, 
 				"etag":          fmt.Sprintf("\"%s\"", key),
 				"size":          int64(100),
 				"last_modified": time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
-				"storage_class": "STANDARD",
+				"s3": map[string]any{
+					"storage_class": "STANDARD",
+				},
 			},
 		},
 	})

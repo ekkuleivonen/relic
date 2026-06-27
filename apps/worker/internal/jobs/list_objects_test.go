@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/storage"
 	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
 )
 
@@ -43,7 +42,11 @@ func (c *recordingListClient) ListObjects(_ context.Context, input s3compat.List
 	return c.pages[index], nil
 }
 
-func (c *recordingListClient) HeadObject(context.Context, s3compat.HeadObjectInput) (storage.ObjectAttributes, error) {
+func (c *recordingListClient) HeadObject(context.Context, s3compat.HeadObjectInput) (s3compat.HeadObjectData, error) {
+	return s3compat.HeadObjectData{}, fmt.Errorf("not implemented")
+}
+
+func (c *recordingListClient) GetObjectTagging(context.Context, s3compat.HeadObjectInput) (map[string]string, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 

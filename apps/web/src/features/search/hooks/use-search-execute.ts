@@ -29,5 +29,6 @@ export function useSearchExecute({
       }),
     enabled: enabled && query.trim().length > 0,
     retry: false,
+    refetchOnWindowFocus: true,
   })
 }

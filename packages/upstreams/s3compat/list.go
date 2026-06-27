@@ -58,11 +58,18 @@ func AttributesFromListedObject(object ListedObject) storage.ObjectAttributes {
 	if !object.LastModified.IsZero() {
 		attributes["last_modified"] = object.LastModified.UTC().Format(time.RFC3339)
 	}
-	if object.StorageClass != "" {
-		attributes["storage_class"] = object.StorageClass
-	}
+	SetS3StorageClass(attributes, object.StorageClass)
 
 	return upstreamAttributes(attributes)
+}
+
+func SetS3StorageClass(upstream map[string]any, storageClass string) {
+	if storageClass == "" {
+		return
+	}
+
+	s3 := ensureNestedMap(upstream, "s3")
+	s3["storage_class"] = storageClass
 }
 
 func parseListBucketResult(body string) (ObjectPage, error) {

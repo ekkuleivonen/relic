@@ -125,6 +125,9 @@ func commonAttributesFromHead(headers headerMap) (map[string]any, error) {
 	copyHeader(headers, headerAttributes, "accept-ranges", "accept_ranges")
 	copyHeader(headers, headerAttributes, "cache-control", "cache_control")
 	copyHeader(headers, headerAttributes, "content-type", "content_type")
+	copyHeader(headers, headerAttributes, "content-disposition", "content_disposition")
+	copyHeader(headers, headerAttributes, "content-encoding", "content_encoding")
+	copyHeader(headers, headerAttributes, "content-language", "content_language")
 	if len(headerAttributes) > 0 {
 		attributes["header"] = headerAttributes
 	}
@@ -141,6 +144,22 @@ func addS3Attributes(attributes map[string]any, headers headerMap) {
 	s3 := map[string]any{}
 	copyHeader(headers, s3, "x-amz-storage-class", "storage_class")
 	copyHeader(headers, s3, "x-amz-version-id", "version_id")
+	copyHeader(headers, s3, "x-amz-server-side-encryption", "server_side_encryption")
+	copyHeader(headers, s3, "x-amz-server-side-encryption-aws-kms-key-id", "sse_kms_key_id")
+	copyHeader(headers, s3, "x-amz-server-side-encryption-customer-algorithm", "sse_customer_algorithm")
+	copyHeader(headers, s3, "x-amz-server-side-encryption-customer-key-md5", "sse_customer_key_md5")
+	copyHeader(headers, s3, "x-amz-server-side-encryption-bucket-key-enabled", "bucket_key_enabled")
+	copyHeader(headers, s3, "x-amz-checksum-crc32", "checksum_crc32")
+	copyHeader(headers, s3, "x-amz-checksum-crc32c", "checksum_crc32c")
+	copyHeader(headers, s3, "x-amz-checksum-sha1", "checksum_sha1")
+	copyHeader(headers, s3, "x-amz-checksum-sha256", "checksum_sha256")
+	copyHeader(headers, s3, "x-amz-object-lock-mode", "object_lock_mode")
+	copyHeader(headers, s3, "x-amz-object-lock-legal-hold", "object_lock_legal_hold_status")
+	copyHeader(headers, s3, "x-amz-object-lock-retain-until-date", "object_lock_retain_until_date")
+	copyHeader(headers, s3, "x-amz-expiration", "expiration")
+	copyHeader(headers, s3, "x-amz-website-redirect-location", "website_redirect_location")
+	copyHeader(headers, s3, "x-amz-replication-status", "replication_status")
+	copyHeader(headers, s3, "x-amz-archive-status", "archive_status")
 	if len(s3) > 0 {
 		attributes["s3"] = s3
 	}

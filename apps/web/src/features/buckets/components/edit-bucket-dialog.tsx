@@ -16,6 +16,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useUpdateBucket } from "@/features/buckets/hooks/use-buckets"
 import { ScanScheduleFields } from "@/features/buckets/components/scan-schedule-fields"
+import { JetStreamFields } from "@/features/buckets/components/jetstream-fields"
+import {
+  jetstreamFormFromUpstreamConfig,
+  upstreamConfigWithJetstream,
+} from "@/features/buckets/lib/jetstream-config"
 import {
   relicConfigFromScanSchedule,
   scanScheduleFromRelicConfig,
@@ -54,16 +59,25 @@ export function EditBucketDialog({
       endpoint_url: form.endpointUrl,
       region: form.region,
       prefix: form.prefix,
-      upstream_config: {
-        ...bucket.upstream_config,
-        s3: {
-          ...(isRecord(bucket.upstream_config.s3)
-            ? bucket.upstream_config.s3
-            : {}),
-          force_path_style: form.forcePathStyle,
-          signing_region: form.region,
+      upstream_config: upstreamConfigWithJetstream(
+        {
+          ...bucket.upstream_config,
+          s3: {
+            ...(isRecord(bucket.upstream_config.s3)
+              ? bucket.upstream_config.s3
+              : {}),
+            force_path_style: form.forcePathStyle,
+            signing_region: form.region,
+          },
         },
-      },
+        {
+          enabled: form.jetstreamEnabled,
+          url: form.jetstreamUrl,
+          stream: form.jetstreamStream,
+          subject: form.jetstreamSubject,
+          consumer: form.jetstreamConsumer,
+        },
+      ),
       relic_config: relicConfigFromScanSchedule({
         enabled: form.scanEnabled,
         interval: form.scanInterval,
@@ -170,6 +184,37 @@ export function EditBucketDialog({
             </span>
           </label>
 
+          <JetStreamFields
+            idPrefix={`edit-${bucket.id}`}
+            bucketId={bucket.id}
+            form={{
+              enabled: form.jetstreamEnabled,
+              url: form.jetstreamUrl,
+              stream: form.jetstreamStream,
+              subject: form.jetstreamSubject,
+              consumer: form.jetstreamConsumer,
+            }}
+            onEnabledChange={(enabled) =>
+              updateField("jetstreamEnabled", enabled)
+            }
+            onFieldChange={(field, value) => {
+              switch (field) {
+                case "url":
+                  updateField("jetstreamUrl", value)
+                  break
+                case "stream":
+                  updateField("jetstreamStream", value)
+                  break
+                case "subject":
+                  updateField("jetstreamSubject", value)
+                  break
+                case "consumer":
+                  updateField("jetstreamConsumer", value)
+                  break
+              }
+            }}
+          />
+
           <ScanScheduleFields
             idPrefix={`edit-${bucket.id}`}
             enabled={form.scanEnabled}
@@ -270,6 +315,7 @@ function formStateFromBucket(bucket: Bucket) {
   const s3Config = isRecord(bucket.upstream_config.s3)
     ? bucket.upstream_config.s3
     : {}
+  const jetstream = jetstreamFormFromUpstreamConfig(bucket.upstream_config)
   const scanSchedule = scanScheduleFromRelicConfig(bucket.relic_config)
 
   return {
@@ -278,6 +324,11 @@ function formStateFromBucket(bucket: Bucket) {
     region: bucket.region,
     prefix: bucket.prefix,
     forcePathStyle: s3Config.force_path_style === true,
+    jetstreamEnabled: jetstream.enabled,
+    jetstreamUrl: jetstream.url,
+    jetstreamStream: jetstream.stream,
+    jetstreamSubject: jetstream.subject,
+    jetstreamConsumer: jetstream.consumer,
     scanEnabled: scanSchedule.enabled,
     scanInterval: scanSchedule.interval,
     rotateCredentials: false,

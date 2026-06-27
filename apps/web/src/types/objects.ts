@@ -8,7 +8,6 @@ export type ObjectAttributes = {
     etag?: string
     size?: number
     last_modified?: string
-    storage_class?: string
     header?: {
       content_type?: string
       cache_control?: string

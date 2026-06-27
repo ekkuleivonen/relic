@@ -20,12 +20,15 @@ type ObjectsCardProps = {
 
 export function ObjectsCard({ bucketId, prefix }: ObjectsCardProps) {
   const [keyContains, setKeyContains] = React.useState("")
-  const objectsQuery = useObjects({
-    bucketId,
-    prefix,
-    keyContains,
-    limit: 100,
-  })
+  const objectsQuery = useObjects(
+    {
+      bucketId,
+      prefix,
+      keyContains,
+      limit: 100,
+    },
+    { live: true }
+  )
   const objects = objectsQuery.data?.objects ?? []
 
   return (
@@ -61,6 +64,13 @@ export function ObjectsCard({ bucketId, prefix }: ObjectsCardProps) {
             placeholder="Search object keys..."
           />
         </div>
+
+        {objectsQuery.isSuccess && (
+          <p className="text-sm text-muted-foreground">
+            {objects.length} object{objects.length === 1 ? "" : "s"} in catalog
+            {objects.length >= 100 ? " (showing first 100)" : ""}.
+          </p>
+        )}
 
         {objectsQuery.isLoading && (
           <div className="flex items-center gap-3 rounded-lg border px-4 py-6 text-sm text-muted-foreground">

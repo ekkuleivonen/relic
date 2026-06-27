@@ -15,6 +15,7 @@ import { DeleteBucketDialog } from "@/features/buckets/components/delete-bucket-
 import { EditBucketDialog } from "@/features/buckets/components/edit-bucket-dialog"
 import { ScanBucketButton } from "@/features/buckets/components/scan-bucket-button"
 import { SyncBucketButton } from "@/features/buckets/components/sync-bucket-button"
+import { ObjectsCard } from "@/features/objects/components/objects-card"
 import { useBucket } from "@/features/buckets/hooks/use-buckets"
 import { formatScanScheduleSummary } from "@/features/buckets/lib/scan-schedule"
 import type { BucketRelicConfig } from "@/types/buckets"
@@ -111,6 +112,8 @@ export function BucketDetailPage() {
                 <ScanScheduleSummary relicConfig={bucket.relic_config} />
               </CardContent>
             </Card>
+
+            <ObjectsCard bucketId={bucket.id} prefix={bucket.prefix || undefined} />
 
             <Card>
               <CardHeader>

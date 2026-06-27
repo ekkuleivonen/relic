@@ -41,7 +41,7 @@ export function ObjectsTable({ objects }: ObjectsTableProps) {
               </TableCell>
               <TableCell>{formatSize(object.attributes.upstream?.size)}</TableCell>
               <TableCell>
-                {object.attributes.upstream?.storage_class ?? (
+                {object.attributes.upstream?.s3?.storage_class ?? (
                   <span className="text-muted-foreground">-</span>
                 )}
               </TableCell>

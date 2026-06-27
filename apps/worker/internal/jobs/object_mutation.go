@@ -39,7 +39,12 @@ func ExecuteObjectMutation(ctx context.Context, options ExecuteObjectMutationOpt
 		return nil, err
 	}
 
-	headResults, err := HeadObjects(ctx, options.Objects, headConcurrency, HeadObjectFuncForClient(options.Client, options.Bucket.BucketName))
+	captureFields, err := options.Store.UpstreamCaptureFields().ListEnabled(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	headResults, err := HeadObjects(ctx, options.Objects, headConcurrency, HeadObjectFuncForClient(options.Client, options.Bucket.BucketName, captureFields))
 	if err != nil {
 		return nil, err
 	}

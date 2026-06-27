@@ -1,0 +1,17 @@
+{
+  "upstream": "r2",
+  "kind": "object_created",
+  "transport": "queue",
+  "source": "https://developers.cloudflare.com/r2/buckets/event-notifications/",
+  "body": {
+    "account": "3f4b7e3dcab231cbfdaa90a6a28bd548",
+    "action": "PutObject",
+    "bucket": "relic-fixtures",
+    "object": {
+      "key": "photos/a.jpg",
+      "size": 434234,
+      "eTag": "fba9dede5f27731c9771645a39863328"
+    },
+    "eventTime": "2026-06-26T01:00:00.000Z"
+  }
+}

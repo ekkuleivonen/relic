@@ -55,6 +55,11 @@ func run() error {
 	}
 	slog.Info("attribute catalog seeded")
 
+	if err := storage.SeedUpstreamCaptureFields(ctx, store.UpstreamCaptureFields()); err != nil {
+		return err
+	}
+	slog.Info("upstream capture fields seeded")
+
 	secretManager, err := secrets.NewStaticKeyManager(cfg.EncryptionKeyID, cfg.EncryptionKey)
 	if err != nil {
 		return err

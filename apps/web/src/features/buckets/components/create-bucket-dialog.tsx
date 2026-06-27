@@ -16,6 +16,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useCreateBucket } from "@/features/buckets/hooks/use-buckets"
 import { ScanScheduleFields } from "@/features/buckets/components/scan-schedule-fields"
+import { JetStreamFields } from "@/features/buckets/components/jetstream-fields"
+import { upstreamConfigWithJetstream } from "@/features/buckets/lib/jetstream-config"
 import {
   DEFAULT_SCAN_INTERVAL,
   relicConfigFromScanSchedule,
@@ -32,6 +34,11 @@ const initialFormState = {
   secretAccessKey: "",
   sessionToken: "",
   forcePathStyle: false,
+  jetstreamEnabled: false,
+  jetstreamUrl: "",
+  jetstreamStream: "",
+  jetstreamSubject: "",
+  jetstreamConsumer: "",
   scanEnabled: true,
   scanInterval: DEFAULT_SCAN_INTERVAL,
 }
@@ -61,12 +68,21 @@ export function CreateBucketDialog({
       region: form.region,
       bucket_name: form.bucketName,
       prefix: form.prefix,
-      upstream_config: {
-        s3: {
-          force_path_style: form.forcePathStyle,
-          signing_region: form.region,
+      upstream_config: upstreamConfigWithJetstream(
+        {
+          s3: {
+            force_path_style: form.forcePathStyle,
+            signing_region: form.region,
+          },
         },
-      },
+        {
+          enabled: form.jetstreamEnabled,
+          url: form.jetstreamUrl,
+          stream: form.jetstreamStream,
+          subject: form.jetstreamSubject,
+          consumer: form.jetstreamConsumer,
+        },
+      ),
       credentials: {
         access_key_id: form.accessKeyId,
         secret_access_key: form.secretAccessKey,
@@ -228,6 +244,36 @@ export function CreateBucketDialog({
               </span>
             </span>
           </label>
+
+          <JetStreamFields
+            idPrefix="create"
+            form={{
+              enabled: form.jetstreamEnabled,
+              url: form.jetstreamUrl,
+              stream: form.jetstreamStream,
+              subject: form.jetstreamSubject,
+              consumer: form.jetstreamConsumer,
+            }}
+            onEnabledChange={(enabled) =>
+              updateField("jetstreamEnabled", enabled)
+            }
+            onFieldChange={(field, value) => {
+              switch (field) {
+                case "url":
+                  updateField("jetstreamUrl", value)
+                  break
+                case "stream":
+                  updateField("jetstreamStream", value)
+                  break
+                case "subject":
+                  updateField("jetstreamSubject", value)
+                  break
+                case "consumer":
+                  updateField("jetstreamConsumer", value)
+                  break
+              }
+            }}
+          />
 
           <ScanScheduleFields
             idPrefix="create"

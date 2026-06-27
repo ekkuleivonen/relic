@@ -69,7 +69,9 @@ func TestListingEvidenceFromLocalObject(t *testing.T) {
 				"etag":          "\"abc123\"",
 				"size":          float64(789),
 				"last_modified": "2026-06-01T00:00:00Z",
-				"storage_class": "STANDARD",
+				"s3": map[string]any{
+					"storage_class": "STANDARD",
+				},
 			},
 		},
 	}
@@ -117,7 +119,9 @@ func TestObjectChangedDetectsFieldDrift(t *testing.T) {
 				"etag":          "\"abc123\"",
 				"size":          int64(123),
 				"last_modified": "2026-06-01T00:00:00Z",
-				"storage_class": "STANDARD",
+				"s3": map[string]any{
+					"storage_class": "STANDARD",
+				},
 			},
 		},
 	}
@@ -232,7 +236,9 @@ func TestPlanObjectMutations(t *testing.T) {
 					"etag":          "\"old\"",
 					"size":          int64(20),
 					"last_modified": "2026-06-01T00:00:00Z",
-					"storage_class": "STANDARD",
+					"s3": map[string]any{
+						"storage_class": "STANDARD",
+					},
 				},
 			},
 		},
@@ -244,7 +250,9 @@ func TestPlanObjectMutations(t *testing.T) {
 					"etag":          "\"same\"",
 					"size":          int64(30),
 					"last_modified": "2026-06-01T00:00:00Z",
-					"storage_class": "STANDARD",
+					"s3": map[string]any{
+						"storage_class": "STANDARD",
+					},
 				},
 			},
 		},

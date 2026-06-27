@@ -3,6 +3,7 @@ import {
   BoxIcon,
   ListTodoIcon,
   MoonIcon,
+  Settings2Icon,
   SunIcon,
 } from "lucide-react"
 import { Link, useLocation } from "react-router"
@@ -43,6 +44,15 @@ const navItems = [
   },
 ] as const
 
+const settingsItems = [
+  {
+    title: "Upstream capture",
+    url: "/settings/upstream-capture",
+    icon: Settings2Icon,
+    match: (pathname: string) => pathname.startsWith("/settings/upstream-capture"),
+  },
+] as const
+
 export function AppSidebar() {
   const { pathname } = useLocation()
   const { resolvedTheme, setTheme } = useTheme()
@@ -74,6 +84,28 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {navItems.map((item) => (
+                <SidebarMenuItem key={item.url}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={item.match(pathname)}
+                    tooltip={item.title}
+                  >
+                    <Link to={item.url}>
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Settings</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {settingsItems.map((item) => (
                 <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton
                     asChild

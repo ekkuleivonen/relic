@@ -35,6 +35,10 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			return nil, err
 		}
 
+		if err := validateUpstreamConfigJetstream("", input.Body.UpstreamConfig); err != nil {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+
 		var bucket storage.Bucket
 		if err := dependencies.Storage.WithTx(ctx, func(ctx context.Context, tx *storage.Tx) error {
 			createdBucket, err := tx.Buckets().CreateBucket(ctx, storage.CreateBucketParams{
@@ -124,6 +128,12 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 	}, func(ctx context.Context, input *updateBucketInput) (*bucketOutput, error) {
 		if dependencies.Storage == nil {
 			return nil, huma.Error500InternalServerError("bucket dependencies are not configured")
+		}
+
+		if input.Body.UpstreamConfig != nil {
+			if err := validateUpstreamConfigJetstream(input.ID, *input.Body.UpstreamConfig); err != nil {
+				return nil, huma.Error400BadRequest(err.Error())
+			}
 		}
 
 		params := storage.UpdateBucketParams{
@@ -275,6 +285,18 @@ func createScanBucketJob(ctx context.Context, jobRuns storage.JobRunRepository, 
 		TargetID:        bucketID,
 		Input:           input,
 	})
+}
+
+func validateUpstreamConfigJetstream(bucketID string, config storage.BucketUpstreamConfig) error {
+	if config == nil {
+		return nil
+	}
+	if _, ok := config["jetstream"]; !ok {
+		return nil
+	}
+
+	_, _, err := storage.ParseBucketJetStreamConfig(bucketID, config)
+	return err
 }
 
 type createBucketInput struct {

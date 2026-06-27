@@ -59,5 +59,11 @@ export function useAppBreadcrumbs(): AppBreadcrumbItem[] {
     return crumbs
   }
 
+  if (pathname.startsWith("/settings/upstream-capture")) {
+    crumbs.push({ label: "Settings" })
+    crumbs.push({ label: "Upstream capture" })
+    return crumbs
+  }
+
   return crumbs
 }

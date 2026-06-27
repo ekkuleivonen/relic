@@ -1,0 +1,23 @@
+{
+  "upstream": "b2",
+  "kind": "object_created",
+  "transport": "direct",
+  "source": "https://www.backblaze.com/docs/cloud-storage-event-notifications-reference-guide",
+  "body": {
+    "events": [
+      {
+        "accountId": "e85c6a500333",
+        "bucketId": "aea8c5bc362ae55070130333",
+        "bucketName": "relic-fixtures",
+        "eventId": "ba9a8e4eacda8b4b7d23a0ec1f04046342c319f3c608903e794c45a5b57184be",
+        "eventTimestamp": 1719393309123,
+        "eventType": "b2:ObjectCreated:Upload",
+        "eventVersion": 1,
+        "matchedRuleName": "relic-import",
+        "objectName": "photos/a.jpg",
+        "objectSize": 434234,
+        "objectVersionId": "4_zaea8c5bc362ae55070130333_d20260626m010000"
+      }
+    ]
+  }
+}

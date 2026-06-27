@@ -9,8 +9,8 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000,
-      refetchOnWindowFocus: false,
+      staleTime: 0,
+      refetchOnWindowFocus: true,
     },
   },
 })

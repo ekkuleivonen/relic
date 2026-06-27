@@ -17,6 +17,7 @@ type ObjectRepository interface {
 	UpsertObject(context.Context, UpsertObjectParams) (Object, error)
 	UpsertObjects(context.Context, []UpsertObjectParams) ([]Object, error)
 	GetObject(context.Context, string) (Object, error)
+	GetObjectByBucketAndKey(context.Context, string, string) (Object, error)
 	ListObjects(context.Context, ListObjectsParams) ([]Object, error)
 	ListObjectsInScope(context.Context, ObjectScopeParams) ([]Object, error)
 	CountObjectsInScope(context.Context, ObjectScopeParams) (int64, error)
@@ -207,6 +208,21 @@ func (s *ObjectStore) GetObject(ctx context.Context, id string) (Object, error) 
 		FROM objects
 		WHERE id = $1
 	`, id))
+}
+
+func (s *ObjectStore) GetObjectByBucketAndKey(ctx context.Context, bucketID, key string) (Object, error) {
+	return scanObject(s.runner.QueryRow(ctx, `
+		SELECT
+			id,
+			bucket_id,
+			key,
+			attributes,
+			attribute_provenance,
+			created_at,
+			updated_at
+		FROM objects
+		WHERE bucket_id = $1 AND key = $2
+	`, bucketID, key))
 }
 
 func (s *ObjectStore) ListObjects(ctx context.Context, params ListObjectsParams) ([]Object, error) {

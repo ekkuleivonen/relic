@@ -2,6 +2,13 @@ export type BucketUpstream = "s3"
 
 export type BucketUpstreamConfig = Record<string, unknown>
 
+export type BucketJetStreamConfig = {
+  url: string
+  stream: string
+  subject: string
+  consumer?: string
+}
+
 export type BucketScanConfig = {
   enabled: boolean
   interval?: string

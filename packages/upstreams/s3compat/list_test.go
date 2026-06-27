@@ -175,7 +175,9 @@ func TestAttributesFromListedObject(t *testing.T) {
 			"etag":          "\"fba9dede5f27731c9771645a39863328\"",
 			"size":          int64(434234),
 			"last_modified": "2026-06-26T01:00:00Z",
-			"storage_class": "STANDARD",
+			"s3": map[string]any{
+				"storage_class": "STANDARD",
+			},
 		},
 	}
 

@@ -285,15 +285,10 @@ function storageClass(upstream: Record<string, unknown> | undefined) {
   if (!upstream) {
     return <span className="text-muted-foreground">-</span>
   }
-  if (typeof upstream.storage_class === "string") {
-    return upstream.storage_class
-  }
 
-  for (const namespace of ["s3", "gcp"]) {
-    const nested = upstream[namespace]
-    if (isRecord(nested) && typeof nested.storage_class === "string") {
-      return nested.storage_class
-    }
+  const s3 = upstream.s3
+  if (isRecord(s3) && typeof s3.storage_class === "string") {
+    return s3.storage_class
   }
 
   return <span className="text-muted-foreground">-</span>

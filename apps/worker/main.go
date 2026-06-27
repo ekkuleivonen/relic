@@ -18,27 +18,31 @@ import (
 	refreshobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/refresh_objects"
 	removeobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/remove_objects"
 	scanbucket "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/scan_bucket"
-	scanscheduler "github.com/ekkuleivonen/relic/apps/worker/internal/scheduler"
 	syncbucket "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/sync_bucket"
 	workerRunner "github.com/ekkuleivonen/relic/apps/worker/internal/runner"
+	scanscheduler "github.com/ekkuleivonen/relic/apps/worker/internal/scheduler"
+	jetstreamconsumer "github.com/ekkuleivonen/relic/apps/worker/internal/jetstreamconsumer"
+	upstreamprocessor "github.com/ekkuleivonen/relic/apps/worker/internal/upstreamprocessor"
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/secrets"
 	"github.com/ekkuleivonen/relic/packages/storage"
 	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
 )
 
-const defaultPollInterval = 2 * time.Second
+const (
+	defaultPollInterval          = 2 * time.Second
+	defaultBatchLatency            = 30 * time.Second
+	defaultConfigRefetchInterval   = 5 * time.Minute
+)
 
 type config struct {
-	DatabaseURL              string
-	WorkerID                 string
-	PollInterval             time.Duration
-	EncryptionKeyID          string
-	EncryptionKey            []byte
-	ScanSchedulerEnabled     bool
-	ScanSchedulerInterval    time.Duration
-	ScanDefaultInterval      time.Duration
-	ScanStagger              time.Duration
+	DatabaseURL           string
+	WorkerID              string
+	PollInterval          time.Duration
+	BatchLatency          time.Duration
+	ConfigRefetchInterval time.Duration
+	EncryptionKeyID       string
+	EncryptionKey         []byte
 }
 
 func main() {
@@ -75,6 +79,11 @@ func run() error {
 		return err
 	}
 	slog.Info("attribute catalog seeded")
+
+	if err := storage.SeedUpstreamCaptureFields(ctx, store.UpstreamCaptureFields()); err != nil {
+		return err
+	}
+	slog.Info("upstream capture fields seeded")
 
 	secretManager, err := secrets.NewStaticKeyManager(cfg.EncryptionKeyID, cfg.EncryptionKey)
 	if err != nil {
@@ -128,6 +137,7 @@ func run() error {
 		Registry:     registry,
 		WorkerID:     cfg.WorkerID,
 		PollInterval: cfg.PollInterval,
+		RetryDelay:   cfg.BatchLatency,
 		Logger:       slog.Default(),
 	})
 	if err != nil {
@@ -137,40 +147,74 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 4)
+	running := 4
 
 	go func() {
-		slog.Info("worker started", "worker_id", cfg.WorkerID, "poll_interval", cfg.PollInterval)
+		slog.Info(
+			"worker started",
+			"worker_id", cfg.WorkerID,
+			"poll_interval", cfg.PollInterval,
+			"batch_latency", cfg.BatchLatency,
+			"config_refetch_interval", cfg.ConfigRefetchInterval,
+		)
 		errCh <- jobRunner.Run(ctx)
 	}()
 
-	if cfg.ScanSchedulerEnabled {
-		scanScheduler, err := scanscheduler.NewScanScheduler(scanscheduler.ScanSchedulerOptions{
-			Store:             store,
-			Logger:            slog.Default(),
-			SchedulerInterval: cfg.ScanSchedulerInterval,
-			DefaultInterval:   cfg.ScanDefaultInterval,
-			Stagger:           cfg.ScanStagger,
-		})
-		if err != nil {
-			return err
-		}
-
-		go func() {
-			slog.Info(
-				"scan scheduler started",
-				"scheduler_interval", cfg.ScanSchedulerInterval,
-				"default_scan_interval", cfg.ScanDefaultInterval,
-				"stagger", cfg.ScanStagger,
-			)
-			errCh <- scanScheduler.Run(ctx)
-		}()
+	scanScheduler, err := scanscheduler.NewScanScheduler(scanscheduler.ScanSchedulerOptions{
+		Store:             store,
+		Logger:            slog.Default(),
+		SchedulerInterval: cfg.PollInterval,
+		DefaultInterval:   storage.DefaultScanInterval,
+		Stagger:           cfg.BatchLatency,
+	})
+	if err != nil {
+		return err
 	}
 
-	running := 1
-	if cfg.ScanSchedulerEnabled {
-		running = 2
+	go func() {
+		slog.Info(
+			"scan scheduler started",
+			"poll_interval", cfg.PollInterval,
+			"default_scan_interval", storage.DefaultScanInterval,
+			"batch_latency", cfg.BatchLatency,
+		)
+		errCh <- scanScheduler.Run(ctx)
+	}()
+
+	upstreamProcessor, err := upstreamprocessor.NewProcessor(upstreamprocessor.ProcessorOptions{
+		Store:             store,
+		Logger:            slog.Default(),
+		ProcessorInterval: cfg.PollInterval,
+	})
+	if err != nil {
+		return err
 	}
+
+	go func() {
+		slog.Info(
+			"upstream event processor started",
+			"poll_interval", cfg.PollInterval,
+		)
+		errCh <- upstreamProcessor.Run(ctx)
+	}()
+
+	jetstreamManager, err := jetstreamconsumer.NewManager(jetstreamconsumer.ManagerOptions{
+		Store:                 store,
+		Logger:                slog.Default(),
+		ConfigRefetchInterval: cfg.ConfigRefetchInterval,
+	})
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		slog.Info(
+			"jetstream consumer manager started",
+			"config_refetch_interval", cfg.ConfigRefetchInterval,
+		)
+		errCh <- jetstreamManager.Run(ctx)
+	}()
 
 	var runErr error
 	for i := 0; i < running; i++ {
@@ -211,15 +255,11 @@ func loadConfig() (config, error) {
 	if err != nil {
 		return config{}, err
 	}
-	schedulerInterval, err := durationEnv(lookup, "SCAN_SCHEDULER_INTERVAL", pollInterval)
+	batchLatency, err := durationEnv(lookup, "WORKER_BATCH_LATENCY", defaultBatchLatency)
 	if err != nil {
 		return config{}, err
 	}
-	scanDefaultInterval, err := durationEnv(lookup, "SCAN_DEFAULT_INTERVAL", storage.DefaultScanInterval)
-	if err != nil {
-		return config{}, err
-	}
-	scanStagger, err := durationEnv(lookup, "SCAN_STAGGER", 30*time.Second)
+	configRefetchInterval, err := durationEnv(lookup, "WORKER_CONFIG_REFETCH_INTERVAL", defaultConfigRefetchInterval)
 	if err != nil {
 		return config{}, err
 	}
@@ -240,12 +280,10 @@ func loadConfig() (config, error) {
 		DatabaseURL:           databaseURL,
 		WorkerID:              stringEnv(lookup, "WORKER_ID", defaultWorkerID()),
 		PollInterval:          pollInterval,
+		BatchLatency:          batchLatency,
+		ConfigRefetchInterval: configRefetchInterval,
 		EncryptionKeyID:       encryptionKeyID,
 		EncryptionKey:         encryptionKey,
-		ScanSchedulerEnabled:  boolEnv(lookup, "SCAN_SCHEDULER_ENABLED", true),
-		ScanSchedulerInterval: schedulerInterval,
-		ScanDefaultInterval:   scanDefaultInterval,
-		ScanStagger:           scanStagger,
 	}, nil
 }
 
@@ -272,22 +310,6 @@ func durationEnv(lookup lookupFunc, key string, fallback time.Duration) (time.Du
 	}
 
 	return parsed, nil
-}
-
-func boolEnv(lookup lookupFunc, key string, fallback bool) bool {
-	value, ok := lookup(key)
-	if !ok || value == "" {
-		return fallback
-	}
-
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "1", "true", "t", "yes", "y", "on":
-		return true
-	case "0", "false", "f", "no", "n", "off":
-		return false
-	default:
-		return fallback
-	}
 }
 
 func defaultWorkerID() string {

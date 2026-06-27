@@ -14,11 +14,16 @@ const objectKeys = {
     [...objectKeys.all, "detail", objectId] as const,
 }
 
-export function useObjects(params: ListObjectsParams) {
+export function useObjects(
+  params: ListObjectsParams,
+  options?: { live?: boolean }
+) {
   return useQuery({
     queryKey: objectKeys.list(params),
     queryFn: () =>
       apiRequest<ListObjectsResponse>(`/objects${objectQueryString(params)}`),
+    refetchOnWindowFocus: true,
+    refetchInterval: options?.live ? 5_000 : false,
   })
 }
 

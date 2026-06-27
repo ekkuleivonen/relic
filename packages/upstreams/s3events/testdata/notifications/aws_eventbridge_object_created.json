@@ -1,0 +1,36 @@
+{
+  "upstream": "aws",
+  "kind": "object_created",
+  "transport": "eventbridge",
+  "source": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/ev-events.html",
+  "body": {
+    "version": "0",
+    "id": "17793124-05d4-b198-2fde-7ededc63b103",
+    "detail-type": "Object Created",
+    "source": "aws.s3",
+    "account": "123456789012",
+    "time": "2026-06-26T01:00:00.000Z",
+    "region": "us-east-1",
+    "resources": [
+      "arn:aws:s3:::relic-fixtures"
+    ],
+    "detail": {
+      "version": "0",
+      "event-version": "1.0",
+      "bucket": {
+        "name": "relic-fixtures"
+      },
+      "object": {
+        "key": "photos/a.jpg",
+        "size": 434234,
+        "etag": "fba9dede5f27731c9771645a39863328",
+        "version-id": "096fKKXTRTtl3on89fVO.nfljtsv6qko",
+        "sequencer": "617f08299329d189"
+      },
+      "request-id": "N4N7GDK58NMKJ12R",
+      "requester": "123456789012",
+      "source-ip-address": "172.16.0.1",
+      "reason": "PutObject"
+    }
+  }
+}

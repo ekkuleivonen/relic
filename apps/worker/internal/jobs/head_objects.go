@@ -88,12 +88,12 @@ func HeadObjects(ctx context.Context, objects []ObjectEvidence, concurrency int,
 	return results, nil
 }
 
-func HeadObjectFuncForClient(client s3compat.ObjectClient, bucketName string) HeadObjectFunc {
+func HeadObjectFuncForClient(client s3compat.ObjectClient, bucketName string, fields []storage.UpstreamCaptureField) HeadObjectFunc {
 	return func(ctx context.Context, object ObjectEvidence) (storage.ObjectAttributes, error) {
-		return client.HeadObject(ctx, s3compat.HeadObjectInput{
+		return s3compat.FetchCatalogAttributes(ctx, client, s3compat.HeadObjectInput{
 			Bucket:    bucketName,
 			Key:       object.Key,
 			VersionID: object.VersionID,
-		})
+		}, fields)
 	}
 }

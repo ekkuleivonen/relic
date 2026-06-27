@@ -57,6 +57,7 @@ export async function apiRequest<T>(
     ...options,
     headers,
     credentials: "include",
+    cache: "no-store",
     body: hasBody ? JSON.stringify(options.body) : undefined,
   })
 

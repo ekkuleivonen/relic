@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
 )
 
 type ObjectEvidence struct {
@@ -64,9 +65,7 @@ func AttributesWithEvidence(attributes storage.ObjectAttributes, evidence Object
 	if evidence.LastModified != "" {
 		upstream["last_modified"] = evidence.LastModified
 	}
-	if evidence.StorageClass != "" {
-		upstream["storage_class"] = evidence.StorageClass
-	}
+	s3compat.SetS3StorageClass(upstream, evidence.StorageClass)
 	merged["upstream"] = upstream
 
 	return merged

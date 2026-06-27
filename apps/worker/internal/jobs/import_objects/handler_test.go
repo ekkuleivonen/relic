@@ -88,8 +88,9 @@ func TestHandlerImportsObjectsFromHead(t *testing.T) {
 	if !ok {
 		t.Fatalf("upstream attributes = %#v, want object", objects[0].Attributes["upstream"])
 	}
-	if upstream["storage_class"] != "STANDARD" {
-		t.Fatalf("storage_class = %#v, want STANDARD", upstream["storage_class"])
+	s3, ok := upstream["s3"].(map[string]any)
+	if !ok || s3["storage_class"] != "STANDARD" {
+		t.Fatalf("s3.storage_class = %#v, want STANDARD", upstream["s3"])
 	}
 	header, ok := upstream["header"].(map[string]any)
 	if !ok || header["content_type"] != "image/jpeg" {
@@ -236,14 +237,18 @@ func (c *fakeObjectClient) ListObjects(ctx context.Context, input s3compat.ListO
 	return s3compat.ObjectPage{}, nil
 }
 
-func (c *fakeObjectClient) HeadObject(ctx context.Context, input s3compat.HeadObjectInput) (storage.ObjectAttributes, error) {
+func (c *fakeObjectClient) HeadObject(ctx context.Context, input s3compat.HeadObjectInput) (s3compat.HeadObjectData, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.headInputs = append(c.headInputs, input)
 	if err := c.headErrByKey[input.Key]; err != nil {
-		return nil, err
+		return s3compat.HeadObjectData{}, err
 	}
-	return c.headAttributes, nil
+	return s3compat.HeadObjectDataFromUpstreamAttributes(c.headAttributes), nil
+}
+
+func (c *fakeObjectClient) GetObjectTagging(context.Context, s3compat.HeadObjectInput) (map[string]string, error) {
+	return nil, nil
 }
 
 type fakeObjectClientFactory struct {
@@ -291,6 +296,10 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	if err != nil {
 		pool.Close()
 		t.Fatalf("New returned error: %v", err)
+	}
+	if err := storage.PrepareTestStore(ctx, store); err != nil {
+		pool.Close()
+		t.Fatalf("PrepareTestStore returned error: %v", err)
 	}
 
 	return store, pool.Close

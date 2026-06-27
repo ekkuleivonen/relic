@@ -274,6 +274,10 @@ func testStore(t *testing.T, ctx context.Context) (*Store, func()) {
 		pool.Close()
 		t.Fatalf("New returned error: %v", err)
 	}
+	if err := PrepareTestStore(ctx, store); err != nil {
+		pool.Close()
+		t.Fatalf("PrepareTestStore returned error: %v", err)
+	}
 
 	return store, pool.Close
 }

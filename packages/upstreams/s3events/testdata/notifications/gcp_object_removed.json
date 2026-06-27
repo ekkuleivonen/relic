@@ -1,0 +1,23 @@
+{
+  "upstream": "gcp",
+  "kind": "object_removed",
+  "transport": "pubsub_push",
+  "source": "https://cloud.google.com/storage/docs/pubsub-notifications",
+  "body": {
+    "message": {
+      "attributes": {
+        "bucketId": "relic-fixtures",
+        "eventTime": "2026-06-26T01:05:00.000Z",
+        "eventType": "OBJECT_DELETE",
+        "notificationConfig": "projects/_/buckets/relic-fixtures/notificationConfigs/3",
+        "objectGeneration": "1719393600000000",
+        "objectId": "photos/b.jpg",
+        "payloadFormat": "JSON_API_V1"
+      },
+      "data": "eyJraW5kIjoic3RvcmFnZSNvYmplY3QiLCJpZCI6InJlbGljLWZpeHR1cmVzL3Bob3Rvcy9iLmpwZy8xNzE5MzkzNjAwMDAwMDAwIiwibmFtZSI6InBob3Rvcy9iLmpwZyIsImJ1Y2tldCI6InJlbGljLWZpeHR1cmVzIiwiZ2VuZXJhdGlvbiI6IjE3MTkzOTM2MDAwMDAwMDAifQ==",
+      "messageId": "136969346347",
+      "publishTime": "2026-06-26T01:05:00.000Z"
+    },
+    "subscription": "projects/relic-dev/subscriptions/gcs-relic-fixtures"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "upstream": "rustfs",
+  "kind": "object_created",
+  "transport": "webhook",
+  "source": "https://github.com/rustfs/rustfs/pull/1138",
+  "body": {
+    "EventName": "s3:ObjectCreated:Put",
+    "Key": "relic-fixtures/photos/a.jpg",
+    "Records": [
+      {
+        "eventVersion": "2.1",
+        "eventSource": "rustfs:s3",
+        "awsRegion": "",
+        "eventTime": "2026-06-26T01:00:00.000Z",
+        "eventName": "s3:ObjectCreated:Put",
+        "userIdentity": {
+          "principalId": "relic-access-key"
+        },
+        "requestParameters": {
+          "sourceIPAddress": "192.168.1.10"
+        },
+        "responseElements": {
+          "x-amz-request-id": "182178E8B36AC9DF",
+          "x-amz-id-2": "dd9025bab4ad464b049177c95eb6ebf374d3b3fd1af9251148b658df7ac2e3e8",
+          "x-rustfs-deployment-id": "2369dcb4-348b-4d30-8fc9-61ab089ba4bc"
+        },
+        "s3": {
+          "s3SchemaVersion": "1.0",
+          "configurationId": "relic-import",
+          "bucket": {
+            "name": "relic-fixtures",
+            "ownerIdentity": {
+              "principalId": "relic-access-key"
+            },
+            "arn": "arn:aws:s3:::relic-fixtures"
+          },
+          "object": {
+            "key": "photos/a.jpg",
+            "size": 434234,
+            "eTag": "fba9dede5f27731c9771645a39863328",
+            "sequencer": "182178E8B3728CAC"
+          }
+        }
+      }
+    ]
+  }
+}

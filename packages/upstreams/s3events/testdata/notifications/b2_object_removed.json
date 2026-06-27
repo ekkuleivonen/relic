@@ -1,0 +1,22 @@
+{
+  "upstream": "b2",
+  "kind": "object_removed",
+  "transport": "direct",
+  "source": "https://www.backblaze.com/docs/cloud-storage-event-notifications-reference-guide",
+  "body": {
+    "events": [
+      {
+        "accountId": "e85c6a500333",
+        "bucketId": "aea8c5bc362ae55070130333",
+        "bucketName": "relic-fixtures",
+        "eventId": "c1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f80",
+        "eventTimestamp": 1719393609123,
+        "eventType": "b2:ObjectDeleted:Delete",
+        "eventVersion": 1,
+        "matchedRuleName": "relic-import",
+        "objectName": "photos/b.jpg",
+        "objectVersionId": "4_zaea8c5bc362ae55070130333_d20260626m010500"
+      }
+    ]
+  }
+}

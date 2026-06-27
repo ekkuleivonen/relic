@@ -6,6 +6,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go/middleware"
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
@@ -48,6 +49,9 @@ func (f ClientFactory) NewClient(ctx context.Context, config BucketConfig, crede
 	}, func(options *s3.Options) {
 		options.BaseEndpoint = aws.String(config.EndpointURL)
 		options.UsePathStyle = config.ForcePathStyle
+		options.APIOptions = append(options.APIOptions, func(stack *middleware.Stack) error {
+			return AttachCaptureResponseHeaders(stack)
+		})
 	})
 
 	return NewSDKClient(SDKClientOptions{

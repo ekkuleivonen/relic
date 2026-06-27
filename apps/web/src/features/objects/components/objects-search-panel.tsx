@@ -1,4 +1,4 @@
-import { Loader2Icon, PlayIcon } from "lucide-react"
+import { Loader2Icon, PlayIcon, RefreshCwIcon } from "lucide-react"
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
@@ -93,18 +93,33 @@ export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
               objects.
             </CardDescription>
           </div>
-          <Button
-            size="sm"
-            onClick={() => void handleSubmit()}
-            disabled={isRunning}
-          >
-            {isRunning ? (
-              <Loader2Icon className="animate-spin" />
-            ) : (
-              <PlayIcon />
-            )}
-            Run search
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void executeQuery.refetch()}
+              disabled={isRunning || submittedQuery === null}
+            >
+              {executeQuery.isFetching ? (
+                <Loader2Icon className="animate-spin" />
+              ) : (
+                <RefreshCwIcon />
+              )}
+              Refresh
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => void handleSubmit()}
+              disabled={isRunning}
+            >
+              {isRunning ? (
+                <Loader2Icon className="animate-spin" />
+              ) : (
+                <PlayIcon />
+              )}
+              Run search
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="grid gap-4">

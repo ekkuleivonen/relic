@@ -1,0 +1,23 @@
+{
+  "upstream": "gcp",
+  "kind": "object_created",
+  "transport": "pubsub_push",
+  "source": "https://cloud.google.com/storage/docs/pubsub-notifications",
+  "body": {
+    "message": {
+      "attributes": {
+        "bucketId": "relic-fixtures",
+        "eventTime": "2026-06-26T01:00:00.000Z",
+        "eventType": "OBJECT_FINALIZE",
+        "notificationConfig": "projects/_/buckets/relic-fixtures/notificationConfigs/3",
+        "objectGeneration": "1719393300000000",
+        "objectId": "photos/a.jpg",
+        "payloadFormat": "JSON_API_V1"
+      },
+      "data": "eyJraW5kIjoic3RvcmFnZSNvYmplY3QiLCJpZCI6InJlbGljLWZpeHR1cmVzL3Bob3Rvcy9hLmpwZy8xNzE5MzkzMzAwMDAwMDAwIiwic2VsZkxpbmsiOiJodHRwczovL3d3dy5nb29nbGVhcGlzLmNvbS9zdG9yYWdlL3YxL2IvcmVsaWMtZml4dHVyZXMvb2MvcGhvdG9zJTJGYS5qcGciLCJuYW1lIjoicGhvdG9zL2EuanBnIiwiYnVja2V0IjoicmVsaWMtZml4dHVyZXMiLCJnZW5lcmF0aW9uIjoiMTcxOTM5MzMwMDAwMDAwMCIsIm1ldGFnZW5lcmF0aW9uIjoiMSIsImNvbnRlbnRUeXBlIjoiaW1hZ2UvanBlZyIsInRpbWVDcmVhdGVkIjoiMjAyNi0wNi0yNlQwMTowMDowMC4wMDBaIiwidXBkYXRlZCI6IjIwMjYtMDYtMjZUMDE6MDA6MDAuMDAwWiIsInNpemUiOiI0MzQyMzQiLCJtZDVIYXNoIjoiZmJhOWRlZGU1ZjI3NzMxYzk3NzE2NDVhMzk4NjMzMjgifQ==",
+      "messageId": "136969346346",
+      "publishTime": "2026-06-26T01:00:00.000Z"
+    },
+    "subscription": "projects/relic-dev/subscriptions/gcs-relic-fixtures"
+  }
+}

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	syncbucket "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/sync_bucket"
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/secrets"
@@ -504,8 +505,12 @@ func (c *fakeObjectClient) ListObjects(ctx context.Context, input s3compat.ListO
 	return c.page, nil
 }
 
-func (c *fakeObjectClient) HeadObject(context.Context, s3compat.HeadObjectInput) (storage.ObjectAttributes, error) {
-	return storage.ObjectAttributes{"upstream": map[string]any{}}, nil
+func (c *fakeObjectClient) HeadObject(context.Context, s3compat.HeadObjectInput) (s3compat.HeadObjectData, error) {
+	return s3compat.HeadObjectData{Output: &s3.HeadObjectOutput{}}, nil
+}
+
+func (c *fakeObjectClient) GetObjectTagging(context.Context, s3compat.HeadObjectInput) (map[string]string, error) {
+	return nil, nil
 }
 
 func newTestHandler(t *testing.T, store *storage.Store, client *fakeObjectClient) *Handler {
@@ -563,6 +568,10 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	if err != nil {
 		pool.Close()
 		t.Fatalf("New returned error: %v", err)
+	}
+	if err := storage.PrepareTestStore(ctx, store); err != nil {
+		pool.Close()
+		t.Fatalf("PrepareTestStore returned error: %v", err)
 	}
 
 	return store, pool.Close
@@ -641,7 +650,9 @@ func upsertLocalObject(t *testing.T, ctx context.Context, store *storage.Store, 
 				"etag":          fmt.Sprintf("\"%s\"", key),
 				"size":          size,
 				"last_modified": modified.Format(time.RFC3339),
-				"storage_class": "STANDARD",
+				"s3": map[string]any{
+					"storage_class": "STANDARD",
+				},
 			},
 		},
 	})

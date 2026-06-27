@@ -12,6 +12,8 @@ import (
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/objects"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/search"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/system"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/upstreamcapture"
+	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/upstreamevents"
 )
 
 const apiBasePath = "/api"
@@ -35,8 +37,17 @@ func Handler(dependencies deps.Dependencies) http.Handler {
 	objects.Register(api, dependencies, apiBasePath)
 	search.Register(api, dependencies, apiBasePath)
 	system.Register(api, dependencies, apiBasePath)
+	upstreamcapture.Register(api, dependencies, apiBasePath)
+	upstreamevents.Register(api, dependencies, apiBasePath)
 
-	return mux
+	return noStoreMiddleware(mux)
+}
+
+func noStoreMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func apiConfig() huma.Config {
@@ -71,6 +82,14 @@ func apiConfig() huma.Config {
 		{
 			Name:        "Search",
 			Description: "RelicQL validation and query endpoints.",
+		},
+		{
+			Name:        "Settings",
+			Description: "Instance-wide configuration for upstream capture and related settings.",
+		},
+		{
+			Name:        "Upstream Events",
+			Description: "Inbound upstream object notification endpoints.",
 		},
 	}
 

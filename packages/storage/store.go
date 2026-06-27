@@ -43,6 +43,14 @@ func (s *Store) AttributeCatalog() *AttributeCatalogStore {
 	return NewAttributeCatalogStore(s.pool)
 }
 
+func (s *Store) UpstreamCaptureFields() *UpstreamCaptureFieldStore {
+	return NewUpstreamCaptureFieldStore(s.pool)
+}
+
+func (s *Store) UpstreamEvents() *UpstreamEventStore {
+	return NewUpstreamEventStore(s.pool)
+}
+
 func (s *Store) WithTx(ctx context.Context, fn func(context.Context, *Tx) error) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -83,6 +91,14 @@ func (tx *Tx) Objects() *ObjectStore {
 	return NewObjectStore(tx.tx)
 }
 
+func (tx *Tx) UpstreamEvents() *UpstreamEventStore {
+	return NewUpstreamEventStore(tx.tx)
+}
+
 func (tx *Tx) AttributeCatalog() *AttributeCatalogStore {
 	return NewAttributeCatalogStore(tx.tx)
+}
+
+func (tx *Tx) UpstreamCaptureFields() *UpstreamCaptureFieldStore {
+	return NewUpstreamCaptureFieldStore(tx.tx)
 }

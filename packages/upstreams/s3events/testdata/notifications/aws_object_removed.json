@@ -1,0 +1,42 @@
+{
+  "upstream": "aws",
+  "kind": "object_removed",
+  "transport": "direct",
+  "source": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/notification-content-structure.html",
+  "body": {
+    "Records": [
+      {
+        "eventVersion": "2.4",
+        "eventSource": "aws:s3",
+        "awsRegion": "us-east-1",
+        "eventTime": "2026-06-26T01:05:00.000Z",
+        "eventName": "ObjectRemoved:Delete",
+        "userIdentity": {
+          "principalId": "AIDAJDPLRKLG7UEXAMPLE"
+        },
+        "requestParameters": {
+          "sourceIPAddress": "172.16.0.1"
+        },
+        "responseElements": {
+          "x-amz-request-id": "C3D13FE58DE4C811",
+          "x-amz-id-2": "FMyUVURIY8/IgAtTv8xRjskZQpcIZ9KG4V5Wp6S7S/JRWeUWerMUE5JgHvANOjpE"
+        },
+        "s3": {
+          "s3SchemaVersion": "1.0",
+          "configurationId": "relic-import",
+          "bucket": {
+            "name": "relic-fixtures",
+            "ownerIdentity": {
+              "principalId": "A3NL1KOZZKExample"
+            },
+            "arn": "arn:aws:s3:::relic-fixtures"
+          },
+          "object": {
+            "key": "photos/b.jpg",
+            "sequencer": "0055AED6DCD90282E5"
+          }
+        }
+      }
+    ]
+  }
+}

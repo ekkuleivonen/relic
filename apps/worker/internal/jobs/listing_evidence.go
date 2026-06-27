@@ -116,17 +116,12 @@ func stringAttribute(value any) string {
 }
 
 func storageClassAttribute(upstreamAttributes map[string]any) string {
-	if value, ok := upstreamAttributes["storage_class"].(string); ok {
-		return value
+	nested, ok := upstreamAttributes["s3"].(map[string]any)
+	if !ok || nested == nil {
+		return ""
 	}
-	for _, namespace := range []string{"s3", "gcp"} {
-		nested, ok := upstreamAttributes[namespace].(map[string]any)
-		if !ok {
-			continue
-		}
-		if value, ok := nested["storage_class"].(string); ok {
-			return value
-		}
+	if value, ok := nested["storage_class"].(string); ok {
+		return value
 	}
 
 	return ""

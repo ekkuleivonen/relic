@@ -141,7 +141,7 @@ func TestSDKClientHeadObject(t *testing.T) {
 		t.Fatalf("NewSDKClient returned error: %v", err)
 	}
 
-	attributes, err := client.HeadObject(context.Background(), HeadObjectInput{
+	head, err := client.HeadObject(context.Background(), HeadObjectInput{
 		Bucket:    "example-bucket",
 		Key:       "photos/a.jpg",
 		VersionID: "version-1",
@@ -163,9 +163,37 @@ func TestSDKClientHeadObject(t *testing.T) {
 		t.Fatalf("VersionId = %q, want version-1", aws.ToString(api.headObjectInput.VersionId))
 	}
 
-	upstream := attributes["upstream"].(map[string]any)
-	if upstream["etag"] != "\"abc123\"" {
-		t.Fatalf("etag = %#v, want abc123", upstream["etag"])
+	if head.Output == nil || aws.ToString(head.Output.ETag) != "\"abc123\"" {
+		t.Fatalf("head output etag = %#v, want abc123", head.Output)
+	}
+}
+
+func TestSDKClientGetObjectTagging(t *testing.T) {
+	api := &fakeS3API{
+		getObjectTaggingOutput: &s3.GetObjectTaggingOutput{
+			TagSet: []types.Tag{
+				{Key: aws.String("environment"), Value: aws.String("prod")},
+			},
+		},
+	}
+	client, err := NewSDKClient(SDKClientOptions{API: api})
+	if err != nil {
+		t.Fatalf("NewSDKClient returned error: %v", err)
+	}
+
+	tags, err := client.GetObjectTagging(context.Background(), HeadObjectInput{
+		Bucket:    "example-bucket",
+		Key:       "photos/a.jpg",
+		VersionID: "version-1",
+	})
+	if err != nil {
+		t.Fatalf("GetObjectTagging returned error: %v", err)
+	}
+	if tags["environment"] != "prod" {
+		t.Fatalf("tags = %#v, want environment=prod", tags)
+	}
+	if aws.ToString(api.getObjectTaggingInput.Bucket) != "example-bucket" {
+		t.Fatalf("Bucket = %q, want example-bucket", aws.ToString(api.getObjectTaggingInput.Bucket))
 	}
 }
 
@@ -201,6 +229,10 @@ type fakeS3API struct {
 	headObjectInput  *s3.HeadObjectInput
 	headObjectOutput *s3.HeadObjectOutput
 	headObjectErr    error
+
+	getObjectTaggingInput  *s3.GetObjectTaggingInput
+	getObjectTaggingOutput *s3.GetObjectTaggingOutput
+	getObjectTaggingErr    error
 }
 
 func (api *fakeS3API) ListObjectsV2(ctx context.Context, input *s3.ListObjectsV2Input, options ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
@@ -216,4 +248,9 @@ func (api *fakeS3API) ListObjects(ctx context.Context, input *s3.ListObjectsInpu
 func (api *fakeS3API) HeadObject(ctx context.Context, input *s3.HeadObjectInput, options ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
 	api.headObjectInput = input
 	return api.headObjectOutput, api.headObjectErr
+}
+
+func (api *fakeS3API) GetObjectTagging(ctx context.Context, input *s3.GetObjectTaggingInput, options ...func(*s3.Options)) (*s3.GetObjectTaggingOutput, error) {
+	api.getObjectTaggingInput = input
+	return api.getObjectTaggingOutput, api.getObjectTaggingErr
 }
