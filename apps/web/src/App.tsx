@@ -8,9 +8,13 @@ import { BucketsPage } from "@/features/buckets/pages/buckets-page"
 import { CollectionDetailPage } from "@/features/collections/pages/collection-detail-page"
 import { CollectionsPage } from "@/features/collections/pages/collections-page"
 import { JobRunDetailPage } from "@/features/job-runs/pages/job-run-detail-page"
-import { JobRunsPage } from "@/features/job-runs/pages/job-runs-page"
 import { ObjectDetailPage } from "@/features/objects/pages/object-detail-page"
 import { ObjectsPage } from "@/features/objects/pages/objects-page"
+import { BucketEventDetailPage } from "@/features/observability/pages/bucket-event-detail-page"
+import { BucketEventsPage } from "@/features/observability/pages/bucket-events-page"
+import { BucketSyncPage } from "@/features/observability/pages/bucket-sync-page"
+import { CollectionEventsPage } from "@/features/observability/pages/collection-events-page"
+import { ObjectSyncPage } from "@/features/observability/pages/object-sync-page"
 import { JobsSettingsPage } from "@/features/settings/pages/jobs-settings-page"
 import { UpstreamCapturePage } from "@/features/settings/pages/upstream-capture-page"
 import { WorkerSettingsPage } from "@/features/settings/pages/worker-settings-page"
@@ -26,7 +30,14 @@ export function App() {
           <Route path="/" element={<AdminHomePage />} />
           <Route path="/buckets" element={<BucketsPage />} />
           <Route path="/buckets/:bucketId" element={<BucketDetailPage />} />
-          <Route path="/job-runs" element={<JobRunsPage />} />
+          <Route path="/bucket-sync" element={<BucketSyncPage />} />
+          <Route path="/object-sync" element={<ObjectSyncPage />} />
+          <Route path="/bucket-events" element={<BucketEventsPage />} />
+          <Route
+            path="/bucket-events/:eventId"
+            element={<BucketEventDetailPage />}
+          />
+          <Route path="/collection-events" element={<CollectionEventsPage />} />
           <Route path="/job-runs/:jobRunId" element={<JobRunDetailPage />} />
           <Route path="/objects" element={<ObjectsPage />} />
           <Route path="/objects/:objectId" element={<ObjectDetailPage />} />

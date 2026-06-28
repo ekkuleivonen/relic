@@ -42,15 +42,21 @@ export type JobRun = {
 
 export type ListJobRunsParams = {
   type?: JobRunType
+  types?: JobRunType[]
   state?: JobRunState
   requestedByType?: string
   requestedById?: string
   targetType?: string
   targetId?: string
+  createdAfter?: string
+  createdBefore?: string
   limit?: number
   offset?: number
 }
 
 export type ListJobRunsResponse = {
   job_runs: JobRun[]
+  total: number
+  limit: number
+  offset: number
 }

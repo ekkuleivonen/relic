@@ -13,6 +13,7 @@ import {
 import { JobRunChainCard } from "@/features/job-runs/components/job-run-chain-card"
 import { JobRunDetailCard } from "@/features/job-runs/components/job-run-detail-card"
 import { useJobRun, useJobRuns } from "@/features/job-runs/hooks/use-job-runs"
+import { JobRunObjectsCard } from "@/features/observability/components/job-run-objects-card"
 import type { JobRun } from "@/types/job-runs"
 
 export function JobRunDetailPage() {
@@ -65,6 +66,9 @@ export function JobRunDetailPage() {
           {jobRun && (
             <div className="grid gap-6">
               <JobRunDetailCard jobRun={jobRun} />
+              {isObjectSyncJobRun(jobRun.type) && (
+                <JobRunObjectsCard jobRun={jobRun} />
+              )}
               {jobRun.type === "sync_bucket" && (
                 <SyncChainSection
                   jobRun={jobRun}
@@ -124,4 +128,12 @@ function SyncChainSection({
   }
 
   return <JobRunChainCard parent={jobRun} children={childRuns} />
+}
+
+function isObjectSyncJobRun(type: JobRun["type"]) {
+  return (
+    type === "import_objects" ||
+    type === "remove_objects" ||
+    type === "refresh_objects"
+  )
 }

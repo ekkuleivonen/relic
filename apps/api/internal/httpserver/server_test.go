@@ -114,6 +114,15 @@ func TestOpenAPI(t *testing.T) {
 	if _, ok := spec.Paths["/api/job-runs"]; !ok {
 		t.Fatal("OpenAPI spec does not include /api/job-runs")
 	}
+	if _, ok := spec.Paths["/api/bucket-events"]; !ok {
+		t.Fatal("OpenAPI spec does not include /api/bucket-events")
+	}
+	if _, ok := spec.Paths["/api/job-runs/stats"]; !ok {
+		t.Fatal("OpenAPI spec does not include /api/job-runs/stats")
+	}
+	if _, ok := spec.Paths["/api/bucket-events/stats"]; !ok {
+		t.Fatal("OpenAPI spec does not include /api/bucket-events/stats")
+	}
 	if _, ok := spec.Paths["/api/objects"]; !ok {
 		t.Fatal("OpenAPI spec does not include /api/objects")
 	}

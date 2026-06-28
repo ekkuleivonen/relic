@@ -36,6 +36,9 @@ const (
 type UpstreamEventRepository interface {
 	CreateUpstreamEvent(context.Context, CreateUpstreamEventParams) (UpstreamEvent, error)
 	GetUpstreamEvent(context.Context, string) (UpstreamEvent, error)
+	ListUpstreamEvents(context.Context, ListUpstreamEventsParams) ([]UpstreamEvent, error)
+	CountUpstreamEvents(context.Context, ListUpstreamEventsParams) (int, error)
+	UpstreamEventActivityStats(context.Context, UpstreamEventActivityStatsParams) (ActivityStats, error)
 	LockPendingEvents(context.Context, int) ([]UpstreamEvent, error)
 	MarkUpstreamEvent(context.Context, MarkUpstreamEventParams) error
 }
@@ -79,6 +82,16 @@ type MarkUpstreamEventParams struct {
 	ID           string
 	State        UpstreamEventState
 	ErrorMessage string
+}
+
+type ListUpstreamEventsParams struct {
+	BucketID       string
+	State          UpstreamEventState
+	Category       string
+	ReceivedAfter  *time.Time
+	ReceivedBefore *time.Time
+	Limit          int
+	Offset         int
 }
 
 type IngestUpstreamEventsResult struct {
@@ -138,6 +151,49 @@ func (s *UpstreamEventStore) GetUpstreamEvent(ctx context.Context, id string) (U
 		FROM upstream_events
 		WHERE id = $1
 	`, id))
+}
+
+func (s *UpstreamEventStore) ListUpstreamEvents(ctx context.Context, params ListUpstreamEventsParams) ([]UpstreamEvent, error) {
+	limit := params.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	offset := params.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	filters := upstreamEventListFilterArgsFromParams(params)
+	args := append(filters.queryArgs(), limit, offset)
+
+	rows, err := s.runner.Query(ctx, `
+		SELECT `+upstreamEventSelectColumns+`
+		FROM upstream_events
+		WHERE `+upstreamEventListWhereClause+`
+		ORDER BY received_at DESC, id DESC
+		LIMIT $6 OFFSET $7
+	`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list upstream events: %w", err)
+	}
+	defer rows.Close()
+
+	events := []UpstreamEvent{}
+	for rows.Next() {
+		event, err := scanUpstreamEventRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list upstream events: %w", err)
+	}
+
+	return events, nil
 }
 
 func (s *UpstreamEventStore) LockPendingEvents(ctx context.Context, limit int) ([]UpstreamEvent, error) {

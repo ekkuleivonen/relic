@@ -17,6 +17,7 @@ import (
 	settingshttp "github.com/ekkuleivonen/relic/apps/api/internal/httpserver/settings"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/system"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/upstreamcapture"
+	bucketeventshttp "github.com/ekkuleivonen/relic/apps/api/internal/httpserver/bucketevents"
 )
 
 const apiBasePath = "/api"
@@ -44,6 +45,7 @@ func Handler(dependencies deps.Dependencies) http.Handler {
 	search.Register(api, dependencies, apiBasePath)
 	system.Register(api, dependencies, apiBasePath)
 	upstreamcapture.Register(api, dependencies, apiBasePath)
+	bucketeventshttp.Register(api, dependencies, apiBasePath)
 	settingshttp.Register(api, dependencies, apiBasePath)
 
 	return noStoreMiddleware(middleware.Auth(mux, dependencies))
@@ -100,6 +102,10 @@ func apiConfig() huma.Config {
 		{
 			Name:        "Settings",
 			Description: "Instance-wide configuration for upstream capture and related settings.",
+		},
+		{
+			Name:        "Observability",
+			Description: "Operational visibility into sync workloads and bucket events.",
 		},
 	}
 

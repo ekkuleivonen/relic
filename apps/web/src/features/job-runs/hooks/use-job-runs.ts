@@ -16,15 +16,16 @@ export const jobRunKeys = {
 
 export function useJobRuns(
   params: ListJobRunsParams = {},
-  options: { enabled?: boolean } = {}
+  options: { enabled?: boolean; refetchInterval?: number | false } = {}
 ) {
   return useQuery({
     queryKey: jobRunKeys.list(params),
     queryFn: () =>
       apiRequest<ListJobRunsResponse>(`/job-runs${jobRunQueryString(params)}`),
     enabled: options.enabled ?? true,
-    refetchInterval: (query) =>
-      hasActiveJobRuns(query.state.data?.job_runs) ? 3000 : false,
+    refetchInterval:
+      options.refetchInterval ??
+      ((query) => (hasActiveJobRuns(query.state.data?.job_runs) ? 3000 : false)),
   })
 }
 
@@ -42,11 +43,14 @@ function jobRunQueryString(params: ListJobRunsParams) {
   const searchParams = new URLSearchParams()
 
   appendParam(searchParams, "type", params.type)
+  appendParam(searchParams, "types", params.types?.join(","))
   appendParam(searchParams, "state", params.state)
   appendParam(searchParams, "requested_by_type", params.requestedByType)
   appendParam(searchParams, "requested_by_id", params.requestedById)
   appendParam(searchParams, "target_type", params.targetType)
   appendParam(searchParams, "target_id", params.targetId)
+  appendParam(searchParams, "created_after", params.createdAfter)
+  appendParam(searchParams, "created_before", params.createdBefore)
   appendParam(searchParams, "limit", params.limit?.toString())
   appendParam(searchParams, "offset", params.offset?.toString())
 

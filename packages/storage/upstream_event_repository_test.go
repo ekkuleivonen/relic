@@ -85,6 +85,17 @@ func TestUpstreamEventStoreCreateLockAndMarkProcessed(t *testing.T) {
 	if got.ProcessedAt == nil {
 		t.Fatal("processed_at is nil, want timestamp")
 	}
+
+	listed, err := events.ListUpstreamEvents(ctx, ListUpstreamEventsParams{
+		BucketID: bucket.ID,
+		Limit:    50,
+	})
+	if err != nil {
+		t.Fatalf("ListUpstreamEvents returned error: %v", err)
+	}
+	if len(listed) == 0 || listed[0].ID != created.ID {
+		t.Fatalf("listed events = %#v, want created event %q first", listed, created.ID)
+	}
 }
 
 func TestUpstreamEventDedupeKeyUsesBucketID(t *testing.T) {

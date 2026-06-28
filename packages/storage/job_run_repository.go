@@ -17,6 +17,8 @@ type JobRunRepository interface {
 	CreateJobRun(context.Context, CreateJobRunParams) (JobRun, error)
 	GetJobRun(context.Context, string) (JobRun, error)
 	ListJobRuns(context.Context, ListJobRunsParams) ([]JobRun, error)
+	CountJobRuns(context.Context, ListJobRunsParams) (int, error)
+	JobRunActivityStats(context.Context, JobRunActivityStatsParams) (ActivityStats, error)
 	ClaimJobRun(context.Context, ClaimJobRunParams) (JobRun, error)
 	UpdateJobRunProgress(context.Context, UpdateJobRunProgressParams) (JobRun, error)
 	SucceedJobRun(context.Context, SucceedJobRunParams) (JobRun, error)
@@ -113,11 +115,14 @@ type CreateJobRunParams struct {
 
 type ListJobRunsParams struct {
 	Type            JobType
+	Types           []JobType
 	State           JobRunState
 	RequestedByType string
 	RequestedByID   string
 	TargetType      string
 	TargetID        string
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
 	Limit           int
 	Offset          int
 }
@@ -352,6 +357,9 @@ func (s *JobRunStore) ListJobRuns(ctx context.Context, params ListJobRunsParams)
 		offset = 0
 	}
 
+	filters := jobRunListFilterArgsFromParams(params)
+	args := append(filters.queryArgs(), limit, offset)
+
 	rows, err := s.runner.Query(ctx, `
 		SELECT
 			id,
@@ -375,23 +383,10 @@ func (s *JobRunStore) ListJobRuns(ctx context.Context, params ListJobRunsParams)
 			created_at,
 			updated_at
 		FROM job_runs
-		WHERE ($1 = '' OR type = $1)
-			AND ($2 = '' OR state = $2)
-			AND ($3 = '' OR requested_by_type = $3)
-			AND ($4 = '' OR requested_by_id = $4)
-			AND ($5 = '' OR target_type = $5)
-			AND ($6 = '' OR target_id = $6)
+		WHERE `+jobRunListWhereClause+`
 		ORDER BY created_at DESC, id DESC
-		LIMIT $7 OFFSET $8
-	`, string(params.Type),
-		string(params.State),
-		params.RequestedByType,
-		params.RequestedByID,
-		params.TargetType,
-		params.TargetID,
-		limit,
-		offset,
-	)
+		LIMIT $9 OFFSET $10
+	`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list job runs: %w", err)
 	}
@@ -710,6 +705,25 @@ func decodeJobRunPayload(data []byte, target *JobRunPayload) error {
 	}
 
 	return nil
+}
+
+func listJobRunTypeFilter(params ListJobRunsParams) []string {
+	if len(params.Types) > 0 {
+		types := make([]string, 0, len(params.Types))
+		for _, jobType := range params.Types {
+			if jobType != "" {
+				types = append(types, string(jobType))
+			}
+		}
+
+		return types
+	}
+
+	if params.Type != "" {
+		return []string{string(params.Type)}
+	}
+
+	return []string{}
 }
 
 func nullableString(value string) *string {

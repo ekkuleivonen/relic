@@ -40,6 +40,11 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
 
+		relicConfig := storage.BucketRelicConfig{}
+		if input.Body.RelicConfig != nil {
+			relicConfig = *input.Body.RelicConfig
+		}
+
 		var bucket storage.Bucket
 		if err := dependencies.Storage.WithTx(ctx, func(ctx context.Context, tx *storage.Tx) error {
 			createdBucket, err := tx.Buckets().CreateBucket(ctx, storage.CreateBucketParams{
@@ -51,7 +56,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 				Prefix:               input.Body.Prefix,
 				UpstreamConfig:       input.Body.UpstreamConfig,
 				EncryptedCredentials: envelope,
-				RelicConfig:          input.Body.RelicConfig,
+				RelicConfig:          relicConfig,
 			})
 			if err != nil {
 				return err
@@ -317,7 +322,7 @@ type createBucketBody struct {
 	Prefix         string                          `json:"prefix" example:"raw/"`
 	UpstreamConfig storage.BucketUpstreamConfig    `json:"upstream_config"`
 	Credentials    map[string]any                  `json:"credentials"`
-	RelicConfig    storage.BucketRelicConfig    `json:"relic_config"`
+	RelicConfig    *storage.BucketRelicConfig    `json:"relic_config,omitempty"`
 }
 
 type listBucketsInput struct {

@@ -269,6 +269,162 @@ func TestJobRunStoreRetryAndFail(t *testing.T) {
 	}
 }
 
+func TestJobRunStoreListFiltersTypes(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	jobRuns := store.JobRuns()
+	targetID := "bucket_job_run_types_" + time.Now().Format("20060102150405.000000000")
+
+	syncRun, err := jobRuns.CreateJobRun(ctx, CreateJobRunParams{
+		Type:       JobTypeSyncBucket,
+		TargetType: "bucket",
+		TargetID:   targetID,
+	})
+	if err != nil {
+		t.Fatalf("CreateJobRun sync returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.pool.Exec(context.Background(), "DELETE FROM job_runs WHERE id = $1", syncRun.ID)
+	})
+
+	scanRun, err := jobRuns.CreateJobRun(ctx, CreateJobRunParams{
+		Type:       JobTypeScanBucket,
+		TargetType: "bucket",
+		TargetID:   targetID,
+	})
+	if err != nil {
+		t.Fatalf("CreateJobRun scan returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.pool.Exec(context.Background(), "DELETE FROM job_runs WHERE id = $1", scanRun.ID)
+	})
+
+	importRun, err := jobRuns.CreateJobRun(ctx, CreateJobRunParams{
+		Type:       JobTypeImportObjects,
+		TargetType: "bucket",
+		TargetID:   targetID,
+	})
+	if err != nil {
+		t.Fatalf("CreateJobRun import returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.pool.Exec(context.Background(), "DELETE FROM job_runs WHERE id = $1", importRun.ID)
+	})
+
+	bucketSyncRuns, err := jobRuns.ListJobRuns(ctx, ListJobRunsParams{
+		Types:      []JobType{JobTypeSyncBucket, JobTypeScanBucket},
+		TargetType: "bucket",
+		TargetID:   targetID,
+		Limit:      50,
+	})
+	if err != nil {
+		t.Fatalf("ListJobRuns bucket sync types returned error: %v", err)
+	}
+	if !jobRunListContains(bucketSyncRuns, syncRun.ID) || !jobRunListContains(bucketSyncRuns, scanRun.ID) {
+		t.Fatalf("bucket sync runs = %#v, want sync %q and scan %q", bucketSyncRuns, syncRun.ID, scanRun.ID)
+	}
+	if jobRunListContains(bucketSyncRuns, importRun.ID) {
+		t.Fatalf("bucket sync runs included import run %q", importRun.ID)
+	}
+}
+
+func TestJobRunStoreListCountAndStatsRespectTimeRange(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	jobRuns := store.JobRuns()
+	now := time.Now().UTC()
+	targetID := "bucket_job_run_time_" + now.Format("20060102150405.000000000")
+	oldTime := now.Add(-48 * time.Hour)
+	recentTime := now.Add(-1 * time.Hour)
+
+	oldRun, err := jobRuns.CreateJobRun(ctx, CreateJobRunParams{
+		Type:       JobTypeSyncBucket,
+		TargetType: "bucket",
+		TargetID:   targetID,
+	})
+	if err != nil {
+		t.Fatalf("CreateJobRun old returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.pool.Exec(context.Background(), "DELETE FROM job_runs WHERE id = $1", oldRun.ID)
+	})
+	if _, err := store.pool.Exec(ctx, `
+		UPDATE job_runs SET created_at = $2, updated_at = $2 WHERE id = $1
+	`, oldRun.ID, oldTime); err != nil {
+		t.Fatalf("backdate old run: %v", err)
+	}
+
+	recentRun, err := jobRuns.CreateJobRun(ctx, CreateJobRunParams{
+		Type:       JobTypeScanBucket,
+		TargetType: "bucket",
+		TargetID:   targetID,
+	})
+	if err != nil {
+		t.Fatalf("CreateJobRun recent returned error: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = store.pool.Exec(context.Background(), "DELETE FROM job_runs WHERE id = $1", recentRun.ID)
+	})
+	if _, err := store.pool.Exec(ctx, `
+		UPDATE job_runs SET created_at = $2, updated_at = $2 WHERE id = $1
+	`, recentRun.ID, recentTime); err != nil {
+		t.Fatalf("backdate recent run: %v", err)
+	}
+
+	from := now.Add(-6 * time.Hour)
+	to := now.Add(time.Hour)
+	filter := ListJobRunsParams{
+		Types:         []JobType{JobTypeSyncBucket, JobTypeScanBucket},
+		TargetType:    "bucket",
+		TargetID:      targetID,
+		CreatedAfter:  &from,
+		CreatedBefore: &to,
+	}
+
+	total, err := jobRuns.CountJobRuns(ctx, filter)
+	if err != nil {
+		t.Fatalf("CountJobRuns returned error: %v", err)
+	}
+	if total != 1 {
+		t.Fatalf("total = %d, want 1 recent run in range", total)
+	}
+
+	listed, err := jobRuns.ListJobRuns(ctx, filter)
+	if err != nil {
+		t.Fatalf("ListJobRuns returned error: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != recentRun.ID {
+		t.Fatalf("listed = %#v, want recent run %q", listed, recentRun.ID)
+	}
+
+	stats, err := jobRuns.JobRunActivityStats(ctx, JobRunActivityStatsParams{
+		ListJobRunsParams: filter,
+		Series:            []string{string(JobTypeSyncBucket), string(JobTypeScanBucket)},
+	})
+	if err != nil {
+		t.Fatalf("JobRunActivityStats returned error: %v", err)
+	}
+	if len(stats.Points) == 0 {
+		t.Fatal("stats points are empty")
+	}
+	foundRecent := false
+	for _, point := range stats.Points {
+		if point.Counts[string(JobTypeScanBucket)] > 0 {
+			foundRecent = true
+		}
+		if point.Counts[string(JobTypeSyncBucket)] > 0 {
+			t.Fatal("old sync run should be outside stats range")
+		}
+	}
+	if !foundRecent {
+		t.Fatal("stats did not include recent scan bucket run")
+	}
+}
+
 func jobRunListContains(runs []JobRun, id string) bool {
 	for _, run := range runs {
 		if run.ID == id {
