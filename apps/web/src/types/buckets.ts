@@ -45,7 +45,7 @@ export type CreateBucketInput = {
   prefix: string
   upstream_config: BucketUpstreamConfig
   credentials: Record<string, unknown>
-  relic_config: BucketRelicConfig
+  relic_config?: BucketRelicConfig
 }
 
 export type UpdateBucketInput = {

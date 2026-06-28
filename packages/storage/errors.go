@@ -12,4 +12,6 @@ var (
 	ErrCaptureFieldRequired      = errors.New("storage: required upstream capture field cannot be disabled")
 	ErrCaptureFieldPlatformOnly  = errors.New("storage: platform upstream capture field cannot be deleted")
 	ErrCaptureFieldInvalidUpdate = errors.New("storage: invalid upstream capture field update")
+	ErrSettingUnknown            = errors.New("storage: unknown setting key")
+	ErrSettingInvalidValue       = errors.New("storage: invalid setting value")
 )

@@ -9,10 +9,8 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
 	detectduplicates "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/detect_duplicates"
@@ -21,33 +19,18 @@ import (
 	removeobjects "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/remove_objects"
 	scanbucket "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/scan_bucket"
 	syncbucket "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/sync_bucket"
-	workerRunner "github.com/ekkuleivonen/relic/apps/worker/internal/runner"
-	scanscheduler "github.com/ekkuleivonen/relic/apps/worker/internal/scheduler"
-	jetstreamconsumer "github.com/ekkuleivonen/relic/apps/worker/internal/jetstreamconsumer"
-	upstreamprocessor "github.com/ekkuleivonen/relic/apps/worker/internal/upstreamprocessor"
+	"github.com/ekkuleivonen/relic/apps/worker/internal/supervisor"
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/secrets"
 	"github.com/ekkuleivonen/relic/packages/storage"
 	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
 )
 
-const (
-	defaultPollInterval                = 2 * time.Second
-	defaultBatchLatency                = 30 * time.Second
-	defaultConfigRefetchInterval       = 5 * time.Minute
-	defaultDuplicateDetectionInterval  = 24 * time.Hour
-)
-
 type config struct {
-	DatabaseURL                 string
-	WorkerID                    string
-	PollInterval                time.Duration
-	BatchLatency                time.Duration
-	ConfigRefetchInterval       time.Duration
-	EncryptionKeyID             string
-	EncryptionKey               []byte
-	DuplicateDetectionEnabled   bool
-	DuplicateDetectionInterval  time.Duration
+	DatabaseURL     string
+	WorkerID        string
+	EncryptionKeyID string
+	EncryptionKey   []byte
 }
 
 func main() {
@@ -89,6 +72,11 @@ func run() error {
 		return err
 	}
 	slog.Info("upstream capture fields seeded")
+
+	if err := storage.SeedSettings(ctx, store.Settings()); err != nil {
+		return err
+	}
+	slog.Info("settings seeded")
 
 	secretManager, err := secrets.NewStaticKeyManager(cfg.EncryptionKeyID, cfg.EncryptionKey)
 	if err != nil {
@@ -145,13 +133,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	jobRunner, err := workerRunner.New(workerRunner.Options{
-		Store:        store,
-		Registry:     registry,
-		WorkerID:     cfg.WorkerID,
-		PollInterval: cfg.PollInterval,
-		RetryDelay:   cfg.BatchLatency,
-		Logger:       slog.Default(),
+
+	workerSupervisor, err := supervisor.New(supervisor.Options{
+		Store:    store,
+		Registry: registry,
+		WorkerID: cfg.WorkerID,
+		Logger:   slog.Default(),
 	})
 	if err != nil {
 		return err
@@ -160,108 +147,9 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	errCh := make(chan error, 5)
-	running := 4
-
-	go func() {
-		slog.Info(
-			"worker started",
-			"worker_id", cfg.WorkerID,
-			"poll_interval", cfg.PollInterval,
-			"batch_latency", cfg.BatchLatency,
-			"config_refetch_interval", cfg.ConfigRefetchInterval,
-		)
-		errCh <- jobRunner.Run(ctx)
-	}()
-
-	scanScheduler, err := scanscheduler.NewScanScheduler(scanscheduler.ScanSchedulerOptions{
-		Store:             store,
-		Logger:            slog.Default(),
-		SchedulerInterval: cfg.PollInterval,
-		DefaultInterval:   storage.DefaultScanInterval,
-		Stagger:           cfg.BatchLatency,
-	})
-	if err != nil {
+	slog.Info("worker started", "worker_id", cfg.WorkerID)
+	if err := workerSupervisor.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
-	}
-
-	go func() {
-		slog.Info(
-			"scan scheduler started",
-			"poll_interval", cfg.PollInterval,
-			"default_scan_interval", storage.DefaultScanInterval,
-			"batch_latency", cfg.BatchLatency,
-		)
-		errCh <- scanScheduler.Run(ctx)
-	}()
-
-	if cfg.DuplicateDetectionEnabled {
-		running++
-		duplicateDetectionScheduler, err := scanscheduler.NewDuplicateDetectionScheduler(scanscheduler.DuplicateDetectionSchedulerOptions{
-			Store:             store,
-			Logger:            slog.Default(),
-			SchedulerInterval: cfg.PollInterval,
-			Interval:          cfg.DuplicateDetectionInterval,
-		})
-		if err != nil {
-			return err
-		}
-
-		go func() {
-			slog.Info(
-				"duplicate detection scheduler started",
-				"poll_interval", cfg.PollInterval,
-				"duplicate_detection_interval", cfg.DuplicateDetectionInterval,
-			)
-			errCh <- duplicateDetectionScheduler.Run(ctx)
-		}()
-	} else {
-		slog.Info("duplicate detection scheduler disabled")
-	}
-
-	upstreamProcessor, err := upstreamprocessor.NewProcessor(upstreamprocessor.ProcessorOptions{
-		Store:             store,
-		Logger:            slog.Default(),
-		ProcessorInterval: cfg.PollInterval,
-	})
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		slog.Info(
-			"upstream event processor started",
-			"poll_interval", cfg.PollInterval,
-		)
-		errCh <- upstreamProcessor.Run(ctx)
-	}()
-
-	jetstreamManager, err := jetstreamconsumer.NewManager(jetstreamconsumer.ManagerOptions{
-		Store:                 store,
-		Logger:                slog.Default(),
-		ConfigRefetchInterval: cfg.ConfigRefetchInterval,
-	})
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		slog.Info(
-			"jetstream consumer manager started",
-			"config_refetch_interval", cfg.ConfigRefetchInterval,
-		)
-		errCh <- jetstreamManager.Run(ctx)
-	}()
-
-	var runErr error
-	for i := 0; i < running; i++ {
-		if err := <-errCh; err != nil && !errors.Is(err, context.Canceled) {
-			runErr = err
-		}
-	}
-
-	if runErr != nil {
-		return runErr
 	}
 
 	slog.Info("worker stopped")
@@ -288,18 +176,6 @@ func loadConfig() (config, error) {
 		return config{}, fmt.Errorf("DATABASE_URL is required")
 	}
 
-	pollInterval, err := durationEnv(lookup, "WORKER_POLL_INTERVAL", defaultPollInterval)
-	if err != nil {
-		return config{}, err
-	}
-	batchLatency, err := durationEnv(lookup, "WORKER_BATCH_LATENCY", defaultBatchLatency)
-	if err != nil {
-		return config{}, err
-	}
-	configRefetchInterval, err := durationEnv(lookup, "WORKER_CONFIG_REFETCH_INTERVAL", defaultConfigRefetchInterval)
-	if err != nil {
-		return config{}, err
-	}
 	encryptionKeyBase64 := stringEnv(lookup, "ENCRYPTION_KEY_BASE64", "")
 	if encryptionKeyBase64 == "" {
 		return config{}, fmt.Errorf("ENCRYPTION_KEY_BASE64 is required")
@@ -312,25 +188,12 @@ func loadConfig() (config, error) {
 	if encryptionKeyID == "" {
 		return config{}, fmt.Errorf("ENCRYPTION_KEY_ID is required")
 	}
-	duplicateDetectionEnabled, err := boolEnv(lookup, "DUPLICATE_DETECTION_ENABLED", false)
-	if err != nil {
-		return config{}, err
-	}
-	duplicateDetectionInterval, err := durationEnv(lookup, "DUPLICATE_DETECTION_INTERVAL", defaultDuplicateDetectionInterval)
-	if err != nil {
-		return config{}, err
-	}
 
 	return config{
-		DatabaseURL:                databaseURL,
-		WorkerID:                   stringEnv(lookup, "WORKER_ID", defaultWorkerID()),
-		PollInterval:               pollInterval,
-		BatchLatency:               batchLatency,
-		ConfigRefetchInterval:      configRefetchInterval,
-		EncryptionKeyID:            encryptionKeyID,
-		EncryptionKey:              encryptionKey,
-		DuplicateDetectionEnabled:  duplicateDetectionEnabled,
-		DuplicateDetectionInterval: duplicateDetectionInterval,
+		DatabaseURL:     databaseURL,
+		WorkerID:        stringEnv(lookup, "WORKER_ID", defaultWorkerID()),
+		EncryptionKeyID: encryptionKeyID,
+		EncryptionKey:   encryptionKey,
 	}, nil
 }
 
@@ -343,34 +206,6 @@ func stringEnv(lookup lookupFunc, key string, fallback string) string {
 	}
 
 	return value
-}
-
-func durationEnv(lookup lookupFunc, key string, fallback time.Duration) (time.Duration, error) {
-	value, ok := lookup(key)
-	if !ok || value == "" {
-		return fallback, nil
-	}
-
-	parsed, err := time.ParseDuration(value)
-	if err != nil {
-		return 0, fmt.Errorf("parse %s: %w", key, err)
-	}
-
-	return parsed, nil
-}
-
-func boolEnv(lookup lookupFunc, key string, fallback bool) (bool, error) {
-	value, ok := lookup(key)
-	if !ok || value == "" {
-		return fallback, nil
-	}
-
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return false, fmt.Errorf("parse %s: %w", key, err)
-	}
-
-	return parsed, nil
 }
 
 func defaultWorkerID() string {

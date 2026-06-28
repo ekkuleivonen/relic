@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/secrets"
 	"github.com/ekkuleivonen/relic/packages/storage"
@@ -35,7 +36,7 @@ func TestProcessorTickEnqueuesImportObjects(t *testing.T) {
 		t.Fatalf("CreateUpstreamEvent returned error: %v", err)
 	}
 
-	processor, err := NewProcessor(ProcessorOptions{Store: store, BatchSize: 10})
+	processor, err := NewProcessor(ProcessorOptions{Store: store, BatchSize: 10, Settings: settings.Static(settings.StaticFromRegistry())})
 	if err != nil {
 		t.Fatalf("NewProcessor returned error: %v", err)
 	}
@@ -82,7 +83,7 @@ func TestProcessorTickCoalescesDuplicateImports(t *testing.T) {
 		}
 	}
 
-	processor, err := NewProcessor(ProcessorOptions{Store: store, BatchSize: 10})
+	processor, err := NewProcessor(ProcessorOptions{Store: store, BatchSize: 10, Settings: settings.Static(settings.StaticFromRegistry())})
 	if err != nil {
 		t.Fatalf("NewProcessor returned error: %v", err)
 	}
@@ -134,7 +135,7 @@ func TestProcessorTickEnqueuesRemoveObjectsWithResolvedID(t *testing.T) {
 		t.Fatalf("CreateUpstreamEvent returned error: %v", err)
 	}
 
-	processor, err := NewProcessor(ProcessorOptions{Store: store, BatchSize: 10})
+	processor, err := NewProcessor(ProcessorOptions{Store: store, BatchSize: 10, Settings: settings.Static(settings.StaticFromRegistry())})
 	if err != nil {
 		t.Fatalf("NewProcessor returned error: %v", err)
 	}

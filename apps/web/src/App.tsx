@@ -9,7 +9,9 @@ import { JobRunDetailPage } from "@/features/job-runs/pages/job-run-detail-page"
 import { JobRunsPage } from "@/features/job-runs/pages/job-runs-page"
 import { ObjectDetailPage } from "@/features/objects/pages/object-detail-page"
 import { ObjectsPage } from "@/features/objects/pages/objects-page"
+import { JobsSettingsPage } from "@/features/settings/pages/jobs-settings-page"
 import { UpstreamCapturePage } from "@/features/settings/pages/upstream-capture-page"
+import { WorkerSettingsPage } from "@/features/settings/pages/worker-settings-page"
 import { UsersPage } from "@/features/users/pages/users-page"
 import { LoginPage } from "@/pages/login-page"
 
@@ -29,6 +31,8 @@ export function App() {
           <Route path="/settings/upstream-capture" element={<UpstreamCapturePage />} />
           <Route element={<RequireSession requireAdmin />}>
             <Route path="/users" element={<UsersPage />} />
+            <Route path="/settings/worker" element={<WorkerSettingsPage />} />
+            <Route path="/settings/jobs" element={<JobsSettingsPage />} />
           </Route>
         </Route>
       </Route>

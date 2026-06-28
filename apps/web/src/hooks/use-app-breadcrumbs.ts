@@ -65,6 +65,18 @@ export function useAppBreadcrumbs(): AppBreadcrumbItem[] {
     return crumbs
   }
 
+  if (pathname.startsWith("/settings/worker")) {
+    crumbs.push({ label: "Settings" })
+    crumbs.push({ label: "Worker" })
+    return crumbs
+  }
+
+  if (pathname.startsWith("/settings/jobs")) {
+    crumbs.push({ label: "Settings" })
+    crumbs.push({ label: "Jobs" })
+    return crumbs
+  }
+
   if (pathname.startsWith("/users")) {
     crumbs.push({ label: "Users" })
     return crumbs

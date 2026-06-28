@@ -8,23 +8,24 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
 const defaultConfigRefetchInterval = 5 * time.Minute
 
 type Manager struct {
-	store                 *storage.Store
-	logger                *slog.Logger
-	configRefetchInterval time.Duration
-	mu                    sync.Mutex
-	running               map[string]*managedConsumer
+	store    *storage.Store
+	logger   *slog.Logger
+	settings settings.Reader
+	mu       sync.Mutex
+	running  map[string]*managedConsumer
 }
 
 type ManagerOptions struct {
-	Store                 *storage.Store
-	Logger                *slog.Logger
-	ConfigRefetchInterval time.Duration
+	Store    *storage.Store
+	Logger   *slog.Logger
+	Settings settings.Reader
 }
 
 type managedConsumer struct {
@@ -37,21 +38,20 @@ func NewManager(options ManagerOptions) (*Manager, error) {
 	if options.Store == nil {
 		return nil, fmt.Errorf("create jetstream manager: storage store is required")
 	}
+	if options.Settings == nil {
+		return nil, fmt.Errorf("create jetstream manager: settings reader is required")
+	}
 
 	logger := options.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
-	interval := options.ConfigRefetchInterval
-	if interval <= 0 {
-		interval = defaultConfigRefetchInterval
-	}
 
 	return &Manager{
-		store:                 options.Store,
-		logger:                logger,
-		configRefetchInterval: interval,
-		running:               make(map[string]*managedConsumer),
+		store:    options.Store,
+		logger:   logger,
+		settings: options.Settings,
+		running:  make(map[string]*managedConsumer),
 	}, nil
 }
 
@@ -60,15 +60,17 @@ func (m *Manager) Run(ctx context.Context) error {
 		return err
 	}
 
-	ticker := time.NewTicker(m.configRefetchInterval)
-	defer ticker.Stop()
-
 	for {
+		interval := m.settings.Duration(storage.SettingWorkerConfigRefetchInterval)
+		if interval <= 0 {
+			interval = defaultConfigRefetchInterval
+		}
+
 		select {
 		case <-ctx.Done():
 			m.stopAll()
 			return ctx.Err()
-		case <-ticker.C:
+		case <-time.After(interval):
 			if err := m.sync(ctx); err != nil {
 				return err
 			}

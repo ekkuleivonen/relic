@@ -61,6 +61,11 @@ func run() error {
 	}
 	slog.Info("upstream capture fields seeded")
 
+	if err := storage.SeedSettings(ctx, store.Settings()); err != nil {
+		return err
+	}
+	slog.Info("settings seeded")
+
 	secretManager, err := secrets.NewStaticKeyManager(cfg.EncryptionKeyID, cfg.EncryptionKey)
 	if err != nil {
 		return err

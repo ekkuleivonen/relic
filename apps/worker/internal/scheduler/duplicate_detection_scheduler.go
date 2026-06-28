@@ -6,34 +6,35 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
 const (
-	detectDuplicatesTargetType        = "catalog"
-	detectDuplicatesTargetID          = "catalog"
-	defaultDuplicateDetectionInterval = 24 * time.Hour
+	detectDuplicatesTargetType = "catalog"
+	detectDuplicatesTargetID   = "catalog"
 )
 
 type DuplicateDetectionScheduler struct {
-	store             *storage.Store
-	logger            *slog.Logger
-	now               func() time.Time
-	schedulerInterval time.Duration
-	interval          time.Duration
+	store    *storage.Store
+	logger   *slog.Logger
+	now      func() time.Time
+	settings settings.Reader
 }
 
 type DuplicateDetectionSchedulerOptions struct {
-	Store             *storage.Store
-	Logger            *slog.Logger
-	Now               func() time.Time
-	SchedulerInterval time.Duration
-	Interval          time.Duration
+	Store    *storage.Store
+	Logger   *slog.Logger
+	Now      func() time.Time
+	Settings settings.Reader
 }
 
 func NewDuplicateDetectionScheduler(options DuplicateDetectionSchedulerOptions) (*DuplicateDetectionScheduler, error) {
 	if options.Store == nil {
 		return nil, fmt.Errorf("create duplicate detection scheduler: storage store is required")
+	}
+	if options.Settings == nil {
+		return nil, fmt.Errorf("create duplicate detection scheduler: settings reader is required")
 	}
 
 	now := options.Now
@@ -44,40 +45,25 @@ func NewDuplicateDetectionScheduler(options DuplicateDetectionSchedulerOptions) 
 	if logger == nil {
 		logger = slog.Default()
 	}
-	schedulerInterval := options.SchedulerInterval
-	if schedulerInterval <= 0 {
-		schedulerInterval = defaultSchedulerInterval
-	}
-	interval := options.Interval
-	if interval <= 0 {
-		interval = defaultDuplicateDetectionInterval
-	}
 
 	return &DuplicateDetectionScheduler{
-		store:             options.Store,
-		logger:            logger,
-		now:               now,
-		schedulerInterval: schedulerInterval,
-		interval:          interval,
+		store:    options.Store,
+		logger:   logger,
+		now:      now,
+		settings: options.Settings,
 	}, nil
 }
 
 func (s *DuplicateDetectionScheduler) Run(ctx context.Context) error {
-	if _, err := s.tick(ctx); err != nil {
-		return err
-	}
-
-	ticker := time.NewTicker(s.schedulerInterval)
-	defer ticker.Stop()
-
 	for {
+		if _, err := s.tick(ctx); err != nil {
+			return err
+		}
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
-			if _, err := s.tick(ctx); err != nil {
-				return err
-			}
+		case <-time.After(s.settings.Duration(storage.SettingWorkerDuplicateDetectionSchedulerInterval)):
 		}
 	}
 }
@@ -112,7 +98,8 @@ func (s *DuplicateDetectionScheduler) enqueueIfDue(ctx context.Context) (bool, e
 		return false, err
 	}
 
-	if !DecideDuplicateDetection(lastFinished, s.now(), s.interval) {
+	interval := s.settings.Duration(storage.SettingDuplicateDetectionInterval)
+	if !DecideDuplicateDetection(lastFinished, s.now(), interval) {
 		return false, nil
 	}
 

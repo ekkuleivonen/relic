@@ -6,35 +6,30 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
-const (
-	defaultSchedulerInterval = 15 * time.Second
-	defaultScanStagger         = 30 * time.Second
-)
-
 type ScanScheduler struct {
-	store            *storage.Store
-	logger           *slog.Logger
-	now              func() time.Time
-	schedulerInterval time.Duration
-	defaultInterval  time.Duration
-	stagger          time.Duration
+	store    *storage.Store
+	logger   *slog.Logger
+	now      func() time.Time
+	settings settings.Reader
 }
 
 type ScanSchedulerOptions struct {
-	Store             *storage.Store
-	Logger            *slog.Logger
-	Now               func() time.Time
-	SchedulerInterval time.Duration
-	DefaultInterval   time.Duration
-	Stagger           time.Duration
+	Store    *storage.Store
+	Logger   *slog.Logger
+	Now      func() time.Time
+	Settings settings.Reader
 }
 
 func NewScanScheduler(options ScanSchedulerOptions) (*ScanScheduler, error) {
 	if options.Store == nil {
 		return nil, fmt.Errorf("create scan scheduler: storage store is required")
+	}
+	if options.Settings == nil {
+		return nil, fmt.Errorf("create scan scheduler: settings reader is required")
 	}
 
 	now := options.Now
@@ -45,45 +40,25 @@ func NewScanScheduler(options ScanSchedulerOptions) (*ScanScheduler, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	schedulerInterval := options.SchedulerInterval
-	if schedulerInterval <= 0 {
-		schedulerInterval = defaultSchedulerInterval
-	}
-	defaultInterval := options.DefaultInterval
-	if defaultInterval <= 0 {
-		defaultInterval = storage.DefaultScanInterval
-	}
-	stagger := options.Stagger
-	if stagger <= 0 {
-		stagger = defaultScanStagger
-	}
 
 	return &ScanScheduler{
-		store:             options.Store,
-		logger:            logger,
-		now:               now,
-		schedulerInterval: schedulerInterval,
-		defaultInterval:   defaultInterval,
-		stagger:           stagger,
+		store:    options.Store,
+		logger:   logger,
+		now:      now,
+		settings: options.Settings,
 	}, nil
 }
 
 func (s *ScanScheduler) Run(ctx context.Context) error {
-	if _, err := s.tick(ctx); err != nil {
-		return err
-	}
-
-	ticker := time.NewTicker(s.schedulerInterval)
-	defer ticker.Stop()
-
 	for {
+		if _, err := s.tick(ctx); err != nil {
+			return err
+		}
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
-			if _, err := s.tick(ctx); err != nil {
-				return err
-			}
+		case <-time.After(s.settings.Duration(storage.SettingWorkerScanSchedulerInterval)):
 		}
 	}
 }
@@ -111,6 +86,8 @@ func (s *ScanScheduler) enqueueDueScans(ctx context.Context) (int, error) {
 	}
 
 	now := s.now()
+	scanInterval := s.settings.Duration(storage.SettingScanBucketInterval)
+	stagger := s.settings.Duration(storage.SettingWorkerScanStagger)
 	enqueued := 0
 
 	for _, bucket := range buckets {
@@ -132,7 +109,7 @@ func (s *ScanScheduler) enqueueDueScans(ctx context.Context) (int, error) {
 			return enqueued, err
 		}
 
-		decision := DecideScan(bucket, lastFinished, now, active, s.defaultInterval)
+		decision := DecideScan(lastFinished, now, active, scanInterval)
 		if decision != ScanDecisionEnqueue {
 			continue
 		}
@@ -152,11 +129,11 @@ func (s *ScanScheduler) enqueueDueScans(ctx context.Context) (int, error) {
 		enqueued++
 		s.logger.Info("scan scheduled", "bucket_id", bucket.ID)
 
-		if s.stagger > 0 {
+		if stagger > 0 {
 			select {
 			case <-ctx.Done():
 				return enqueued, ctx.Err()
-			case <-time.After(s.stagger):
+			case <-time.After(stagger):
 			}
 		}
 	}

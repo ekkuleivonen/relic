@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/secrets"
 	"github.com/ekkuleivonen/relic/packages/storage"
@@ -28,9 +29,9 @@ func TestScanSchedulerTickEnqueuesDueScan(t *testing.T) {
 	})
 
 	scheduler, err := NewScanScheduler(ScanSchedulerOptions{
-		Store:   store,
-		Now:     func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
-		Stagger: 0,
+		Store:    store,
+		Now:      func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+		Settings: settings.Static(settings.StaticFromRegistry()),
 	})
 	if err != nil {
 		t.Fatalf("NewScanScheduler returned error: %v", err)
@@ -81,8 +82,9 @@ func TestScanSchedulerTickDedupesActiveScan(t *testing.T) {
 	}
 
 	scheduler, err := NewScanScheduler(ScanSchedulerOptions{
-		Store: store,
-		Now:   func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+		Store:    store,
+		Now:      func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+		Settings: settings.Static(settings.StaticFromRegistry()),
 	})
 	if err != nil {
 		t.Fatalf("NewScanScheduler returned error: %v", err)
@@ -124,8 +126,9 @@ func TestScanSchedulerTickSkipsWhenNotDue(t *testing.T) {
 	}
 
 	scheduler, err := NewScanScheduler(ScanSchedulerOptions{
-		Store: store,
-		Now:   func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+		Store:    store,
+		Now:      func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+		Settings: settings.Static(settings.StaticFromRegistry()),
 	})
 	if err != nil {
 		t.Fatalf("NewScanScheduler returned error: %v", err)

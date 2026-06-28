@@ -13,6 +13,7 @@ import (
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/middleware"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/objects"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/search"
+	settingshttp "github.com/ekkuleivonen/relic/apps/api/internal/httpserver/settings"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/system"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/upstreamcapture"
 )
@@ -41,6 +42,7 @@ func Handler(dependencies deps.Dependencies) http.Handler {
 	search.Register(api, dependencies, apiBasePath)
 	system.Register(api, dependencies, apiBasePath)
 	upstreamcapture.Register(api, dependencies, apiBasePath)
+	settingshttp.Register(api, dependencies, apiBasePath)
 
 	return noStoreMiddleware(middleware.Auth(mux, dependencies))
 }

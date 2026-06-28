@@ -9,6 +9,9 @@ func PrepareTestStore(ctx context.Context, store *Store) error {
 	if err := SeedUpstreamCaptureFields(ctx, store.UpstreamCaptureFields()); err != nil {
 		return err
 	}
+	if err := SeedSettings(ctx, store.Settings()); err != nil {
+		return err
+	}
 
 	return nil
 }

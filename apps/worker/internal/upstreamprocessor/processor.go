@@ -8,19 +8,19 @@ import (
 	"time"
 
 	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
+	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
 const (
-	defaultProcessorInterval = 15 * time.Second
-	defaultProcessorBatchSize = 100
+	defaultProcessorBatchSize   = 100
 	defaultMutationJobBatchSize = 100
 )
 
 type Processor struct {
 	store             *storage.Store
 	logger            *slog.Logger
-	processorInterval time.Duration
+	settings          settings.Reader
 	batchSize         int
 	mutationBatchSize int
 }
@@ -28,7 +28,7 @@ type Processor struct {
 type ProcessorOptions struct {
 	Store             *storage.Store
 	Logger            *slog.Logger
-	ProcessorInterval time.Duration
+	Settings          settings.Reader
 	BatchSize         int
 	MutationBatchSize int
 }
@@ -37,14 +37,13 @@ func NewProcessor(options ProcessorOptions) (*Processor, error) {
 	if options.Store == nil {
 		return nil, fmt.Errorf("create upstream event processor: storage store is required")
 	}
+	if options.Settings == nil {
+		return nil, fmt.Errorf("create upstream event processor: settings reader is required")
+	}
 
 	logger := options.Logger
 	if logger == nil {
 		logger = slog.Default()
-	}
-	processorInterval := options.ProcessorInterval
-	if processorInterval <= 0 {
-		processorInterval = defaultProcessorInterval
 	}
 	batchSize := options.BatchSize
 	if batchSize <= 0 {
@@ -58,28 +57,22 @@ func NewProcessor(options ProcessorOptions) (*Processor, error) {
 	return &Processor{
 		store:             options.Store,
 		logger:            logger,
-		processorInterval: processorInterval,
+		settings:          options.Settings,
 		batchSize:         batchSize,
 		mutationBatchSize: mutationBatchSize,
 	}, nil
 }
 
 func (p *Processor) Run(ctx context.Context) error {
-	if _, err := p.Tick(ctx); err != nil {
-		return err
-	}
-
-	ticker := time.NewTicker(p.processorInterval)
-	defer ticker.Stop()
-
 	for {
+		if _, err := p.Tick(ctx); err != nil {
+			return err
+		}
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
-			if _, err := p.Tick(ctx); err != nil {
-				return err
-			}
+		case <-time.After(p.settings.Duration(storage.SettingWorkerUpstreamProcessorInterval)):
 		}
 	}
 }

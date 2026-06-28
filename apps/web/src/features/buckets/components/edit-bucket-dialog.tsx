@@ -15,16 +15,11 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useUpdateBucket } from "@/features/buckets/hooks/use-buckets"
-import { ScanScheduleFields } from "@/features/buckets/components/scan-schedule-fields"
 import { JetStreamFields } from "@/features/buckets/components/jetstream-fields"
 import {
   jetstreamFormFromUpstreamConfig,
   upstreamConfigWithJetstream,
 } from "@/features/buckets/lib/jetstream-config"
-import {
-  relicConfigFromScanSchedule,
-  scanScheduleFromRelicConfig,
-} from "@/features/buckets/lib/scan-schedule"
 import type { Bucket, UpdateBucketInput } from "@/types/buckets"
 
 type EditBucketDialogProps = {
@@ -78,10 +73,6 @@ export function EditBucketDialog({
           consumer: form.jetstreamConsumer,
         },
       ),
-      relic_config: relicConfigFromScanSchedule({
-        enabled: form.scanEnabled,
-        interval: form.scanInterval,
-      }),
     }
     if (form.rotateCredentials) {
       input.credentials = {
@@ -116,9 +107,10 @@ export function EditBucketDialog({
           <DialogHeader>
             <DialogTitle>Edit bucket</DialogTitle>
             <DialogDescription>
-              Update Relic's connection metadata and scheduled scan settings for
-              this bucket. Stored credentials are left unchanged unless you
-              rotate them below.
+              Update Relic's connection metadata for this bucket. Stored
+              credentials are left unchanged unless you rotate them below.
+              Scheduled scan settings are configured globally under Settings →
+              Jobs.
             </DialogDescription>
           </DialogHeader>
 
@@ -215,14 +207,6 @@ export function EditBucketDialog({
             }}
           />
 
-          <ScanScheduleFields
-            idPrefix={`edit-${bucket.id}`}
-            enabled={form.scanEnabled}
-            interval={form.scanInterval}
-            onEnabledChange={(enabled) => updateField("scanEnabled", enabled)}
-            onIntervalChange={(interval) => updateField("scanInterval", interval)}
-          />
-
           <div className="grid gap-4 rounded-lg border bg-background/60 p-3 sm:grid-cols-2">
             <label className="flex items-start gap-3 sm:col-span-2">
               <Checkbox
@@ -316,7 +300,6 @@ function formStateFromBucket(bucket: Bucket) {
     ? bucket.upstream_config.s3
     : {}
   const jetstream = jetstreamFormFromUpstreamConfig(bucket.upstream_config)
-  const scanSchedule = scanScheduleFromRelicConfig(bucket.relic_config)
 
   return {
     name: bucket.name,
@@ -329,8 +312,6 @@ function formStateFromBucket(bucket: Bucket) {
     jetstreamStream: jetstream.stream,
     jetstreamSubject: jetstream.subject,
     jetstreamConsumer: jetstream.consumer,
-    scanEnabled: scanSchedule.enabled,
-    scanInterval: scanSchedule.interval,
     rotateCredentials: false,
     accessKeyId: "",
     secretAccessKey: "",

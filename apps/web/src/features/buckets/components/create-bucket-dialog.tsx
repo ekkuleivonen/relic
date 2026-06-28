@@ -15,13 +15,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useCreateBucket } from "@/features/buckets/hooks/use-buckets"
-import { ScanScheduleFields } from "@/features/buckets/components/scan-schedule-fields"
 import { JetStreamFields } from "@/features/buckets/components/jetstream-fields"
 import { upstreamConfigWithJetstream } from "@/features/buckets/lib/jetstream-config"
-import {
-  DEFAULT_SCAN_INTERVAL,
-  relicConfigFromScanSchedule,
-} from "@/features/buckets/lib/scan-schedule"
 import type { CreateBucketInput } from "@/types/buckets"
 
 const initialFormState = {
@@ -39,8 +34,6 @@ const initialFormState = {
   jetstreamStream: "",
   jetstreamSubject: "",
   jetstreamConsumer: "",
-  scanEnabled: true,
-  scanInterval: DEFAULT_SCAN_INTERVAL,
 }
 
 type CreateBucketDialogProps = {
@@ -92,10 +85,6 @@ export function CreateBucketDialog({
             }
           : {}),
       },
-      relic_config: relicConfigFromScanSchedule({
-        enabled: form.scanEnabled,
-        interval: form.scanInterval,
-      }),
     }
 
     try {
@@ -273,14 +262,6 @@ export function CreateBucketDialog({
                   break
               }
             }}
-          />
-
-          <ScanScheduleFields
-            idPrefix="create"
-            enabled={form.scanEnabled}
-            interval={form.scanInterval}
-            onEnabledChange={(enabled) => updateField("scanEnabled", enabled)}
-            onIntervalChange={(interval) => updateField("scanInterval", interval)}
           />
 
           <DialogFooter>

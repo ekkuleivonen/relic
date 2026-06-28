@@ -8,30 +8,24 @@ import (
 	"time"
 
 	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
+	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
-const (
-	defaultPollInterval = 2 * time.Second
-	defaultRetryDelay   = 30 * time.Second
-)
-
 type Runner struct {
-	store        *storage.Store
-	registry     *jobs.Registry
-	workerID     string
-	pollInterval time.Duration
-	retryDelay   time.Duration
-	logger       *slog.Logger
+	store    *storage.Store
+	registry *jobs.Registry
+	workerID string
+	settings settings.Reader
+	logger   *slog.Logger
 }
 
 type Options struct {
-	Store        *storage.Store
-	Registry     *jobs.Registry
-	WorkerID     string
-	PollInterval time.Duration
-	RetryDelay   time.Duration
-	Logger       *slog.Logger
+	Store    *storage.Store
+	Registry *jobs.Registry
+	WorkerID string
+	Settings settings.Reader
+	Logger   *slog.Logger
 }
 
 func New(options Options) (*Runner, error) {
@@ -44,30 +38,23 @@ func New(options Options) (*Runner, error) {
 	if options.WorkerID == "" {
 		return nil, fmt.Errorf("create job runner: worker ID is required")
 	}
-	if options.PollInterval <= 0 {
-		options.PollInterval = defaultPollInterval
-	}
-	if options.RetryDelay <= 0 {
-		options.RetryDelay = defaultRetryDelay
+	if options.Settings == nil {
+		return nil, fmt.Errorf("create job runner: settings reader is required")
 	}
 	if options.Logger == nil {
 		options.Logger = slog.Default()
 	}
 
 	return &Runner{
-		store:        options.Store,
-		registry:     options.Registry,
-		workerID:     options.WorkerID,
-		pollInterval: options.PollInterval,
-		retryDelay:   options.RetryDelay,
-		logger:       options.Logger,
+		store:    options.Store,
+		registry: options.Registry,
+		workerID: options.WorkerID,
+		settings: options.Settings,
+		logger:   options.Logger,
 	}, nil
 }
 
 func (r *Runner) Run(ctx context.Context) error {
-	ticker := time.NewTicker(r.pollInterval)
-	defer ticker.Stop()
-
 	for {
 		claimed, err := r.RunOnce(ctx)
 		if err != nil {
@@ -80,7 +67,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
+		case <-time.After(r.settings.Duration(storage.SettingWorkerRunnerPollInterval)):
 		}
 	}
 }
@@ -130,7 +117,8 @@ func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 func (r *Runner) handleFailure(ctx context.Context, run storage.JobRun, cause error) error {
 	message := cause.Error()
 	if run.Attempt < run.MaxAttempts {
-		availableAt := time.Now().Add(r.retryDelay)
+		retryDelay := r.settings.Duration(storage.SettingWorkerRunnerRetryDelay)
+		availableAt := time.Now().Add(retryDelay)
 		if _, err := r.store.JobRuns().RetryJobRun(ctx, storage.RetryJobRunParams{
 			ID:           run.ID,
 			ErrorMessage: message,

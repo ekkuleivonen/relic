@@ -9,9 +9,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	workerjobs "github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
+	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/storage"
 	"github.com/ekkuleivonen/relic/packages/testdb"
@@ -123,8 +123,7 @@ func newTestRunner(t *testing.T, store *storage.Store, handler workerjobs.Handle
 		Store:        store,
 		Registry:     registry,
 		WorkerID:     "test-worker",
-		PollInterval: time.Millisecond,
-		RetryDelay:   time.Millisecond,
+		Settings:     settings.Static{"WORKER_RUNNER_POLL_INTERVAL": "1ms", "WORKER_RUNNER_RETRY_DELAY": "1ms"},
 		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {

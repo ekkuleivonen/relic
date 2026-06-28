@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
@@ -14,9 +15,11 @@ func TestDuplicateDetectionSchedulerTickEnqueuesWhenDue(t *testing.T) {
 	defer cleanup()
 
 	scheduler, err := NewDuplicateDetectionScheduler(DuplicateDetectionSchedulerOptions{
-		Store:    store,
-		Now:      func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
-		Interval: time.Hour,
+		Store: store,
+		Now:   func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+		Settings: settings.Static{
+			storage.SettingDuplicateDetectionInterval: "1h",
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewDuplicateDetectionScheduler returned error: %v", err)
@@ -60,8 +63,9 @@ func TestDuplicateDetectionSchedulerTickDedupesActiveRun(t *testing.T) {
 	}
 
 	scheduler, err := NewDuplicateDetectionScheduler(DuplicateDetectionSchedulerOptions{
-		Store: store,
-		Now:   func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+		Store:    store,
+		Now:      func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+		Settings: settings.Static(settings.StaticFromRegistry()),
 	})
 	if err != nil {
 		t.Fatalf("NewDuplicateDetectionScheduler returned error: %v", err)
@@ -89,8 +93,9 @@ func TestDuplicateDetectionSchedulerTickDedupesLegacyNullTargetRun(t *testing.T)
 	}
 
 	scheduler, err := NewDuplicateDetectionScheduler(DuplicateDetectionSchedulerOptions{
-		Store: store,
-		Now:   func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+		Store:    store,
+		Now:      func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+		Settings: settings.Static(settings.StaticFromRegistry()),
 	})
 	if err != nil {
 		t.Fatalf("NewDuplicateDetectionScheduler returned error: %v", err)
@@ -126,9 +131,11 @@ func TestDuplicateDetectionSchedulerTickSkipsWhenNotDue(t *testing.T) {
 	}
 
 	scheduler, err := NewDuplicateDetectionScheduler(DuplicateDetectionSchedulerOptions{
-		Store:    store,
-		Now:      func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
-		Interval: 24 * time.Hour,
+		Store: store,
+		Now:   func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+		Settings: settings.Static{
+			storage.SettingDuplicateDetectionInterval: "24h",
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewDuplicateDetectionScheduler returned error: %v", err)

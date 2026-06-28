@@ -63,6 +63,10 @@ func (s *Store) Sessions() *SessionStore {
 	return NewSessionStore(s.pool)
 }
 
+func (s *Store) Settings() *SettingsStore {
+	return NewSettingsStore(s.pool)
+}
+
 func (s *Store) ListSearchRelationTypes(ctx context.Context) ([]string, error) {
 	return s.Relations().ListRelationTypes(ctx)
 }
