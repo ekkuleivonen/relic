@@ -8,6 +8,7 @@ import (
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	authhttp "github.com/ekkuleivonen/relic/apps/api/internal/httpserver/auth"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/buckets"
+	collectionshttp "github.com/ekkuleivonen/relic/apps/api/internal/httpserver/collections"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/jobs"
 	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/middleware"
@@ -37,6 +38,7 @@ func Handler(dependencies deps.Dependencies) http.Handler {
 	api := humago.New(mux, apiConfig())
 	authhttp.Register(api, dependencies, apiBasePath)
 	buckets.Register(api, dependencies, apiBasePath)
+	collectionshttp.Register(api, dependencies, apiBasePath)
 	jobs.Register(api, dependencies, apiBasePath)
 	objects.Register(api, dependencies, apiBasePath)
 	search.Register(api, dependencies, apiBasePath)
@@ -90,6 +92,10 @@ func apiConfig() huma.Config {
 		{
 			Name:        "Search",
 			Description: "RelicQL validation and query endpoints.",
+		},
+		{
+			Name:        "Collections",
+			Description: "Saved RelicQL collections and derived object membership.",
 		},
 		{
 			Name:        "Settings",

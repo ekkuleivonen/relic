@@ -649,6 +649,64 @@ func TestParseRelationPredicateWithBooleanLogic(t *testing.T) {
 	assertQueryEqual(t, query, want)
 }
 
+func TestParseBucketPredicate(t *testing.T) {
+	query, err := Parse("FROM objects WHERE bucket('test-bucket')")
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+
+	want := Query{
+		Version: VersionV1,
+		From:    TargetObjects,
+		Where: &BucketPredicate{
+			Name: "test-bucket",
+		},
+	}
+	assertQueryEqual(t, query, want)
+}
+
+func TestParseBucketPredicateWithBooleanLogic(t *testing.T) {
+	query, err := Parse("FROM objects WHERE bucket('production') AND key LIKE 'photos/%'")
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+
+	want := Query{
+		Version: VersionV1,
+		From:    TargetObjects,
+		Where: &BoolExpr{
+			Op: BoolAnd,
+			Terms: []Expr{
+				BucketPredicate{Name: "production"},
+				Comparison{
+					Op:    OpLike,
+					Left:  FieldRef{Name: "key"},
+					Right: StringLiteral{Value: "photos/%"},
+				},
+			},
+		},
+	}
+	assertQueryEqual(t, query, want)
+}
+
+func TestParseRejectsMalformedBucketPredicates(t *testing.T) {
+	tests := []string{
+		"FROM objects WHERE bucket()",
+		"FROM objects WHERE bucket('')",
+		"FROM objects WHERE bucket('  ')",
+		"FROM objects WHERE bucket(123)",
+		"FROM objects WHERE bucket('production'",
+	}
+
+	for _, input := range tests {
+		t.Run(input, func(t *testing.T) {
+			if _, err := Parse(input); err == nil {
+				t.Fatal("Parse returned nil error")
+			}
+		})
+	}
+}
+
 func TestParseRejectsMalformedRelationPredicates(t *testing.T) {
 	tests := []string{
 		"FROM objects WHERE has_relation()",

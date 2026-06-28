@@ -134,6 +134,25 @@ WHERE objects.bucket_id = $1 AND (objects.attributes #>> '{upstream,size}')::big
 	})
 }
 
+func TestCompileObjectsSearchBucketPredicate(t *testing.T) {
+	compiled := mustCompileObjectsSearch(t, `
+		FROM objects
+		WHERE bucket('production')
+		  AND attr('upstream.size') >= 1048576
+	`, SearchScope{})
+
+	assertCompiledQuery(t, compiled, CompiledQuery{
+		SQL: strings.TrimSpace(objectsSearchSelectSQL) + `
+WHERE objects.bucket_id = (
+	SELECT b.id
+	FROM buckets b
+	WHERE b.name = $1
+	LIMIT 1
+) AND (objects.attributes #>> '{upstream,size}')::bigint >= $2`,
+		Args: []any{"production", int64(1048576)},
+	})
+}
+
 func TestCompileObjectsSearchStep10RelationExists(t *testing.T) {
 	compiled := mustCompileObjectsSearch(t, `
 		FROM objects

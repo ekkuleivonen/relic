@@ -1,4 +1,4 @@
-import { Loader2Icon, PlayIcon, RefreshCwIcon } from "lucide-react"
+import { Loader2Icon, PlayIcon, RefreshCwIcon, SaveIcon } from "lucide-react"
 import * as React from "react"
 
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { CreateCollectionDialog } from "@/features/collections/components/create-collection-dialog"
+import { useBuckets } from "@/features/buckets/hooks/use-buckets"
 import { RelicqlEditor } from "@/features/search/components/relicql-editor"
 import { DEFAULT_RELICQL_QUERY, BUILTIN_SEARCH_ATTRIBUTES } from "@/features/search/constants"
 import { useSearchAttributes } from "@/features/search/hooks/use-search-attributes"
@@ -17,6 +19,7 @@ import { useSearchExecute } from "@/features/search/hooks/use-search-execute"
 import { useValidateSearch } from "@/features/search/hooks/use-search-validate"
 import { ObjectsTable } from "@/features/objects/components/objects-table"
 import { extractApiError } from "@/lib/api"
+import { useSession } from "@/hooks/use-session"
 
 type ObjectsSearchPanelProps = {
   bucketId?: string
@@ -28,9 +31,14 @@ export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
   const [validationError, setValidationError] = React.useState<string | null>(
     null
   )
+  const [saveDialogOpen, setSaveDialogOpen] = React.useState(false)
+
+  const sessionQuery = useSession()
+  const isAdmin = sessionQuery.data?.user.role === "admin"
 
   const searchAttributes = useSearchAttributes()
   const searchRelationTypes = useSearchRelationTypes()
+  const bucketsQuery = useBuckets()
   const attributes = React.useMemo(() => {
     const fromApi = searchAttributes.data?.attributes ?? []
     if (fromApi.length === 0) {
@@ -47,6 +55,13 @@ export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
     )
   }, [searchAttributes.data?.attributes])
   const relationTypes = searchRelationTypes.data?.relation_types ?? []
+  const bucketNames = React.useMemo(
+    () =>
+      (bucketsQuery.data?.buckets ?? [])
+        .map((bucket) => bucket.name)
+        .sort((left, right) => left.localeCompare(right)),
+    [bucketsQuery.data?.buckets]
+  )
   const validateSearch = useValidateSearch()
   const executeQuery = useSearchExecute({
     query: submittedQuery ?? "",
@@ -84,9 +99,19 @@ export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
 
   const objects = executeQuery.data?.objects ?? []
   const isRunning = validateSearch.isPending || executeQuery.isFetching
+  const canSaveCollection =
+    isAdmin && draftQuery.trim().length > 0 && validationError === null
 
   return (
     <Card>
+      {isAdmin ? (
+        <CreateCollectionDialog
+          hideTrigger
+          open={saveDialogOpen}
+          onOpenChange={setSaveDialogOpen}
+          initialQuery={draftQuery}
+        />
+      ) : null}
       <CardHeader>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -97,6 +122,17 @@ export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
+            {isAdmin ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setSaveDialogOpen(true)}
+                disabled={!canSaveCollection || isRunning}
+              >
+                <SaveIcon />
+                Save as collection
+              </Button>
+            ) : null}
             <Button
               size="sm"
               variant="outline"
@@ -131,6 +167,7 @@ export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
           onChange={setDraftQuery}
           attributes={attributes}
           relationTypes={relationTypes}
+          bucketNames={bucketNames}
           onSubmit={() => void handleSubmit()}
         />
 

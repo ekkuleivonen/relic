@@ -1,6 +1,6 @@
 import type { CatalogObject } from "@/types/objects"
 
-export type SearchDependencyKind = "target" | "field" | "attribute" | "relation"
+export type SearchDependencyKind = "target" | "field" | "attribute" | "relation" | "bucket"
 
 export type SearchDependency = {
   kind: SearchDependencyKind

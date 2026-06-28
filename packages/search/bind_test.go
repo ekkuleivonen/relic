@@ -1248,6 +1248,26 @@ func TestBindRecordsRelationPredicateDependenciesInBooleanLogic(t *testing.T) {
 	assertBoundQueryEqual(t, bound, want)
 }
 
+func TestBindRecordsBucketPredicateDependency(t *testing.T) {
+	query := queryWithWhere(&BucketPredicate{
+		Name: "production",
+	})
+
+	bound, err := Bind(query, BuiltinRegistry())
+	if err != nil {
+		t.Fatalf("Bind returned error: %v", err)
+	}
+
+	want := BoundQuery{
+		Query: query,
+		Dependencies: []Dependency{
+			{Kind: DependencyTarget, Name: "objects"},
+			{Kind: DependencyBucket, Name: "production"},
+		},
+	}
+	assertBoundQueryEqual(t, bound, want)
+}
+
 func TestBindRejectsRelationPredicateOnRelationsTarget(t *testing.T) {
 	_, err := Bind(Query{
 		Version: VersionV1,

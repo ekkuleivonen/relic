@@ -175,6 +175,9 @@ type dependencyResponse struct {
 	Type string `json:"type,omitempty"`
 }
 
+// DependencyResponse is the shared OpenAPI shape for RelicQL query dependencies.
+type DependencyResponse = dependencyResponse
+
 type listSearchAttributesInput struct{}
 
 type listSearchAttributesOutput struct {
@@ -201,10 +204,10 @@ type listSearchRelationTypesBody struct {
 	RelationTypes []string `json:"relation_types"`
 }
 
-func dependencyResponsesFromBound(bound search.BoundQuery) []dependencyResponse {
-	responses := make([]dependencyResponse, 0, len(bound.Dependencies))
+func dependencyResponsesFromBound(bound search.BoundQuery) []DependencyResponse {
+	responses := make([]DependencyResponse, 0, len(bound.Dependencies))
 	for _, dependency := range bound.Dependencies {
-		response := dependencyResponse{
+		response := DependencyResponse{
 			Kind: string(dependency.Kind),
 			Name: dependency.Name,
 		}

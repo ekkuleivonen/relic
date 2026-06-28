@@ -159,6 +159,10 @@ func (c *compileContext) compileExprNested(expr search.Expr, nested bool) (strin
 		return c.compileRelationPredicate(*typed)
 	case search.RelationPredicate:
 		return c.compileRelationPredicate(typed)
+	case *search.BucketPredicate:
+		return c.compileBucketPredicate(*typed)
+	case search.BucketPredicate:
+		return c.compileBucketPredicate(typed)
 	default:
 		return "", fmt.Errorf("compile RelicQL: unsupported expression %T", expr)
 	}
@@ -286,6 +290,17 @@ func (c *compileContext) compileRelationPredicate(predicate search.RelationPredi
 	WHERE %s
 		AND r.relation_type = %s
 )`, objectMatchSQL, relationTypeArg), nil
+}
+
+func (c *compileContext) compileBucketPredicate(predicate search.BucketPredicate) (string, error) {
+	bucketNameArg := c.addArg(predicate.Name)
+
+	return fmt.Sprintf(`objects.bucket_id = (
+	SELECT b.id
+	FROM buckets b
+	WHERE b.name = %s
+	LIMIT 1
+)`, bucketNameArg), nil
 }
 
 func relationObjectMatchSQL(direction search.RelationDirection) (string, error) {

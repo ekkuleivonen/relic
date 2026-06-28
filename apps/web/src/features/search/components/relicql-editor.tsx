@@ -8,6 +8,7 @@ import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import {
   relicqlAutocompletion,
   setRelicqlAttributeCatalog,
+  setRelicqlBucketNames,
   setRelicqlRelationTypes,
 } from "@/features/search/codemirror/relicql-completion"
 import { relicqlOverlayExtension } from "@/features/search/codemirror/relicql-overlay"
@@ -50,6 +51,7 @@ type RelicqlEditorProps = {
   onChange: (value: string) => void
   attributes: SearchAttribute[]
   relationTypes?: string[]
+  bucketNames?: string[]
   onSubmit?: () => void
 }
 
@@ -58,6 +60,7 @@ export function RelicqlEditor({
   onChange,
   attributes,
   relationTypes = [],
+  bucketNames = [],
   onSubmit,
 }: RelicqlEditorProps) {
   const editorViewRef = React.useRef<EditorView | null>(null)
@@ -71,6 +74,10 @@ export function RelicqlEditor({
   React.useEffect(() => {
     setRelicqlRelationTypes(relationTypes)
   }, [relationTypes])
+
+  React.useEffect(() => {
+    setRelicqlBucketNames(bucketNames)
+  }, [bucketNames])
 
   const extensions = React.useMemo(
     () => [
@@ -109,6 +116,7 @@ export function RelicqlEditor({
           editorViewRef.current = view
           setRelicqlAttributeCatalog(attributes)
           setRelicqlRelationTypes(relationTypes)
+          setRelicqlBucketNames(bucketNames)
         }}
         basicSetup={{
           lineNumbers: false,

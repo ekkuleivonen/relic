@@ -114,6 +114,12 @@ type RelationPredicate struct {
 
 func (RelationPredicate) exprNode() {}
 
+type BucketPredicate struct {
+	Name string
+}
+
+func (BucketPredicate) exprNode() {}
+
 type FieldRef struct {
 	Name string
 }

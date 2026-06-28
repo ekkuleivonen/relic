@@ -5,6 +5,8 @@ import { AppLayout } from "@/components/app-layout"
 import { RequireSession } from "@/components/layout/route-guards"
 import { BucketDetailPage } from "@/features/buckets/pages/bucket-detail-page"
 import { BucketsPage } from "@/features/buckets/pages/buckets-page"
+import { CollectionDetailPage } from "@/features/collections/pages/collection-detail-page"
+import { CollectionsPage } from "@/features/collections/pages/collections-page"
 import { JobRunDetailPage } from "@/features/job-runs/pages/job-run-detail-page"
 import { JobRunsPage } from "@/features/job-runs/pages/job-runs-page"
 import { ObjectDetailPage } from "@/features/objects/pages/object-detail-page"
@@ -28,6 +30,11 @@ export function App() {
           <Route path="/job-runs/:jobRunId" element={<JobRunDetailPage />} />
           <Route path="/objects" element={<ObjectsPage />} />
           <Route path="/objects/:objectId" element={<ObjectDetailPage />} />
+          <Route path="/collections" element={<CollectionsPage />} />
+          <Route
+            path="/collections/:collectionId"
+            element={<CollectionDetailPage />}
+          />
           <Route path="/settings/upstream-capture" element={<UpstreamCapturePage />} />
           <Route element={<RequireSession requireAdmin />}>
             <Route path="/users" element={<UsersPage />} />

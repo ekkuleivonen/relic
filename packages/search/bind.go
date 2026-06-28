@@ -13,12 +13,13 @@ const (
 	DependencyField     DependencyKind = "field"
 	DependencyAttribute DependencyKind = "attribute"
 	DependencyRelation  DependencyKind = "relation"
+	DependencyBucket    DependencyKind = "bucket"
 )
 
 type Dependency struct {
-	Kind DependencyKind
-	Name string
-	Type ValueType
+	Kind DependencyKind `json:"kind"`
+	Name string         `json:"name"`
+	Type ValueType      `json:"type,omitempty"`
 }
 
 type BoundQuery struct {
@@ -108,6 +109,10 @@ func (b *queryBinder) bindExpr(expr Expr) error {
 		return b.bindRelationPredicate(*typed)
 	case RelationPredicate:
 		return b.bindRelationPredicate(typed)
+	case *BucketPredicate:
+		return b.bindBucketPredicate(*typed)
+	case BucketPredicate:
+		return b.bindBucketPredicate(typed)
 	case FieldRef:
 		return b.bindField(typed)
 	case AttrRef:
@@ -320,6 +325,18 @@ func (b *queryBinder) bindRelationPredicate(predicate RelationPredicate) error {
 	return nil
 }
 
+func (b *queryBinder) bindBucketPredicate(predicate BucketPredicate) error {
+	if b.query.From != TargetObjects {
+		return fmt.Errorf("bind RelicQL: bucket is only supported on target %q", b.query.From)
+	}
+
+	b.addDependency(Dependency{
+		Kind: DependencyBucket,
+		Name: predicate.Name,
+	})
+	return nil
+}
+
 func (b *queryBinder) bindCastExpr(cast CastExpr) error {
 	if !isValidCastOperand(cast.Expr) {
 		return fmt.Errorf("bind RelicQL: cannot cast %T", cast.Expr)
@@ -380,6 +397,8 @@ func dependencyKindRank(kind DependencyKind) int {
 		return 2
 	case DependencyRelation:
 		return 3
+	case DependencyBucket:
+		return 4
 	default:
 		return 99
 	}

@@ -154,6 +154,10 @@ func (p *queryParser) parseUnaryExpr() (Expr, error) {
 		return p.parseRelationPredicate()
 	}
 
+	if p.isKeyword("BUCKET") && p.peek().kind == tokenLParen {
+		return p.parseBucketPredicate()
+	}
+
 	if p.consume(tokenLParen) {
 		expr, err := p.parseBoolExpr()
 		if err != nil {
@@ -203,6 +207,28 @@ func (p *queryParser) parseRelationPredicate() (Expr, error) {
 	}
 
 	return RelationPredicate{Type: relationType.literal, Direction: direction}, nil
+}
+
+func (p *queryParser) parseBucketPredicate() (Expr, error) {
+	p.advance()
+	if !p.consume(tokenLParen) {
+		return nil, p.errorf("expected ( after bucket")
+	}
+
+	bucketName := p.current()
+	if bucketName.kind != tokenString {
+		return nil, p.errorf("expected bucket name string")
+	}
+	p.advance()
+	if err := validateBucketName(bucketName.literal); err != nil {
+		return nil, p.errorf("%s", err)
+	}
+
+	if !p.consume(tokenRParen) {
+		return nil, p.errorf("expected ) after bucket")
+	}
+
+	return BucketPredicate{Name: bucketName.literal}, nil
 }
 
 func (p *queryParser) parseComparison() (Expr, error) {
@@ -668,6 +694,8 @@ func pointerExpr(expr Expr) Expr {
 		return &typed
 	case RelationPredicate:
 		return &typed
+	case BucketPredicate:
+		return &typed
 	default:
 		return expr
 	}
@@ -699,6 +727,17 @@ func validateRelationType(relationType string) error {
 	}
 	if strings.TrimSpace(relationType) != relationType {
 		return fmt.Errorf("relation type has surrounding whitespace")
+	}
+
+	return nil
+}
+
+func validateBucketName(bucketName string) error {
+	if strings.TrimSpace(bucketName) == "" {
+		return fmt.Errorf("bucket name is empty")
+	}
+	if strings.TrimSpace(bucketName) != bucketName {
+		return fmt.Errorf("bucket name has surrounding whitespace")
 	}
 
 	return nil

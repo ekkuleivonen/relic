@@ -61,6 +61,12 @@ const FUNCTION_COMPLETIONS: Completion[] = [
     apply: "has_relation('')",
   },
   {
+    label: "bucket",
+    type: "function",
+    detail: "bucket scope predicate",
+    apply: "bucket('')",
+  },
+  {
     label: "now()",
     type: "function",
     detail: "current timestamp",
@@ -105,10 +111,17 @@ const SNIPPET_COMPLETIONS: Completion[] = [
 
 let attributeCatalog: SearchAttribute[] = BUILTIN_SEARCH_ATTRIBUTES
 let relationTypeCatalog: string[] = [...BUILTIN_RELATION_TYPES]
+let bucketNameCatalog: string[] = []
 
 export function setRelicqlAttributeCatalog(attributes: SearchAttribute[]) {
   attributeCatalog =
     attributes.length > 0 ? attributes : BUILTIN_SEARCH_ATTRIBUTES
+}
+
+export function setRelicqlBucketNames(bucketNames: string[]) {
+  bucketNameCatalog = [...bucketNames].sort((left, right) =>
+    left.localeCompare(right)
+  )
 }
 
 export function setRelicqlRelationTypes(relationTypes: string[]) {
@@ -254,6 +267,67 @@ export function getRelationCallContextAt(
     active = {
       ...directionContext,
       argument: "direction",
+    }
+  }
+
+  return active
+}
+
+function looseQuotedArgAt(
+  text: string,
+  pos: number,
+  contentStart: number
+): QuotedArgContext | null {
+  let contentEnd = contentStart
+  while (
+    contentEnd < text.length &&
+    text[contentEnd] !== "'" &&
+    text[contentEnd] !== "\n"
+  ) {
+    contentEnd++
+  }
+
+  const hasClosingQuote = contentEnd < text.length && text[contentEnd] === "'"
+  const maxPos = hasClosingQuote ? contentEnd : pos
+
+  if (pos > maxPos) {
+    const afterQuote = hasClosingQuote && pos === contentEnd + 1
+    const beforeCloseParen =
+      afterQuote && contentEnd + 1 < text.length && text[contentEnd + 1] === ")"
+    if (!beforeCloseParen) {
+      return null
+    }
+
+    return {
+      from: contentStart,
+      to: contentEnd,
+      prefix: text.slice(contentStart, contentEnd),
+    }
+  }
+
+  return {
+    from: contentStart,
+    to: Math.min(pos, maxPos),
+    prefix: text.slice(contentStart, Math.min(pos, maxPos)),
+  }
+}
+
+export function getBucketCallContextAt(
+  state: EditorState,
+  pos: number
+): QuotedArgContext | null {
+  const text = state.doc.toString()
+  let active: QuotedArgContext | null = null
+
+  for (const match of text.matchAll(/bucket\s*\(\s*'/gi)) {
+    const nameStart = match.index! + match[0].length
+    if (pos < nameStart) {
+      continue
+    }
+
+    const context = looseQuotedArgAt(text, pos, nameStart)
+    if (context) {
+      active = context
     }
   }
 
@@ -428,6 +502,23 @@ export function getRelationDirectionCompletions(
   }))
 }
 
+export function getBucketNameCompletions(
+  bucketNames: string[],
+  prefix: string
+): Completion[] {
+  const normalized = prefix.toLowerCase()
+  return bucketNames
+    .filter(
+      (bucketName) =>
+        !normalized || bucketName.toLowerCase().startsWith(normalized)
+    )
+    .map((bucketName) => ({
+      label: bucketName,
+      type: "enum",
+      detail: "bucket name",
+    }))
+}
+
 function createSegmentPathApply(
   pathStart: number,
   completedPath: string,
@@ -554,10 +645,35 @@ function relationCallCompletions(
   }
 }
 
+function bucketCallCompletions(
+  context: CompletionContext
+): CompletionResult | null {
+  const bucketContext = getBucketCallContextAt(context.state, context.pos)
+  if (!bucketContext) {
+    return null
+  }
+
+  const options = getBucketNameCompletions(
+    bucketNameCatalog,
+    bucketContext.prefix
+  )
+  if (options.length === 0) {
+    return null
+  }
+
+  return {
+    from: bucketContext.from,
+    to: bucketContext.to,
+    options,
+    filter: false,
+  }
+}
+
 function isInsideQuotedFunctionArg(state: EditorState, pos: number) {
   return (
     getAttrPathPrefixAt(state, pos) !== null ||
-    getRelationCallContextAt(state, pos) !== null
+    getRelationCallContextAt(state, pos) !== null ||
+    getBucketCallContextAt(state, pos) !== null
   )
 }
 
@@ -584,6 +700,11 @@ function generalCompletions(context: CompletionContext): CompletionResult | null
 }
 
 function relicqlCompletionSource(context: CompletionContext): CompletionResult | null {
+  const bucketMatch = bucketCallCompletions(context)
+  if (bucketMatch) {
+    return bucketMatch
+  }
+
   const relationMatch = relationCallCompletions(context)
   if (relationMatch) {
     return relationMatch

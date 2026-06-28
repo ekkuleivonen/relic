@@ -50,8 +50,9 @@ const sidebarGroups: Array<{ label: string; items: SidebarNavItem[] }> = [
       },
       {
         title: "Collections",
+        url: "/collections",
         icon: LayersIcon,
-        comingSoon: true,
+        match: (pathname) => pathname.startsWith("/collections"),
       },
     ],
   },
