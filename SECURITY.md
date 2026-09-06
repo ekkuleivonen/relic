@@ -14,7 +14,7 @@ The API checks write permissions centrally, protects browser writes against cros
 
 ## Historical exposure
 
-The September 2026 audit identified credential-like values in old Git history. Deleting current files does not revoke credentials or erase clones/caches. Owner confirmation and credential rotation/revocation remain required before the exposure can be considered resolved. Do not reuse historical example credentials.
+The September 2026 audit identified six credential values in old Git history. Their configuration maps to local/self-hosted Garage S3 services and their RPC connections; none of those six was identified as a third-party service credential. The owner accepts the homelab-only exposure and has elected not to require rotation for those services. Reuse elsewhere was not established, and no credentials were tested or revoked. Deleting current files does not erase clones/caches. Do not reuse historical example credentials.
 
 CI scans the current tracked snapshot and new commits. The separately dispatched **Full history secret audit** scans all fetched refs and is expected to report the known historical findings until cleanup is approved and completed. A green normal CI run is not a clean-history certification.
 

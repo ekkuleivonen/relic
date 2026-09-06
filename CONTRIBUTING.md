@@ -8,4 +8,4 @@ Use synthetic objects and placeholder credentials in fixtures. Never commit `.en
 
 Changes to job recovery must cover interruption and retry. Search changes should cover parsing, binding, parameterized SQL, and invalid input. Database changes need reversible migrations and upgrade tests. Frontend changes should pass lint/build and be exercised against the local demo.
 
-The repository license and ownership review are pending. Please wait to submit third-party code until the maintainer publishes contribution terms.
+Contributions are accepted under the [MIT license](LICENSE). Submit only code you have the right to contribute under those terms, and preserve applicable third-party copyright and license notices.

@@ -2,11 +2,11 @@
 
 Status: preparation in progress. The GitHub repository was already public when this review began; no visibility change was made.
 
-## Owner decisions still required
+## License and credential decisions
 
-- Confirm ownership and permission to publish the code and included assets; select and add a license. Public visibility alone does not grant an open-source license.
-- Establish whether historical credential-like values were ever valid; revoke or rotate affected S3 access keys and Garage RPC secrets where applicable. Do not paste values into issues or chat.
-- Approve a coordinated history rewrite after rotation. Existing clones, forks, cached views, and old tags need separate handling. Preserve any required private backup securely.
+- The owner confirmed publication rights and selected the MIT license, with `elei.io` as the copyright holder.
+- All six historical credential findings map to local/self-hosted Garage services. The owner accepts homelab-only exposure; rotation is not a release requirement for those services. No third-party service credential was identified among these findings. Reuse elsewhere remains unverified.
+- Publishing a coordinated Git history rewrite remains a separate pending action. A private clean candidate is prepared; existing clones, forks, cached views, and old tags require separate handling.
 
 ## Engineering acceptance
 
@@ -21,4 +21,4 @@ Status: preparation in progress. The GitHub repository was already public when t
 
 This checklist tracks evidence, not a guarantee of security or production readiness. OIDC needs a deployment-specific identity-provider test; large-scale behavior and multi-worker failure recovery need broader operational validation.
 
-A private candidate history was scrubbed and scanned across 102 commits with no findings. It has not been published; the live history remains unchanged pending owner decisions.
+A private candidate history was scrubbed and scanned with no findings. It has not been published; licensing does not rewrite the existing Git history.

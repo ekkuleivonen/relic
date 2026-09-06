@@ -31,6 +31,6 @@ Direct frontend dependencies and their installed package metadata. This is an in
 | tailwindcss | 4.3.3 | MIT |
 | tw-animate-css | 1.4.0 | MIT |
 
-Inter font files are distributed under the SIL Open Font License; the full license is retained in [Inter-OFL.txt](third-party/Inter-OFL.txt). Lucide icons declare ISC; React and shadcn declare MIT. Dependencies retain their own licenses independently of the pending Pithosys license.
+Inter font files are distributed under the SIL Open Font License; the full license is retained in [Inter-OFL.txt](third-party/Inter-OFL.txt). Lucide icons declare ISC; React and shadcn declare MIT. Dependencies retain their own licenses independently of the Pithosys MIT license.
 
 Go direct dependencies include AWS SDK for Go v2 (Apache-2.0), Smithy Go (Apache-2.0), go-oidc (Apache-2.0), Huma (MIT), golang-migrate (MIT), pgx (MIT), nats.go (Apache-2.0), and golang.org/x libraries (BSD-3-Clause). Review the exact module LICENSE files before distributing binaries; this summary does not replace those notices. Container base images and Versity Gateway also carry their own licenses.

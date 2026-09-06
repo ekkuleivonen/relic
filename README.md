@@ -28,7 +28,7 @@ Only the web port is bound, on localhost. Demo data and generated secrets are se
 - Password authentication, administrator controls, and optional OIDC.
 - Optional JetStream event ingestion, verification scans, and duplicate relations.
 
-**Status: alpha.** The local demo covers the primary catalog workflow. OIDC, notification integration, large catalogs, and multi-worker failure recovery need deployment-specific validation. The repository's license/ownership review and historical credential remediation remain open; this is not yet a completed open-source release. See the [release checklist](docs/public-release-checklist.md) and [security boundary](SECURITY.md).
+**Status: alpha.** The local demo covers the primary catalog workflow. OIDC, notification integration, large catalogs, and multi-worker failure recovery need deployment-specific validation. Pithosys is available under the [MIT license](LICENSE), copyright © 2026 elei.io. Historical Git cleanup remains tracked separately. See the [release checklist](docs/public-release-checklist.md) and [security boundary](SECURITY.md).
 
 ## A query example
 
