@@ -11,7 +11,7 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/nats-io/nats.go v1.48.0
-	golang.org/x/crypto v0.50.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/oauth2 v0.36.0
 )
 
@@ -32,7 +32,7 @@ require (
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
-	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
-	golang.org/x/text v0.39.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 )
