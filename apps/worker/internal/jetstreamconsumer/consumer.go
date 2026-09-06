@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/storage"
-	upstreameventsingest "github.com/ekkuleivonen/relic/packages/upstreamevents"
+	"github.com/elei-io/pithosys/packages/storage"
+	upstreameventsingest "github.com/elei-io/pithosys/packages/upstreamevents"
 	"github.com/nats-io/nats.go"
 )
 

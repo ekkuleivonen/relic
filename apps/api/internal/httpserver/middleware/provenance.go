@@ -3,8 +3,8 @@ package middleware
 import (
 	"context"
 
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
-	"github.com/ekkuleivonen/relic/packages/auth"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
+	"github.com/elei-io/pithosys/packages/auth"
 )
 
 type RequestedBy struct {

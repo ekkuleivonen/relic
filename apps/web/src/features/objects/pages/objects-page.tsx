@@ -7,7 +7,7 @@ export function ObjectsPage() {
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Objects</h1>
         <p className="mt-4 max-w-2xl text-sm/7 text-muted-foreground">
-          Search catalog objects with RelicQL and inspect matching rows.
+          Search catalog objects with PithosysQL and inspect matching rows.
         </p>
       </header>
 

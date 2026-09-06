@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/secrets"
+	"github.com/elei-io/pithosys/packages/secrets"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -39,7 +39,7 @@ type Bucket struct {
 	Prefix               string
 	UpstreamConfig       BucketUpstreamConfig
 	EncryptedCredentials secrets.Envelope
-	RelicConfig          BucketRelicConfig
+	PithosysConfig          BucketPithosysConfig
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
 }
@@ -61,7 +61,7 @@ type CreateBucketParams struct {
 	Prefix               string
 	UpstreamConfig       BucketUpstreamConfig
 	EncryptedCredentials secrets.Envelope
-	RelicConfig          BucketRelicConfig
+	PithosysConfig          BucketPithosysConfig
 }
 
 type ListBucketsParams struct {
@@ -78,7 +78,7 @@ type UpdateBucketParams struct {
 	Prefix               *string
 	UpstreamConfig       *BucketUpstreamConfig
 	EncryptedCredentials *secrets.Envelope
-	RelicConfig          *BucketRelicConfig
+	PithosysConfig          *BucketPithosysConfig
 }
 
 func (s *BucketStore) CreateBucket(ctx context.Context, params CreateBucketParams) (Bucket, error) {
@@ -87,7 +87,7 @@ func (s *BucketStore) CreateBucket(ctx context.Context, params CreateBucketParam
 		return Bucket{}, err
 	}
 
-	relicConfig, err := encodeRelicConfig(relicConfigForCreate(params.RelicConfig))
+	pithosysConfig, err := encodePithosysConfig(pithosysConfigForCreate(params.PithosysConfig))
 	if err != nil {
 		return Bucket{}, err
 	}
@@ -110,7 +110,7 @@ func (s *BucketStore) CreateBucket(ctx context.Context, params CreateBucketParam
 			credential_algorithm,
 			credential_nonce,
 			credential_ciphertext,
-			relic_config
+			pithosys_config
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING
@@ -126,7 +126,7 @@ func (s *BucketStore) CreateBucket(ctx context.Context, params CreateBucketParam
 			credential_algorithm,
 			credential_nonce,
 			credential_ciphertext,
-			relic_config,
+			pithosys_config,
 			created_at,
 			updated_at
 	`, id,
@@ -141,7 +141,7 @@ func (s *BucketStore) CreateBucket(ctx context.Context, params CreateBucketParam
 		params.EncryptedCredentials.Algorithm,
 		params.EncryptedCredentials.Nonce,
 		params.EncryptedCredentials.Ciphertext,
-		relicConfig,
+		pithosysConfig,
 	))
 }
 
@@ -160,7 +160,7 @@ func (s *BucketStore) GetBucket(ctx context.Context, id string) (Bucket, error) 
 			credential_algorithm,
 			credential_nonce,
 			credential_ciphertext,
-			relic_config,
+			pithosys_config,
 			created_at,
 			updated_at
 		FROM buckets
@@ -200,7 +200,7 @@ func (s *BucketStore) ListBuckets(ctx context.Context, params ListBucketsParams)
 				credential_algorithm,
 				credential_nonce,
 				credential_ciphertext,
-				relic_config,
+				pithosys_config,
 				created_at,
 				updated_at
 			FROM buckets
@@ -222,7 +222,7 @@ func (s *BucketStore) ListBuckets(ctx context.Context, params ListBucketsParams)
 				credential_algorithm,
 				credential_nonce,
 				credential_ciphertext,
-				relic_config,
+				pithosys_config,
 				created_at,
 				updated_at
 			FROM buckets
@@ -262,14 +262,14 @@ func (s *BucketStore) UpdateBucket(ctx context.Context, params UpdateBucketParam
 		upstreamConfig = &value
 	}
 
-	var relicConfig *string
-	if params.RelicConfig != nil {
-		encoded, err := encodeRelicConfig(*params.RelicConfig)
+	var pithosysConfig *string
+	if params.PithosysConfig != nil {
+		encoded, err := encodePithosysConfig(*params.PithosysConfig)
 		if err != nil {
 			return Bucket{}, err
 		}
 		value := string(encoded)
-		relicConfig = &value
+		pithosysConfig = &value
 	}
 
 	var (
@@ -298,7 +298,7 @@ func (s *BucketStore) UpdateBucket(ctx context.Context, params UpdateBucketParam
 			credential_algorithm = COALESCE($8, credential_algorithm),
 			credential_nonce = COALESCE($9::bytea, credential_nonce),
 			credential_ciphertext = COALESCE($10::bytea, credential_ciphertext),
-			relic_config = COALESCE($11::jsonb, relic_config),
+			pithosys_config = COALESCE($11::jsonb, pithosys_config),
 			updated_at = now()
 		WHERE id = $1
 		RETURNING
@@ -314,7 +314,7 @@ func (s *BucketStore) UpdateBucket(ctx context.Context, params UpdateBucketParam
 			credential_algorithm,
 			credential_nonce,
 			credential_ciphertext,
-			relic_config,
+			pithosys_config,
 			created_at,
 			updated_at
 	`, params.ID,
@@ -327,7 +327,7 @@ func (s *BucketStore) UpdateBucket(ctx context.Context, params UpdateBucketParam
 		credentialAlgorithm,
 		credentialNonce,
 		credentialCiphertext,
-		relicConfig,
+		pithosysConfig,
 	))
 }
 
@@ -348,7 +348,7 @@ func scanBucket(row pgx.Row) (Bucket, error) {
 		bucket           Bucket
 		upstream         string
 		upstreamConfigBytes []byte
-		relicConfigBytes []byte
+		pithosysConfigBytes []byte
 	)
 
 	err := row.Scan(
@@ -364,7 +364,7 @@ func scanBucket(row pgx.Row) (Bucket, error) {
 		&bucket.EncryptedCredentials.Algorithm,
 		&bucket.EncryptedCredentials.Nonce,
 		&bucket.EncryptedCredentials.Ciphertext,
-		&relicConfigBytes,
+		&pithosysConfigBytes,
 		&bucket.CreatedAt,
 		&bucket.UpdatedAt,
 	)
@@ -385,11 +385,11 @@ func scanBucket(row pgx.Row) (Bucket, error) {
 		bucket.UpstreamConfig = BucketUpstreamConfig{}
 	}
 
-	if len(relicConfigBytes) == 0 {
+	if len(pithosysConfigBytes) == 0 {
 		return bucket, nil
 	}
-	if err := json.Unmarshal(relicConfigBytes, &bucket.RelicConfig); err != nil {
-		return Bucket{}, fmt.Errorf("decode bucket relic config: %w", err)
+	if err := json.Unmarshal(pithosysConfigBytes, &bucket.PithosysConfig); err != nil {
+		return Bucket{}, fmt.Errorf("decode bucket pithosys config: %w", err)
 	}
 
 	return bucket, nil
@@ -408,18 +408,18 @@ func encodeUpstreamConfig(config BucketUpstreamConfig) ([]byte, error) {
 	return encoded, nil
 }
 
-func encodeRelicConfig(config BucketRelicConfig) ([]byte, error) {
+func encodePithosysConfig(config BucketPithosysConfig) ([]byte, error) {
 	encoded, err := json.Marshal(config)
 	if err != nil {
-		return nil, fmt.Errorf("encode bucket relic config: %w", err)
+		return nil, fmt.Errorf("encode bucket pithosys config: %w", err)
 	}
 
 	return encoded, nil
 }
 
-func relicConfigForCreate(config BucketRelicConfig) BucketRelicConfig {
+func pithosysConfigForCreate(config BucketPithosysConfig) BucketPithosysConfig {
 	if config.Scan.Enabled == nil && config.Scan.Interval == "" {
-		return DefaultBucketRelicConfig()
+		return DefaultBucketPithosysConfig()
 	}
 
 	return config

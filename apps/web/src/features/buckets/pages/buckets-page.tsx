@@ -82,7 +82,7 @@ function EmptyState() {
         </div>
         <CardTitle className="mt-5">Connect your first bucket</CardTitle>
         <CardDescription className="mt-2 max-w-md">
-          Relic starts by connecting to existing object storage. Add a bucket to
+          Pithosys starts by connecting to existing object storage. Add a bucket to
           make it available for import and cataloging.
         </CardDescription>
         <div className="mt-6">

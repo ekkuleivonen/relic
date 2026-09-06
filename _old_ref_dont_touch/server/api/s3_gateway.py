@@ -45,8 +45,8 @@ _S3_DESCRIPTION = (
     "SigV4 authentication required. Not testable via Swagger Authorize — "
     "use `/api/uploads/presign*` to obtain signed URLs. "
     "Path-style only: `/s3/{bucket}/{key}` where `{bucket}` is always the fixed "
-    "gateway bucket (`relic` by default) and `{key}` is the full virtual folder path "
-    "plus filename (e.g. `/s3/relic/photos/2024/cat.jpg`)."
+    "gateway bucket (`pithosys` by default) and `{key}` is the full virtual folder path "
+    "plus filename (e.g. `/s3/pithosys/photos/2024/cat.jpg`)."
 )
 
 
@@ -282,7 +282,7 @@ async def put_object(
             size_bytes=spooled.size_bytes,
             ingest_meta=extract_user_metadata(request),
             current_user=user,
-            allow_overwrite=request.headers.get("x-relic-if-none-match") != "*",
+            allow_overwrite=request.headers.get("x-pithosys-if-none-match") != "*",
         )
     except object_signing.S3SigningError as exc:
         return s3_error_response(exc.code, exc.message, status_code=exc.status_code)

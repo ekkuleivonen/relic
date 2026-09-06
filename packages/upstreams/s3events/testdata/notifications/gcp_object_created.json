@@ -6,10 +6,10 @@
   "body": {
     "message": {
       "attributes": {
-        "bucketId": "relic-fixtures",
+        "bucketId": "pithosys-fixtures",
         "eventTime": "2026-06-26T01:00:00.000Z",
         "eventType": "OBJECT_FINALIZE",
-        "notificationConfig": "projects/_/buckets/relic-fixtures/notificationConfigs/3",
+        "notificationConfig": "projects/_/buckets/pithosys-fixtures/notificationConfigs/3",
         "objectGeneration": "1719393300000000",
         "objectId": "photos/a.jpg",
         "payloadFormat": "JSON_API_V1"
@@ -18,6 +18,6 @@
       "messageId": "136969346346",
       "publishTime": "2026-06-26T01:00:00.000Z"
     },
-    "subscription": "projects/relic-dev/subscriptions/gcs-relic-fixtures"
+    "subscription": "projects/pithosys-dev/subscriptions/gcs-pithosys-fixtures"
   }
 }

@@ -44,7 +44,7 @@ export function LoginPage() {
         <CardHeader>
           <CardTitle>Sign In</CardTitle>
           <p className="text-xs text-muted-foreground">
-            Use your Relic account to continue.
+            Use your Pithosys account to continue.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">

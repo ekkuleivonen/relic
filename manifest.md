@@ -1,30 +1,30 @@
-# Relic
+# Pithosys
 
 > Every byte in its place.
 
 ## Vision
 
-Relic is a metadata and discovery platform for object storage.
+Pithosys is a metadata and discovery platform for object storage.
 
-Relic is not an object store.
+Pithosys is not an object store.
 
-Relic is not a MinIO competitor.
+Pithosys is not a MinIO competitor.
 
-Relic is not another S3-compatible storage backend.
+Pithosys is not another S3-compatible storage backend.
 
-Relic sits alongside existing object storage systems and continuously builds understanding of the data they contain.
+Pithosys sits alongside existing object storage systems and continuously builds understanding of the data they contain.
 
 The core idea is simple:
 
-> S3 stores bytes. Relic understands them.
+> S3 stores bytes. Pithosys understands them.
 
-Users connect one or more existing buckets to Relic. Relic indexes them, tracks changes, enriches metadata, enables discovery, and allows users to organize objects without moving data.
+Users connect one or more existing buckets to Pithosys. Pithosys indexes them, tracks changes, enriches metadata, enables discovery, and allows users to organize objects without moving data.
 
 ---
 
-# What Relic Is
+# What Pithosys Is
 
-Relic is:
+Pithosys is:
 
 * An object catalog.
 * A metadata platform.
@@ -34,7 +34,7 @@ Relic is:
 * A system for organizing objects without changing their physical location.
 * A platform for attaching arbitrary metadata to objects.
 
-Relic enables:
+Pithosys enables:
 
 * Duplicate detection.
 * Cross-bucket search.
@@ -48,9 +48,9 @@ Relic enables:
 
 ---
 
-# What Relic Is Not
+# What Pithosys Is Not
 
-Relic is not:
+Pithosys is not:
 
 * An object storage system.
 * A filesystem.
@@ -60,22 +60,22 @@ Relic is not:
 * A backup system.
 * A data lake.
 
-Relic should avoid becoming responsible for storing customer bytes whenever possible.
+Pithosys should avoid becoming responsible for storing customer bytes whenever possible.
 
 Bytes already have a home.
 
-Relic focuses on understanding them.
+Pithosys focuses on understanding them.
 
 ---
 
 # Original Ingestion Idea
 
-An earlier concept considered Relic as an ingestion service:
+An earlier concept considered Pithosys as an ingestion service:
 
 ```text
 Writers
    ↓
-Relic
+Pithosys
    ↓
 S3
 ```
@@ -96,10 +96,10 @@ Benefits:
 
 Problems:
 
-* Relic becomes part of the write path.
-* Relic becomes responsible for durability.
-* Relic becomes a storage system.
-* Relic becomes difficult to adopt.
+* Pithosys becomes part of the write path.
+* Pithosys becomes responsible for durability.
+* Pithosys becomes a storage system.
+* Pithosys becomes difficult to adopt.
 
 Conclusion:
 
@@ -122,7 +122,7 @@ Focus on metadata and discovery first.
           Initial Sync
                 │
                 ▼
-            Relic DB
+            Pithosys DB
                 ▲
                 │
          Object Events
@@ -131,9 +131,9 @@ Focus on metadata and discovery first.
          Continuous Sync
 ```
 
-Relic does not own storage.
+Pithosys does not own storage.
 
-Relic indexes storage.
+Pithosys indexes storage.
 
 ---
 
@@ -146,7 +146,7 @@ Bucket
   ↓
 Scan
   ↓
-Relic
+Pithosys
 ```
 
 Advantages:
@@ -179,7 +179,7 @@ Bucket
    ↓
 Notification
    ↓
-Relic
+Pithosys
 ```
 
 Advantages:
@@ -191,7 +191,7 @@ Problems:
 
 * Missed events.
 * Event delivery failures.
-* Relic downtime.
+* Pithosys downtime.
 
 ---
 
@@ -227,7 +227,7 @@ Direct delivery:
 ```text
 Bucket
    ↓
-Relic
+Pithosys
 ```
 
 is fragile.
@@ -239,7 +239,7 @@ Bucket
    ↓
 NATS JetStream
    ↓
-Relic upstream_events inbox
+Pithosys upstream_events inbox
    ↓
 batched job_runs
 ```
@@ -249,7 +249,7 @@ Benefits:
 * No event loss during downtime.
 * Replay capability.
 * Better operational reliability.
-* Relic-owned audit trail after an event is accepted.
+* Pithosys-owned audit trail after an event is accepted.
 
 ---
 
@@ -259,7 +259,7 @@ Reconciliation exists for correctness.
 
 Not freshness.
 
-Relic should not repeatedly scan entire buckets.
+Pithosys should not repeatedly scan entire buckets.
 
 Instead:
 
@@ -270,7 +270,7 @@ Instead:
 
 Goal:
 
-Detect divergence between Relic and storage.
+Detect divergence between Pithosys and storage.
 
 ---
 
@@ -331,23 +331,23 @@ Used for:
 
 Python should operate as workers.
 
-Never as Relic's core.
+Never as Pithosys's core.
 
 ---
 
 # Metadata Philosophy
 
-Relic should make very few assumptions about metadata.
+Pithosys should make very few assumptions about metadata.
 
 Users define their own meaning.
 
-Relic provides structure.
+Pithosys provides structure.
 
 ---
 
 # Primitive Composition Principle
 
-Relic features should be built as use cases of Relic's own primitives.
+Pithosys features should be built as use cases of Pithosys's own primitives.
 
 Avoid creating one-off subsystems when the same behavior can be expressed through:
 
@@ -364,7 +364,7 @@ Example:
 
 Duplicate detection should not be a special side system.
 
-It should be implemented as a core job that uses normal Relic primitives:
+It should be implemented as a core job that uses normal Pithosys primitives:
 
 1. Read upstream attributes such as `upstream.etag`, `upstream.size`, and object identity.
 2. Search for objects with matching candidate signals.
@@ -383,7 +383,7 @@ After verification, the job should create relations. The relation is the canonic
 duplicate
 ```
 
-The feature is still "duplicate detection" from the user's perspective, but internally it is just Relic primitives composed together.
+The feature is still "duplicate detection" from the user's perspective, but internally it is just Pithosys primitives composed together.
 
 ---
 
@@ -391,7 +391,7 @@ The feature is still "duplicate detection" from the user's perspective, but inte
 
 ## Core Metadata
 
-Produced by Relic.
+Produced by Pithosys.
 
 Example:
 
@@ -402,7 +402,7 @@ core.first_seen_at
 core.last_seen_at
 ```
 
-Relic bookkeeping.
+Pithosys bookkeeping.
 
 Catalog invariants.
 
@@ -420,7 +420,7 @@ S3-compatible object storage supports native metadata in more than one place:
 * User metadata headers.
 * Object tags.
 
-Capturing this should be part of Relic's core offering.
+Capturing this should be part of Pithosys's core offering.
 
 However, upstream-native metadata should preserve its upstream provenance instead of being blended into `core.*`.
 
@@ -442,7 +442,7 @@ upstream.tag.retention
 
 Upstream metadata is evidence, not truth.
 
-Relic should not blindly promote upstream-reported values into `core.*`.
+Pithosys should not blindly promote upstream-reported values into `core.*`.
 
 For example, S3 `Content-Type` is often supplied by upload clients and can be wrong. It should be stored as:
 
@@ -450,7 +450,7 @@ For example, S3 `Content-Type` is often supplied by upload clients and can be wr
 upstream.header.content_type
 ```
 
-If Relic later determines a MIME type by inspecting bytes, that result should be written by the component that performed the work, such as:
+If Pithosys later determines a MIME type by inspecting bytes, that result should be written by the component that performed the work, such as:
 
 ```yaml
 job.extract_attributes.mime_type
@@ -459,15 +459,15 @@ job.extract_attributes.confidence
 
 The distinction:
 
-* `core.*` is Relic-owned bookkeeping and catalog invariants.
+* `core.*` is Pithosys-owned bookkeeping and catalog invariants.
 * `upstream.*` is what the storage upstream reported.
-* `job.<job_type>.*` is derived, detected, or enriched metadata produced by Relic jobs.
+* `job.<job_type>.*` is derived, detected, or enriched metadata produced by Pithosys jobs.
 
 ---
 
 ## Derived Metadata
 
-Produced by Relic jobs.
+Produced by Pithosys jobs.
 
 Example:
 
@@ -526,11 +526,11 @@ user.<attribute_name>.*
 
 Rules:
 
-* `core.*` is reserved for Relic bookkeeping and catalog invariants.
+* `core.*` is reserved for Pithosys bookkeeping and catalog invariants.
 * `upstream.*` is for metadata observed from a storage upstream.
 * Common upstream-reported fields should be flattened, such as `upstream.etag` and `upstream.size`.
 * Upstream-specific fields may include the upstream name deeper in the namespace, such as `upstream.s3.storage_class`.
-* `job.<job_type>.*` is for metadata produced by built-in Relic jobs such as `extract_attributes` and `detect_duplicates`.
+* `job.<job_type>.*` is for metadata produced by built-in Pithosys jobs such as `extract_attributes` and `detect_duplicates`.
 * `user.*` is for user-owned metadata.
 * Plugin and workflow namespaces are deferred until those systems become first-class product scope.
 
@@ -584,12 +584,12 @@ Bucket:
 
 Bucket sync settings are deferred for the MVP. Bucket creation and the manual sync button should enqueue hardcoded `sync_bucket` job runs instead of storing per-bucket schedules.
 
-Credentials should be stored encrypted in Relic's database.
+Credentials should be stored encrypted in Pithosys's database.
 
 Reason:
 
 * Users should be able to connect buckets from the UI.
-* Relic should be easy to run locally or self-host without external secret infrastructure.
+* Pithosys should be easy to run locally or self-host without external secret infrastructure.
 * Bucket onboarding should not require Kubernetes, Vault, Infisical, or manual operator setup.
 
 Requirements:
@@ -623,13 +623,13 @@ Object:
   updated_at
 ```
 
-Object rows mirror Relic's current catalog view of bucket contents.
+Object rows mirror Pithosys's current catalog view of bucket contents.
 
-Relic should not add a soft-delete flag for objects in the MVP. If an object no longer exists in the bucket, the sync or remove job should remove the catalog row. Historical visibility belongs in job runs, events, and audit records, not on the active object row.
+Pithosys should not add a soft-delete flag for objects in the MVP. If an object no longer exists in the bucket, the sync or remove job should remove the catalog row. Historical visibility belongs in job runs, events, and audit records, not on the active object row.
 
 `created_at` and `updated_at` are database bookkeeping for the catalog row. They are not object metadata.
 
-Object lifecycle facts that users may query, such as when Relic first or last observed the object, should live in `Object.attributes`:
+Object lifecycle facts that users may query, such as when Pithosys first or last observed the object, should live in `Object.attributes`:
 
 Object attributes should be stored as a JSONB document.
 
@@ -687,11 +687,11 @@ This keeps provenance row counts bound to object counts while still making attri
 
 ## Attribute
 
-Relic should not create an `attributes` table for the MVP.
+Pithosys should not create an `attributes` table for the MVP.
 
 The hot query surface is `Object.attributes`, a JSONB document on the object row. Attribute provenance is `Object.attribute_provenance`, another JSONB document on the object row.
 
-This avoids duplicating the same attribute model in both JSONB and rows. If JSONB stops being enough, Relic can add projections, generated columns, or a search index without changing the logical model.
+This avoids duplicating the same attribute model in both JSONB and rows. If JSONB stops being enough, Pithosys can add projections, generated columns, or a search index without changing the logical model.
 
 The namespace is not enough provenance by itself. It says who owns the meaning of an attribute. It does not say which user, job type, run, or implementation version produced the current value. The referenced run or user edit carries that context.
 
@@ -745,15 +745,15 @@ Allows:
 
 Objects may relate to one another.
 
-Relic should not define a fixed set of relation types.
+Pithosys should not define a fixed set of relation types.
 
 The relation type is defined by whoever creates the relation:
 
 * A user.
-* A Relic job.
+* A Pithosys job.
 * A future workflow or extension.
 
-Relic stores the relation and provides querying, visualization, and governance around it. Relic does not decide what relation types are valid unless an optional registry or validation rule is configured.
+Pithosys stores the relation and provides querying, visualization, and governance around it. Pithosys does not decide what relation types are valid unless an optional registry or validation rule is configured.
 
 ```yaml
 Relation:
@@ -775,7 +775,7 @@ Relation:
   updated_at
 ```
 
-Duplicate detection should create `duplicate` relations after verification. Relic does not need a separate `Content` table for this in the MVP. If the duplicate job computes a hash or records match evidence, that evidence can live on the relation's `attributes` document or under object-level job attributes.
+Duplicate detection should create `duplicate` relations after verification. Pithosys does not need a separate `Content` table for this in the MVP. If the duplicate job computes a hash or records match evidence, that evidence can live on the relation's `attributes` document or under object-level job attributes.
 
 Example relation types:
 
@@ -800,10 +800,10 @@ Not physical groups.
 Collections may be created by:
 
 * Users.
-* Relic jobs.
+* Pithosys jobs.
 * Future workflows or extensions.
 
-Relic should not assume that collections are only manually curated UI objects. A core job might create a collection for suspected duplicates, or a future workflow might create a collection for objects that need review.
+Pithosys should not assume that collections are only manually curated UI objects. A core job might create a collection for suspected duplicates, or a future workflow might create a collection for objects that need review.
 
 Example:
 
@@ -843,7 +843,7 @@ Default behavior:
 * Newly matching objects appear without any explicit "add to collection" operation.
 * Objects that stop matching disappear without any explicit "remove from collection" operation.
 
-For expensive or frequently used collections, Relic may maintain a materialized membership cache:
+For expensive or frequently used collections, Pithosys may maintain a materialized membership cache:
 
 * Object, attribute, relation, and job events mark affected collections dirty.
 * Background jobs recompute dirty collections.
@@ -941,7 +941,7 @@ cleanup_runs
 
 Plugin-like extensions are deferred.
 
-The MVP should use built-in Relic jobs for sync, object import/remove/refresh, attribute extraction, duplicate detection, and cleanup. Extension APIs should not be part of the core model until Relic has a clear need for third-party or user-defined execution.
+The MVP should use built-in Pithosys jobs for sync, object import/remove/refresh, attribute extraction, duplicate detection, and cleanup. Extension APIs should not be part of the core model until Pithosys has a clear need for third-party or user-defined execution.
 
 Future extensions may produce metadata.
 
@@ -957,7 +957,7 @@ Extension
 Attributes
 ```
 
-Relic stores the result.
+Pithosys stores the result.
 
 Extensions should not modify storage directly.
 
@@ -969,7 +969,7 @@ Extensions may later define actions and triggers for workflows.
 
 Workflows, flows, or automations are deferred user-defined chains of triggers and actions.
 
-They should be first-class Relic primitives rather than bespoke feature code.
+They should be first-class Pithosys primitives rather than bespoke feature code.
 
 Workflow:
 
@@ -1022,7 +1022,7 @@ create_collection
 start_job
 ```
 
-Workflows should operate through Relic's own APIs and primitives.
+Workflows should operate through Pithosys's own APIs and primitives.
 
 For example:
 
@@ -1036,7 +1036,7 @@ Actions that modify object storage should be explicit, permissioned, auditable, 
 
 # Auth Model
 
-Relic should support both human and machine access.
+Pithosys should support both human and machine access.
 
 Human access:
 
@@ -1053,10 +1053,10 @@ Machine access:
 
 Likely flow:
 
-1. Human logs into Relic through OIDC.
+1. Human logs into Pithosys through OIDC.
 2. Human creates an API token.
 3. Human gives the token to a machine, script, service, or integration.
-4. Machine accesses Relic APIs using that token.
+4. Machine accesses Pithosys APIs using that token.
 
 Every API endpoint should be designed as authenticated by default, except explicitly public operational endpoints such as health checks.
 
@@ -1068,7 +1068,7 @@ SUPERUSER_PASSWORD=...
 SESSION_SECRET_BASE64=...
 ```
 
-Auth is always enabled. Relic requires bootstrap and session configuration at startup.
+Auth is always enabled. Pithosys requires bootstrap and session configuration at startup.
 
 ---
 
@@ -1232,7 +1232,7 @@ Examples:
 * Reduce storage costs.
 * Improve governance.
 
-Relic should be positioned as:
+Pithosys should be positioned as:
 
 > The understanding layer for object storage.
 
@@ -1244,13 +1244,13 @@ Not:
 
 # Final Principle
 
-Relic should remain focused on one responsibility:
+Pithosys should remain focused on one responsibility:
 
 > Build and maintain a continuously accurate understanding of the objects that already exist.
 
-The moment Relic starts trying to become an object store, filesystem, ingestion platform, backup product, data lake, AI platform, and governance suite simultaneously, it loses its identity.
+The moment Pithosys starts trying to become an object store, filesystem, ingestion platform, backup product, data lake, AI platform, and governance suite simultaneously, it loses its identity.
 
-The strongest version of Relic is simple:
+The strongest version of Pithosys is simple:
 
 Connect buckets.
 

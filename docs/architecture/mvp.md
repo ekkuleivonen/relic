@@ -1,16 +1,16 @@
-# Relic MVP
+# Pithosys MVP
 
 ## Goal
 
-Build the smallest credible version of Relic:
+Build the smallest credible version of Pithosys:
 
 > Connect a bucket, sync its object inventory, store useful metadata, and make it searchable.
 
-The MVP should prove Relic's core loop before expanding into event streams, reconciliation, AI enrichment, or governance automation.
+The MVP should prove Pithosys's core loop before expanding into event streams, reconciliation, AI enrichment, or governance automation.
 
 ## First Product Slice
 
-The first usable Relic flow should be:
+The first usable Pithosys flow should be:
 
 1. Add a bucket from the UI.
 2. Store bucket credentials encrypted in the database.
@@ -19,7 +19,7 @@ The first usable Relic flow should be:
 5. Search or list synced objects.
 6. Show sync job status.
 
-This is the first "real Relic" loop. If this works well, the rest of the platform has a foundation.
+This is the first "real Pithosys" loop. If this works well, the rest of the platform has a foundation.
 
 ## Initial Scope
 
@@ -65,9 +65,9 @@ Initial auth modes:
 
 Likely flow:
 
-1. An admin provisions a user in Relic.
+1. An admin provisions a user in Pithosys.
 2. The user logs into the UI with password and/or OIDC.
-3. Later, the user creates API tokens in Relic for machine access.
+3. Later, the user creates API tokens in Pithosys for machine access.
 
 Configuration:
 
@@ -77,7 +77,7 @@ SUPERUSER_PASSWORD=...
 SESSION_SECRET_BASE64=...
 ```
 
-Auth is always enabled. Relic requires bootstrap and session configuration at startup.
+Auth is always enabled. Pithosys requires bootstrap and session configuration at startup.
 
 Go implementation direction:
 
@@ -88,7 +88,7 @@ Go implementation direction:
 * Store API tokens hashed, not plaintext.
 * Accept machine tokens as bearer tokens.
 
-API tokens should use one-way token handling, not reversible credential encryption. Relic should generate high-entropy tokens, store a lookup prefix for candidate row lookup, and store an Argon2id hash envelope for verification. Plaintext API tokens should only be shown once at creation time.
+API tokens should use one-way token handling, not reversible credential encryption. Pithosys should generate high-entropy tokens, store a lookup prefix for candidate row lookup, and store an Argon2id hash envelope for verification. Plaintext API tokens should only be shown once at creation time.
 
 Auth should be enforced at the API boundary and carried through application services as caller context. Route handlers should not manually reimplement auth checks.
 
@@ -109,8 +109,8 @@ Bucket creation should accept upstream details, credentials, prefix or scope, an
 
 Bucket fields should be split by ownership:
 
-* Top-level bucket fields are Relic's upstream-neutral connection and scope model: upstream, endpoint URL, region, bucket name, and prefix.
-* `upstream_config` is for non-secret adapter-specific options that Relic does not interpret generically, such as S3 path-style addressing, compatibility flags, TLS options, or upstream-specific signing details.
+* Top-level bucket fields are Pithosys's upstream-neutral connection and scope model: upstream, endpoint URL, region, bucket name, and prefix.
+* `upstream_config` is for non-secret adapter-specific options that Pithosys does not interpret generically, such as S3 path-style addressing, compatibility flags, TLS options, or upstream-specific signing details.
 * Credentials are secret material and must be encrypted separately from upstream config.
 
 Example S3-compatible upstream config:
@@ -130,7 +130,7 @@ For the MVP, bucket sync is the only special bucket lifecycle action:
 POST /api/buckets/:id/sync
 ```
 
-This creates a `job_runs` row with `type = sync_bucket`. The `sync_bucket` run lists upstream objects, compares them with Relic's catalog, and creates child `import_objects`, `refresh_objects`, and `remove_objects` runs for the catalog mutations.
+This creates a `job_runs` row with `type = sync_bucket`. The `sync_bucket` run lists upstream objects, compares them with Pithosys's catalog, and creates child `import_objects`, `refresh_objects`, and `remove_objects` runs for the catalog mutations.
 
 Bucket creation should enqueue the same `sync_bucket` job after the bucket row and encrypted credentials are committed. The UI button should call `POST /api/buckets/:id/sync` and enqueue the same job type. These paths should differ only in request provenance, not in sync behavior.
 
@@ -202,9 +202,9 @@ Persist at least:
 * First seen time.
 * Last seen time.
 
-Object rows should represent Relic's active catalog view of bucket contents. If sync determines an object no longer exists in the bucket, `sync_bucket` should create a `remove_objects` child job to remove the object row. Historical visibility belongs in job runs and events, not in a deleted/tombstone flag on the active object.
+Object rows should represent Pithosys's active catalog view of bucket contents. If sync determines an object no longer exists in the bucket, `sync_bucket` should create a `remove_objects` child job to remove the object row. Historical visibility belongs in job runs and events, not in a deleted/tombstone flag on the active object.
 
-For duplicate detection, `upstream.etag + upstream.size` is enough to identify potential duplicates during the first sync pass. Relic should not hash every object body up front.
+For duplicate detection, `upstream.etag + upstream.size` is enough to identify potential duplicates during the first sync pass. Pithosys should not hash every object body up front.
 
 Duplicate verification should be two-phase:
 
@@ -213,7 +213,7 @@ Duplicate verification should be two-phase:
 3. Compute SHA-256 only for potential duplicate groups.
 4. Mark matching hashes as verified duplicates.
 
-This keeps initial sync cheap while still allowing Relic to confirm duplicates before presenting them as certain.
+This keeps initial sync cheap while still allowing Pithosys to confirm duplicates before presenting them as certain.
 
 ### Search/List API
 
@@ -287,7 +287,7 @@ Test database rules:
 * Runtime code uses `DATABASE_URL`.
 * DB-backed tests use `TEST_DATABASE_URL` and never fall back to the runtime database.
 * `TEST_DATABASE_URL` must point at a separate test database, not the same database as `DATABASE_URL`. Some hosted/pooler endpoints ignore session `search_path`, so schema-only isolation is not reliable enough.
-* `TEST_DATABASE_SCHEMA` defaults to `relic_test`; test helpers create it, set `search_path` where supported, and apply statement/lock timeouts before running migrations.
+* `TEST_DATABASE_SCHEMA` defaults to `pithosys_test`; test helpers create it, set `search_path` where supported, and apply statement/lock timeouts before running migrations.
 * Migrations should run once per test package process, not once per test case, to avoid piling up Postgres advisory locks.
 
 This is not about supporting multiple databases in the MVP. It is about keeping persistence logic disciplined and preventing route handlers, services, workers, or future background systems from going around the storage layer.
@@ -410,7 +410,7 @@ Use React, Vite, TanStack Query, Tailwind, and shadcn UI components.
 
 ## Database Choice
 
-Relic will use Postgres for the MVP.
+Pithosys will use Postgres for the MVP.
 
 Object attributes should be stored in JSONB and indexed with GIN. This is the primary query substrate for search, filtering, and collections until there is real evidence that a dedicated search engine is needed.
 
@@ -442,15 +442,15 @@ Do not build these until the initial catalog loop is working:
 
 The MVP is successful when a user can:
 
-1. Start Relic locally.
+1. Start Pithosys locally.
 2. Open the web UI.
 3. Add an S3-compatible bucket.
 4. See credentials accepted without manual secret-manager setup.
 5. Trigger a bucket sync.
 6. Watch sync progress.
 7. Browse and search synced objects.
-8. Restart Relic without losing catalog state.
+8. Restart Pithosys without losing catalog state.
 
-At that point, Relic has proven its core identity:
+At that point, Pithosys has proven its core identity:
 
 > Connect buckets. Build understanding. Stay correct.

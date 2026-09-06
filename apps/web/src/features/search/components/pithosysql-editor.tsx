@@ -6,17 +6,17 @@ import * as React from "react"
 
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import {
-  relicqlAutocompletion,
-  setRelicqlAttributeCatalog,
-  setRelicqlBucketNames,
-  setRelicqlRelationTypes,
-} from "@/features/search/codemirror/relicql-completion"
-import { relicqlOverlayExtension } from "@/features/search/codemirror/relicql-overlay"
-import { relicqlSyntaxHighlighting } from "@/features/search/codemirror/relicql-syntax"
-import { relicqlEditorTheme } from "@/features/search/codemirror/relicql-theme"
+  pithosysqlAutocompletion,
+  setPithosysqlAttributeCatalog,
+  setPithosysqlBucketNames,
+  setPithosysqlRelationTypes,
+} from "@/features/search/codemirror/pithosysql-completion"
+import { pithosysqlOverlayExtension } from "@/features/search/codemirror/pithosysql-overlay"
+import { pithosysqlSyntaxHighlighting } from "@/features/search/codemirror/pithosysql-syntax"
+import { pithosysqlEditorTheme } from "@/features/search/codemirror/pithosysql-theme"
 import type { SearchAttribute } from "@/types/search"
 
-const relicqlLanguage = sql({
+const pithosysqlLanguage = sql({
   dialect: PostgreSQL,
   upperCaseKeywords: true,
 })
@@ -24,11 +24,11 @@ const relicqlLanguage = sql({
 const submitKeymapCompartment = new Compartment()
 
 const baseExtensions: Extension[] = [
-  relicqlLanguage,
-  relicqlSyntaxHighlighting,
-  relicqlOverlayExtension,
-  relicqlEditorTheme,
-  relicqlAutocompletion,
+  pithosysqlLanguage,
+  pithosysqlSyntaxHighlighting,
+  pithosysqlOverlayExtension,
+  pithosysqlEditorTheme,
+  pithosysqlAutocompletion,
   EditorView.lineWrapping,
 ]
 
@@ -46,7 +46,7 @@ function createSubmitKeymap(onSubmit: () => void): Extension {
   )
 }
 
-type RelicqlEditorProps = {
+type PithosysqlEditorProps = {
   value: string
   onChange: (value: string) => void
   attributes: SearchAttribute[]
@@ -55,28 +55,28 @@ type RelicqlEditorProps = {
   onSubmit?: () => void
 }
 
-export function RelicqlEditor({
+export function PithosysqlEditor({
   value,
   onChange,
   attributes,
   relationTypes = [],
   bucketNames = [],
   onSubmit,
-}: RelicqlEditorProps) {
+}: PithosysqlEditorProps) {
   const editorViewRef = React.useRef<EditorView | null>(null)
   const onSubmitRef = React.useRef(onSubmit)
   onSubmitRef.current = onSubmit
 
   React.useEffect(() => {
-    setRelicqlAttributeCatalog(attributes)
+    setPithosysqlAttributeCatalog(attributes)
   }, [attributes])
 
   React.useEffect(() => {
-    setRelicqlRelationTypes(relationTypes)
+    setPithosysqlRelationTypes(relationTypes)
   }, [relationTypes])
 
   React.useEffect(() => {
-    setRelicqlBucketNames(bucketNames)
+    setPithosysqlBucketNames(bucketNames)
   }, [bucketNames])
 
   const extensions = React.useMemo(
@@ -114,9 +114,9 @@ export function RelicqlEditor({
         onChange={onChange}
         onCreateEditor={(view) => {
           editorViewRef.current = view
-          setRelicqlAttributeCatalog(attributes)
-          setRelicqlRelationTypes(relationTypes)
-          setRelicqlBucketNames(bucketNames)
+          setPithosysqlAttributeCatalog(attributes)
+          setPithosysqlRelationTypes(relationTypes)
+          setPithosysqlBucketNames(bucketNames)
         }}
         basicSetup={{
           lineNumbers: false,

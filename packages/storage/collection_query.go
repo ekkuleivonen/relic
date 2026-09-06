@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/ekkuleivonen/relic/packages/search"
+	"github.com/elei-io/pithosys/packages/search"
 )
 
 const CollectionStatusValid = "valid"
@@ -18,7 +18,7 @@ type PreparedCollectionQuery struct {
 }
 
 func PrepareCollectionQuery(ctx context.Context, catalog *AttributeCatalogStore, queryText string) (PreparedCollectionQuery, error) {
-	bound, err := ValidateRelicQL(ctx, catalog, queryText)
+	bound, err := ValidatePithosysQL(ctx, catalog, queryText)
 	if err != nil {
 		return PreparedCollectionQuery{}, err
 	}

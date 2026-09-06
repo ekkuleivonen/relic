@@ -5,16 +5,16 @@ import (
 	"time"
 )
 
-func TestBucketRelicConfigScanEnabledByDefault(t *testing.T) {
-	config := BucketRelicConfig{}
+func TestBucketPithosysConfigScanEnabledByDefault(t *testing.T) {
+	config := BucketPithosysConfig{}
 
 	if !config.ScanEnabled() {
 		t.Fatal("ScanEnabled() = false, want true for empty config")
 	}
 }
 
-func TestBucketRelicConfigScanExplicitlyDisabled(t *testing.T) {
-	config := BucketRelicConfig{
+func TestBucketPithosysConfigScanExplicitlyDisabled(t *testing.T) {
+	config := BucketPithosysConfig{
 		Scan: BucketScanConfig{Enabled: BoolPtr(false)},
 	}
 
@@ -23,8 +23,8 @@ func TestBucketRelicConfigScanExplicitlyDisabled(t *testing.T) {
 	}
 }
 
-func TestBucketRelicConfigScanIntervalDefaultsTo24h(t *testing.T) {
-	config := BucketRelicConfig{}
+func TestBucketPithosysConfigScanIntervalDefaultsTo24h(t *testing.T) {
+	config := BucketPithosysConfig{}
 
 	got := config.ScanInterval(DefaultScanInterval)
 	if got != 24*time.Hour {
@@ -32,8 +32,8 @@ func TestBucketRelicConfigScanIntervalDefaultsTo24h(t *testing.T) {
 	}
 }
 
-func TestBucketRelicConfigScanIntervalParsesConfiguredValue(t *testing.T) {
-	config := BucketRelicConfig{
+func TestBucketPithosysConfigScanIntervalParsesConfiguredValue(t *testing.T) {
+	config := BucketPithosysConfig{
 		Scan: BucketScanConfig{
 			Enabled:  BoolPtr(true),
 			Interval: "6h",
@@ -46,8 +46,8 @@ func TestBucketRelicConfigScanIntervalParsesConfiguredValue(t *testing.T) {
 	}
 }
 
-func TestBucketRelicConfigScanDueWhenNeverScanned(t *testing.T) {
-	config := BucketRelicConfig{}
+func TestBucketPithosysConfigScanDueWhenNeverScanned(t *testing.T) {
+	config := BucketPithosysConfig{}
 	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
 
 	if !config.ScanDue(nil, now, DefaultScanInterval) {
@@ -55,8 +55,8 @@ func TestBucketRelicConfigScanDueWhenNeverScanned(t *testing.T) {
 	}
 }
 
-func TestBucketRelicConfigScanNotDueBeforeIntervalElapses(t *testing.T) {
-	config := BucketRelicConfig{
+func TestBucketPithosysConfigScanNotDueBeforeIntervalElapses(t *testing.T) {
+	config := BucketPithosysConfig{
 		Scan: BucketScanConfig{
 			Enabled:  BoolPtr(true),
 			Interval: "24h",
@@ -70,8 +70,8 @@ func TestBucketRelicConfigScanNotDueBeforeIntervalElapses(t *testing.T) {
 	}
 }
 
-func TestBucketRelicConfigScanDueAfterIntervalElapses(t *testing.T) {
-	config := BucketRelicConfig{
+func TestBucketPithosysConfigScanDueAfterIntervalElapses(t *testing.T) {
+	config := BucketPithosysConfig{
 		Scan: BucketScanConfig{
 			Enabled:  BoolPtr(true),
 			Interval: "24h",
@@ -85,8 +85,8 @@ func TestBucketRelicConfigScanDueAfterIntervalElapses(t *testing.T) {
 	}
 }
 
-func TestBucketRelicConfigScanNotDueWhenDisabled(t *testing.T) {
-	config := BucketRelicConfig{
+func TestBucketPithosysConfigScanNotDueWhenDisabled(t *testing.T) {
+	config := BucketPithosysConfig{
 		Scan: BucketScanConfig{Enabled: BoolPtr(false)},
 	}
 	now := time.Date(2026, 6, 27, 12, 0, 0, 0, time.UTC)
@@ -96,8 +96,8 @@ func TestBucketRelicConfigScanNotDueWhenDisabled(t *testing.T) {
 	}
 }
 
-func TestDefaultBucketRelicConfig(t *testing.T) {
-	config := DefaultBucketRelicConfig()
+func TestDefaultBucketPithosysConfig(t *testing.T) {
+	config := DefaultBucketPithosysConfig()
 
 	if !config.ScanEnabled() {
 		t.Fatal("ScanEnabled() = false, want true")

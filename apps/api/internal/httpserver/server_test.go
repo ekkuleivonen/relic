@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/ekkuleivonen/relic/apps/api/internal/config"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
+	"github.com/elei-io/pithosys/apps/api/internal/config"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
 )
 
 func TestNewConfiguresServer(t *testing.T) {
@@ -56,8 +56,8 @@ func TestHealthz(t *testing.T) {
 		t.Fatalf("decode health response: %v", err)
 	}
 
-	if body.Service != "relic-api" {
-		t.Fatalf("service = %q, want relic-api", body.Service)
+	if body.Service != "pithosys-api" {
+		t.Fatalf("service = %q, want pithosys-api", body.Service)
 	}
 
 	if body.Status != "ok" {
@@ -96,8 +96,8 @@ func TestOpenAPI(t *testing.T) {
 		t.Fatalf("decode OpenAPI response: %v", err)
 	}
 
-	if spec.Info.Title != "Relic API" {
-		t.Fatalf("title = %q, want Relic API", spec.Info.Title)
+	if spec.Info.Title != "Pithosys API" {
+		t.Fatalf("title = %q, want Pithosys API", spec.Info.Title)
 	}
 
 	if spec.Info.Version != "0.1.0" {

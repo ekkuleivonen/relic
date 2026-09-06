@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go/middleware"
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 type BucketConfig struct {
@@ -138,7 +138,7 @@ func (p staticCredentialsProvider) Retrieve(context.Context) (aws.Credentials, e
 		AccessKeyID:     p.credentials.AccessKeyID,
 		SecretAccessKey: p.credentials.SecretAccessKey,
 		SessionToken:    p.credentials.SessionToken,
-		Source:          "relic-s3compat-static",
+		Source:          "pithosys-s3compat-static",
 	}, nil
 }
 

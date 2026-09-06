@@ -13,7 +13,7 @@ from utils.logging import get_logger
 
 log = get_logger(__name__)
 
-_KEY_PREFIX = "relic"
+_KEY_PREFIX = "pithosys"
 
 
 class RedisClient:

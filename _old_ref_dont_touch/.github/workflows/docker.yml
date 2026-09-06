@@ -31,7 +31,7 @@ jobs:
       - id: meta-server
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository }}/relic-server
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/pithosys-server
           tags: |
             type=raw,value={{date 'YYYYMMDD-HHmmss' tz='UTC'}}
 
@@ -42,13 +42,13 @@ jobs:
           push: true
           tags: ${{ steps.meta-server.outputs.tags }}
           labels: ${{ steps.meta-server.outputs.labels }}
-          cache-from: type=gha,scope=relic-server
-          cache-to: type=gha,mode=max,scope=relic-server
+          cache-from: type=gha,scope=pithosys-server
+          cache-to: type=gha,mode=max,scope=pithosys-server
 
       - id: meta-client
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository }}/relic-client
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/pithosys-client
           tags: |
             type=raw,value={{date 'YYYYMMDD-HHmmss' tz='UTC'}}
 
@@ -59,5 +59,5 @@ jobs:
           push: true
           tags: ${{ steps.meta-client.outputs.tags }}
           labels: ${{ steps.meta-client.outputs.labels }}
-          cache-from: type=gha,scope=relic-client
-          cache-to: type=gha,mode=max,scope=relic-client
+          cache-from: type=gha,scope=pithosys-client
+          cache-to: type=gha,mode=max,scope=pithosys-client

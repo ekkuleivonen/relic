@@ -115,8 +115,8 @@ def check_configuration() -> dict[str, Any]:
         warnings.append("SESSION_SECRET is falling back to ENCRYPTION_SECRET")
     if S.REDIS_PASSWORD == "replace_me":
         warnings.append("REDIS_PASSWORD is using the local development default")
-    if S.RELIC_ADMIN_PASSWORD == "relic-admin":
-        warnings.append("RELIC_ADMIN_PASSWORD is using the local development default")
+    if S.PITHOSYS_ADMIN_PASSWORD == "pithosys-admin":
+        warnings.append("PITHOSYS_ADMIN_PASSWORD is using the local development default")
 
     return {
         "status": HealthStatus.OK.value,

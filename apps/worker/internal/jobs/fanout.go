@@ -1,6 +1,6 @@
 package jobs
 
-import "github.com/ekkuleivonen/relic/packages/storage"
+import "github.com/elei-io/pithosys/packages/storage"
 
 const (
 	ResultKeyChildJobIDs    = "child_job_ids"

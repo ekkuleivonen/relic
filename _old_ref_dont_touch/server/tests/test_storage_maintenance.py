@@ -170,7 +170,7 @@ def test_successful_scheduled_probe_records_probe_without_maintenance_event(
         def get_object(self, Bucket, Key):
             class Body:
                 def read(self):
-                    return b"relic-probe"
+                    return b"pithosys-probe"
 
             return {"Body": Body()}
 

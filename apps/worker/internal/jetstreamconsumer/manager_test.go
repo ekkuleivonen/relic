@@ -3,7 +3,7 @@ package jetstreamconsumer
 import (
 	"testing"
 
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func TestDiffJetStreamConsumers(t *testing.T) {

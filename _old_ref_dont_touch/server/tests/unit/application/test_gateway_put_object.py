@@ -45,7 +45,7 @@ def _add_bucket(db_session, **overrides):
 def test_put_object_with_memory_storage(db_session, photos_folder):
     _add_bucket(db_session, name="hot")
     storage = MemoryStorageRegistry()
-    user = UserFactory.build(email="user@relic.local", role=UserRole.ADMIN)
+    user = UserFactory.build(email="user@pithosys.local", role=UserRole.ADMIN)
     db_session.add(user)
     db_session.commit()
 
@@ -53,7 +53,7 @@ def test_put_object_with_memory_storage(db_session, photos_folder):
     result = object_writes.put_object(
         db_session,
         storage=storage,
-        bucket_name="relic",
+        bucket_name="pithosys",
         key="photos/2026/cat.jpg",
         body=body,
         ingest_meta={"album": "spring"},
@@ -70,7 +70,7 @@ def test_put_object_with_memory_storage(db_session, photos_folder):
 def test_put_object_deduplicates_identical_bytes(db_session, photos_folder):
     _add_bucket(db_session, name="hot")
     storage = MemoryStorageRegistry()
-    user = UserFactory.build(email="user@relic.local", role=UserRole.ADMIN)
+    user = UserFactory.build(email="user@pithosys.local", role=UserRole.ADMIN)
     db_session.add(user)
     db_session.commit()
 
@@ -78,7 +78,7 @@ def test_put_object_deduplicates_identical_bytes(db_session, photos_folder):
     first = object_writes.put_object(
         db_session,
         storage=storage,
-        bucket_name="relic",
+        bucket_name="pithosys",
         key="photos/a.jpg",
         body=body,
         ingest_meta={},
@@ -87,7 +87,7 @@ def test_put_object_deduplicates_identical_bytes(db_session, photos_folder):
     second = object_writes.put_object(
         db_session,
         storage=storage,
-        bucket_name="relic",
+        bucket_name="pithosys",
         key="photos/b.jpg",
         body=body,
         ingest_meta={},

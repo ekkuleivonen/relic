@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func TestAttributesFromHead(t *testing.T) {

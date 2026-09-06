@@ -1,6 +1,6 @@
 package upstreamprocessor
 
-import "github.com/ekkuleivonen/relic/packages/storage"
+import "github.com/elei-io/pithosys/packages/storage"
 
 type CoalesceInput struct {
 	EventID  string

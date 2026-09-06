@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from tests.factories.models import StorageBackendFactory, UserFactory
 
-GATEWAY_BUCKET = "relic"
+GATEWAY_BUCKET = "pithosys"
 
 
 @pytest.fixture()
@@ -31,7 +31,7 @@ def client(db_session):
 
 @pytest.fixture()
 def user(db_session):
-    user = UserFactory.build(email="user@relic.local")
+    user = UserFactory.build(email="user@pithosys.local")
     db_session.add(user)
     db_session.commit()
     return user

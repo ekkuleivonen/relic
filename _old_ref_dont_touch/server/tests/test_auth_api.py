@@ -29,7 +29,7 @@ def test_login_sets_session_cookie_and_returns_user(client, db_session):
 
     assert response.status_code == 200
     assert response.json()["user"]["email"] == "ada@example.com"
-    assert "relic_session" in response.cookies
+    assert "pithosys_session" in response.cookies
 
 
 def test_failed_login_returns_bad_request(client, db_session):

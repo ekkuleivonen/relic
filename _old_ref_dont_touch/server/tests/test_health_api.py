@@ -32,7 +32,7 @@ def stub_external_health(monkeypatch):
         return {
             "status": HealthStatus.OK.value,
             "queues": {
-                "relic:maintenance": {"depth": 0, "oldest_pending_age_seconds": None},
+                "pithosys:maintenance": {"depth": 0, "oldest_pending_age_seconds": None},
             },
         }
 
@@ -148,4 +148,4 @@ def test_metrics_endpoint_exposes_prometheus_metrics(client):
 
     assert response.status_code == 200
     assert "text/plain" in response.headers["content-type"]
-    assert "relic_api_requests_total" in response.text
+    assert "pithosys_api_requests_total" in response.text

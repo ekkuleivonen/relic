@@ -6,7 +6,7 @@ import settings as S
 
 
 def gateway_bucket_name() -> str:
-    return S.RELIC_GATEWAY_BUCKET
+    return S.PITHOSYS_GATEWAY_BUCKET
 
 
 def require_gateway_bucket(bucket_name: str) -> None:

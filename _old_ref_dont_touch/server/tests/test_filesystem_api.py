@@ -23,7 +23,7 @@ from utils.passwords import hash_password
 def user(db_session):
     user = User(
         name="User",
-        email="user@relic.local",
+        email="user@pithosys.local",
         password_hash=hash_password("password"),
         role=UserRole.USER,
     )
@@ -40,7 +40,7 @@ def client(db_session, user):
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(user))
+            test_client.cookies.set("pithosys_session", create_session_token(user))
             yield test_client
     finally:
         app.dependency_overrides.clear()
@@ -130,7 +130,7 @@ def test_get_folder_tree_includes_storage_preference_for_admin(db_session, root_
     photos.preferred_storage_backend_id = bucket.id
     db_session.commit()
 
-    admin = UserFactory.build(email="admin-pref@relic.local", role=UserRole.ADMIN)
+    admin = UserFactory.build(email="admin-pref@pithosys.local", role=UserRole.ADMIN)
     db_session.add(admin)
     db_session.commit()
 
@@ -140,7 +140,7 @@ def test_get_folder_tree_includes_storage_preference_for_admin(db_session, root_
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as admin_client:
-            admin_client.cookies.set("relic_session", create_session_token(admin))
+            admin_client.cookies.set("pithosys_session", create_session_token(admin))
             response = admin_client.get("/api/folders/tree")
     finally:
         app.dependency_overrides.clear()
@@ -158,13 +158,13 @@ def test_admin_get_folder_tree_bypasses_folder_access(db_session, root_folder):
 
     photos = add_folder(db_session, root_folder, "photos")
     add_folder(db_session, photos, "raw")
-    admin = UserFactory.build(email="admin@relic.local", role=UserRole.ADMIN)
+    admin = UserFactory.build(email="admin@pithosys.local", role=UserRole.ADMIN)
     db_session.add(admin)
     db_session.commit()
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as admin_client:
-            admin_client.cookies.set("relic_session", create_session_token(admin))
+            admin_client.cookies.set("pithosys_session", create_session_token(admin))
             response = admin_client.get("/api/folders/tree")
     finally:
         app.dependency_overrides.clear()

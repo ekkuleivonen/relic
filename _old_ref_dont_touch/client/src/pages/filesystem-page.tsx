@@ -680,7 +680,7 @@ function EmptyState({
   )
 }
 
-const FILESYSTEM_ONBOARDING_KEY = "relic:filesystem-onboarding-v1"
+const FILESYSTEM_ONBOARDING_KEY = "pithosys:filesystem-onboarding-v1"
 
 function TreeSkeleton() {
   return (

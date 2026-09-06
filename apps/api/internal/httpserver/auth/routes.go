@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
-	"github.com/ekkuleivonen/relic/packages/auth"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
+	"github.com/elei-io/pithosys/packages/auth"
 )
 
 func Register(api huma.API, dependencies deps.Dependencies, basePath string) {

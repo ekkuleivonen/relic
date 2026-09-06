@@ -6,7 +6,7 @@ const DefaultScanInterval = 24 * time.Hour
 
 const defaultScanIntervalString = "24h"
 
-type BucketRelicConfig struct {
+type BucketPithosysConfig struct {
 	Scan BucketScanConfig `json:"scan"`
 }
 
@@ -15,8 +15,8 @@ type BucketScanConfig struct {
 	Interval string `json:"interval,omitempty"`
 }
 
-func DefaultBucketRelicConfig() BucketRelicConfig {
-	return BucketRelicConfig{
+func DefaultBucketPithosysConfig() BucketPithosysConfig {
+	return BucketPithosysConfig{
 		Scan: BucketScanConfig{
 			Enabled:  BoolPtr(true),
 			Interval: defaultScanIntervalString,
@@ -28,7 +28,7 @@ func BoolPtr(value bool) *bool {
 	return &value
 }
 
-func (c BucketRelicConfig) ScanEnabled() bool {
+func (c BucketPithosysConfig) ScanEnabled() bool {
 	if c.Scan.Enabled == nil {
 		return true
 	}
@@ -36,7 +36,7 @@ func (c BucketRelicConfig) ScanEnabled() bool {
 	return *c.Scan.Enabled
 }
 
-func (c BucketRelicConfig) ScanInterval(fallback time.Duration) time.Duration {
+func (c BucketPithosysConfig) ScanInterval(fallback time.Duration) time.Duration {
 	if c.Scan.Interval == "" {
 		return fallback
 	}
@@ -49,7 +49,7 @@ func (c BucketRelicConfig) ScanInterval(fallback time.Duration) time.Duration {
 	return parsed
 }
 
-func (c BucketRelicConfig) ScanDue(lastFinished *time.Time, now time.Time, fallbackInterval time.Duration) bool {
+func (c BucketPithosysConfig) ScanDue(lastFinished *time.Time, now time.Time, fallbackInterval time.Duration) bool {
 	if !c.ScanEnabled() {
 		return false
 	}

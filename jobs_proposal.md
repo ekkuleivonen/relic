@@ -2,11 +2,11 @@
 
 ## Direction
 
-Relic should start with hardcoded background job types, not a dynamic job system.
+Pithosys should start with hardcoded background job types, not a dynamic job system.
 
-The durable primitive is `job_runs`: records of work Relic has queued, is running, or has completed. The runnable job types live in Go code as constants and handlers. This keeps the first implementation small while still giving Relic durable progress, retries, locking, and UI visibility.
+The durable primitive is `job_runs`: records of work Pithosys has queued, is running, or has completed. The runnable job types live in Go code as constants and handlers. This keeps the first implementation small while still giving Pithosys durable progress, retries, locking, and UI visibility.
 
-Do not add `jobs` or `job_triggers` tables yet. They may become useful later if Relic supports user-defined jobs, configurable schedules, external workers, or hosted execution. Until then, they create configuration drift without solving a current product problem.
+Do not add `jobs` or `job_triggers` tables yet. They may become useful later if Pithosys supports user-defined jobs, configurable schedules, external workers, or hosted execution. Until then, they create configuration drift without solving a current product problem.
 
 The conceptual split should stay simple:
 
@@ -33,7 +33,7 @@ cleanup_runs
 
 ### `sync_bucket`
 
-Reconcile upstream state into Relic for a whole bucket or a subset.
+Reconcile upstream state into Pithosys for a whole bucket or a subset.
 
 It can run against:
 
@@ -51,7 +51,7 @@ Example input:
 }
 ```
 
-This is the heavy planner path for making Relic's catalog match storage. It lists upstream objects, compares that listing with Relic's active catalog, and creates child `job_runs` for the actual mutations:
+This is the heavy planner path for making Pithosys's catalog match storage. It lists upstream objects, compares that listing with Pithosys's active catalog, and creates child `job_runs` for the actual mutations:
 
 * `import_objects` for keys that exist upstream but not locally.
 * `refresh_objects` for existing keys whose cheap listing evidence changed.
@@ -85,13 +85,13 @@ This job should avoid broad mutation. It is a detection and confidence job.
 
 ### `import_objects`
 
-Import or upsert one or more objects into Relic.
+Import or upsert one or more objects into Pithosys.
 
-This is the path for upstream create/PUT notifications, targeted imports, and new keys discovered by `sync_bucket`. It should fetch upstream metadata for the specified keys and create or update Relic object rows.
+This is the path for upstream create/PUT notifications, targeted imports, and new keys discovered by `sync_bucket`. It should fetch upstream metadata for the specified keys and create or update Pithosys object rows.
 
 Job input should carry bucket/key/version fields and any cheap evidence already known from a listing or event.
 
-The handler should convert upstream-shaped evidence into Relic's attribute namespaces before writing storage rows. That conversion should live in one reusable, well-tested mapper, not be reimplemented in each handler. If conversion fails, the `import_objects` run should fail visibly and be retried or inspected like any other job failure.
+The handler should convert upstream-shaped evidence into Pithosys's attribute namespaces before writing storage rows. That conversion should live in one reusable, well-tested mapper, not be reimplemented in each handler. If conversion fails, the `import_objects` run should fail visibly and be retried or inspected like any other job failure.
 
 If the input includes a complete enough upstream snapshot, the handler can use it directly and skip a remote metadata read. Otherwise, it should call the upstream to read object metadata, then run the same mapper.
 
@@ -116,9 +116,9 @@ Example input:
 
 ### `remove_objects`
 
-Remove one or more objects from Relic.
+Remove one or more objects from Pithosys.
 
-This is the path for upstream delete notifications and local rows missing from a `sync_bucket` listing. The bytes remain in object storage; this job removes Relic's catalog object because Relic no longer believes that object exists in the bucket.
+This is the path for upstream delete notifications and local rows missing from a `sync_bucket` listing. The bytes remain in object storage; this job removes Pithosys's catalog object because Pithosys no longer believes that object exists in the bucket.
 
 Example input:
 
@@ -138,13 +138,13 @@ Example input:
 
 ### `refresh_objects`
 
-Refresh Relic's known metadata or attributes for existing objects.
+Refresh Pithosys's known metadata or attributes for existing objects.
 
 This can handle upstream metadata changes, tag changes, user-driven attribute refreshes, or changed listing evidence found by `sync_bucket`. The job should support batches because many refreshes will be independent per object. It should HEAD each requested object and update the existing object row with fresh `upstream.*` attributes and provenance.
 
 ### `extract_attributes`
 
-Run Relic's opinionated built-in extractor for object attributes.
+Run Pithosys's opinionated built-in extractor for object attributes.
 
 This should start minimal and practical:
 
@@ -164,9 +164,9 @@ Detect duplicate objects and create `duplicate` relationships.
 
 This should start with a cheap candidate pass over matching upstream ETags. ETags are not enough to prove duplication across all upstreams and upload modes, but they are useful for narrowing the search space.
 
-For each matching ETag group, the job should compute a content hash for the candidate objects. If the content hashes match, Relic should create a relationship with type `duplicate` between the matching objects.
+For each matching ETag group, the job should compute a content hash for the candidate objects. If the content hashes match, Pithosys should create a relationship with type `duplicate` between the matching objects.
 
-This job should not be limited to a single bucket. It should support all catalog objects, selected buckets, or prefix-scoped subsets so Relic can detect duplicates across buckets.
+This job should not be limited to a single bucket. It should support all catalog objects, selected buckets, or prefix-scoped subsets so Pithosys can detect duplicates across buckets.
 
 Example input:
 
@@ -327,7 +327,7 @@ Reasons:
 * The UI needs to list runs, show detail, and poll progress.
 * `FOR UPDATE SKIP LOCKED` supports safe concurrent workers.
 * Retry, locking, progress, result, and error state live in one place.
-* It keeps executable work durable in Relic-owned storage even when upstream events arrive through JetStream.
+* It keeps executable work durable in Pithosys-owned storage even when upstream events arrive through JetStream.
 
 Claiming work should happen transactionally:
 
@@ -356,14 +356,14 @@ Runner loop:
 This keeps deployment simple now:
 
 ```text
-relic api
+pithosys api
 ```
 
 But leaves room for later:
 
 ```text
-relic api
-relic worker
+pithosys api
+pithosys worker
 ```
 
 Both processes would use the same repositories and claim semantics.
@@ -392,7 +392,7 @@ The `sync_bucket` handler should:
 2. Decrypt credentials through `secrets.Manager`.
 3. Build the upstream adapter from bucket upstream/config.
 4. List objects page by page.
-5. Load Relic's local object rows for the same scope.
+5. Load Pithosys's local object rows for the same scope.
 6. Compare upstream listing evidence against local `attributes.upstream`.
 7. Create `import_objects`, `refresh_objects`, and `remove_objects` child runs in bounded batches.
 8. Update `job_runs.progress` with phase and counters (`listing`, `planning`, `importing`, `refreshing`, `removing`).
@@ -407,9 +407,9 @@ The child handlers own catalog mutations. `import_objects` and `refresh_objects`
 
 ## Upstream Events
 
-Upstream notifications arrive through platform-provided NATS JetStream. JetStream is durable transport, but Postgres should still be Relic's durable receipt and job state.
+Upstream notifications arrive through platform-provided NATS JetStream. JetStream is durable transport, but Postgres should still be Pithosys's durable receipt and job state.
 
-Upstream events should flow through a Relic-owned inbox before becoming jobs:
+Upstream events should flow through a Pithosys-owned inbox before becoming jobs:
 
 ```text
 Upstream event
@@ -469,7 +469,7 @@ type UpstreamFactory interface {
 }
 ```
 
-An S3-compatible implementation can live under a upstream package, while storage remains responsible only for persisted Relic data.
+An S3-compatible implementation can live under a upstream package, while storage remains responsible only for persisted Pithosys data.
 
 ## JetStream And Postgres
 
@@ -485,12 +485,12 @@ JetStream = upstream event transport
 Good uses for JetStream:
 
 * Carry upstream notifications from the platform.
-* Absorb upstream-side bursts before Relic consumes them.
-* Replay upstream notifications into Relic's `upstream_events` inbox.
+* Absorb upstream-side bursts before Pithosys consumes them.
+* Replay upstream notifications into Pithosys's `upstream_events` inbox.
 * Publish `job_run.created`, `job_run.progressed`, and `job_run.completed` events.
 * Support higher-throughput event-driven import/remove/refresh paths.
 
-If JetStream is down, Relic may stop receiving new upstream events, but Postgres should still contain all accepted upstream events, durable job state, and catalog state. Workers should still be able to poll `job_runs`.
+If JetStream is down, Pithosys may stop receiving new upstream events, but Postgres should still contain all accepted upstream events, durable job state, and catalog state. Workers should still be able to poll `job_runs`.
 
 ## Implementation Order
 

@@ -3,20 +3,20 @@ package s3events
 import (
 	"testing"
 
-	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
+	"github.com/elei-io/pithosys/packages/upstreams/s3compat"
 )
 
 func TestParseLegacyRustFSSnakeCasePayload(t *testing.T) {
 	body := []byte(`{
 		"event_name": "ObjectCreatedPut",
-		"key": "relic-fixtures/photos/a.jpg",
+		"key": "pithosys-fixtures/photos/a.jpg",
 		"records": [{
 			"eventVersion": "2.1",
 			"eventSource": "rustfs:s3",
 			"eventTime": "2026-06-26T01:00:00.000Z",
 			"eventName": "ObjectCreatedPut",
 			"s3": {
-				"bucket": {"name": "relic-fixtures"},
+				"bucket": {"name": "pithosys-fixtures"},
 				"object": {"key": "photos/a.jpg", "size": 434234, "eTag": "fba9dede5f27731c9771645a39863328"}
 			}
 		}]

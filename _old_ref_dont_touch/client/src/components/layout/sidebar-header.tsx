@@ -10,7 +10,7 @@ export function SidebarHeader({ section }: SidebarHeaderProps) {
       <div className="flex items-center gap-2">
         <img src="/logo.svg" alt="" className="size-7 rounded-sm" />
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <div className="text-lg font-semibold tracking-tight">Relic</div>
+          <div className="text-lg font-semibold tracking-tight">Pithosys</div>
           {section === "admin" && (
             <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[0.625rem] font-medium tracking-wide text-blue-700 uppercase dark:text-blue-300">
               admin

@@ -21,8 +21,8 @@ export function JetStreamFields({
   onFieldChange,
 }: JetStreamFieldsProps) {
   const consumerPlaceholder = bucketId
-    ? `relic-${bucketId}`
-    : "relic-{bucket_id}"
+    ? `pithosys-${bucketId}`
+    : "pithosys-{bucket_id}"
 
   return (
     <div className="grid gap-4 rounded-lg border bg-background/60 p-3">

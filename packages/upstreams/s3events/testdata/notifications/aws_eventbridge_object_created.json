@@ -12,13 +12,13 @@
     "time": "2026-06-26T01:00:00.000Z",
     "region": "us-east-1",
     "resources": [
-      "arn:aws:s3:::relic-fixtures"
+      "arn:aws:s3:::pithosys-fixtures"
     ],
     "detail": {
       "version": "0",
       "event-version": "1.0",
       "bucket": {
-        "name": "relic-fixtures"
+        "name": "pithosys-fixtures"
       },
       "object": {
         "key": "photos/a.jpg",

@@ -108,7 +108,7 @@ Bytes are always gateway. No exceptions. Even when "bytes" technically means "me
 
 Metadata is usually control plane. Except where S3 has a verb that's exactly the right shape and DuckLake-or-similar will exercise it (DELETE, LIST). Then the gateway has to handle it for compatibility, and the UI uses it too for consistency.
 
-Operations Relic invents (folder copy, schema edit, bulk ops, ACLs) are control plane only. The gateway has no equivalent and shouldn't try to grow one.
+Operations Pithosys invents (folder copy, schema edit, bulk ops, ACLs) are control plane only. The gateway has no equivalent and shouldn't try to grow one.
 
 ## The Decision Rule, Restated
 
@@ -124,6 +124,6 @@ The middle case is the rare one. Most operations sort cleanly into bytes or meta
 
 The gateway needs to be solid for the operations in the bottom block (DuckLake / external) before anyone outside the UI uses the system. That's your hard compatibility surface. The UI-only gateway operations (single-file delete, copy via CopyObject) are essentially free riders — if HEAD/GET/PUT/DELETE/LIST work for DuckLake, the UI's gateway operations work too.
 
-The control plane is broader but less protocol-sensitive. You can ship CRUD endpoints as the UI needs them; nothing external depends on their exact shape. This is where you get to be opinionated and Relic-flavored rather than S3-flavored.
+The control plane is broader but less protocol-sensitive. You can ship CRUD endpoints as the UI needs them; nothing external depends on their exact shape. This is where you get to be opinionated and Pithosys-flavored rather than S3-flavored.
 
 Build the gateway to a high standard once (DuckLake forces this); build the control plane progressively as features land.

@@ -1,6 +1,6 @@
 package config
 
-import "github.com/ekkuleivonen/relic/packages/auth"
+import "github.com/elei-io/pithosys/packages/auth"
 
 func (c Config) AuthServiceConfig() auth.Config {
 	return auth.Config{

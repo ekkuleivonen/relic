@@ -1,26 +1,26 @@
 x-server-environment: &server-environment
   POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
   POSTGRES_PORT: "${POSTGRES_PORT:-5432}"
-  POSTGRES_DB: ${POSTGRES_DB:-relic}
-  POSTGRES_USER: ${POSTGRES_USER:-relic}
-  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-relic}
+  POSTGRES_DB: ${POSTGRES_DB:-pithosys}
+  POSTGRES_USER: ${POSTGRES_USER:-pithosys}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pithosys}
   REDIS_HOST: redis
   REDIS_PORT: "6379"
   REDIS_PASSWORD: ${REDIS_PASSWORD:-replace_me}
-  MAINTENANCE_QUEUE_NAME: ${MAINTENANCE_QUEUE_NAME:-relic:maintenance}
+  MAINTENANCE_QUEUE_NAME: ${MAINTENANCE_QUEUE_NAME:-pithosys:maintenance}
   ENCRYPTION_SECRET: ${ENCRYPTION_SECRET:-dev-encryption-secret-change-me}
   SESSION_SECRET: ${SESSION_SECRET:-dev-encryption-secret-change-me}
   SESSION_COOKIE_SECURE: "false"
   S3_CORS_ALLOWED_ORIGINS: ${S3_CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8000}
   EVENT_RETENTION_DAYS: "${EVENT_RETENTION_DAYS:-90}"
   # Default base path for filesystem storage backends (register in admin UI).
-  STORAGE_FILESYSTEM_BASE_PATH: /var/relic/storage
+  STORAGE_FILESYSTEM_BASE_PATH: /var/pithosys/storage
 
 x-server-volumes: &server-volumes
-  - filesystem_data:/var/relic/storage
+  - filesystem_data:/var/pithosys/storage
 
 x-server-service: &server-service
-  image: relic-server:local
+  image: pithosys-server:local
   build:
     context: ./server
   environment: *server-environment
@@ -29,17 +29,17 @@ x-server-service: &server-service
 services:
   postgres:
     image: postgres:latest
-    container_name: relic_postgres
+    container_name: pithosys_postgres
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-relic}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-relic}
-      POSTGRES_DB: ${POSTGRES_DB:-relic}
+      POSTGRES_USER: ${POSTGRES_USER:-pithosys}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pithosys}
+      POSTGRES_DB: ${POSTGRES_DB:-pithosys}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-relic}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pithosys}"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -51,7 +51,7 @@ services:
 
   redis:
     image: redis:latest
-    container_name: relic_redis
+    container_name: pithosys_redis
     command: redis-server --requirepass ${REDIS_PASSWORD:-replace_me} --appendonly yes --appendfsync everysec --save ""
     ports:
       - "6379:6379"
@@ -70,7 +70,7 @@ services:
 
   seed:
     <<: *server-service
-    container_name: relic_seed
+    container_name: pithosys_seed
     command: python seed.py
     depends_on:
       postgres:
@@ -78,7 +78,7 @@ services:
 
   api:
     <<: *server-service
-    container_name: relic_api
+    container_name: pithosys_api
     command: uvicorn api.app:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-2}
     restart: unless-stopped
     ports:
@@ -91,7 +91,7 @@ services:
 
   worker-maintenance:
     <<: *server-service
-    container_name: relic_worker_maintenance
+    container_name: pithosys_worker_maintenance
     command: arq workers.maintenance.WorkerSettings
     restart: unless-stopped
     ports:
@@ -103,10 +103,10 @@ services:
         condition: service_healthy
 
   client:
-    image: relic-client:local
+    image: pithosys-client:local
     build:
       context: ./client
-    container_name: relic_client
+    container_name: pithosys_client
     restart: unless-stopped
     ports:
       - "3000:80"
@@ -116,7 +116,7 @@ services:
 
   garage-hot:
     image: dxflrs/garage:v2.0.0
-    container_name: relic_garage_hot
+    container_name: pithosys_garage_hot
     volumes:
       - ./garage-hot.toml:/etc/garage.toml
       - garage_hot_meta:/var/lib/garage/meta
@@ -129,7 +129,7 @@ services:
 
   garage-cold:
     image: dxflrs/garage:v2.0.0
-    container_name: relic_garage_cold
+    container_name: pithosys_garage_cold
     volumes:
       - ./garage-cold.toml:/etc/garage.toml
       - garage_cold_meta:/var/lib/garage/meta
@@ -142,7 +142,7 @@ services:
 
   garage-webui-hot:
     image: khairul169/garage-webui:latest
-    container_name: relic_garage_webui_hot
+    container_name: pithosys_garage_webui_hot
     restart: unless-stopped
     volumes:
       - ./garage-hot.toml:/etc/garage.toml:ro
@@ -158,7 +158,7 @@ services:
 
   garage-webui-cold:
     image: khairul169/garage-webui:latest
-    container_name: relic_garage_webui_cold
+    container_name: pithosys_garage_webui_cold
     restart: unless-stopped
     volumes:
       - ./garage-cold.toml:/etc/garage.toml:ro

@@ -3,7 +3,7 @@ package detect_duplicates
 import (
 	"testing"
 
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func TestOriginalObjectUsesOldestUpstreamLastModified(t *testing.T) {

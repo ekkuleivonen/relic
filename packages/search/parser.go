@@ -677,7 +677,7 @@ func (p *queryParser) isKeyword(keyword string) bool {
 }
 
 func (p *queryParser) errorf(format string, args ...any) error {
-	return fmt.Errorf("parse RelicQL at token %d: %s", p.pos, fmt.Sprintf(format, args...))
+	return fmt.Errorf("parse PithosysQL at token %d: %s", p.pos, fmt.Sprintf(format, args...))
 }
 
 func pointerExpr(expr Expr) Expr {
@@ -827,7 +827,7 @@ func lex(input string) ([]token, error) {
 			i++
 		case ':':
 			if i+1 >= len(input) || input[i+1] != ':' {
-				return nil, fmt.Errorf("lex RelicQL at byte %d: unexpected character ':'", i)
+				return nil, fmt.Errorf("lex PithosysQL at byte %d: unexpected character ':'", i)
 			}
 			tokens = append(tokens, token{kind: tokenCast, literal: "::"})
 			i += 2
@@ -842,7 +842,7 @@ func lex(input string) ([]token, error) {
 			tokens = append(tokens, token{kind: tokenOperator, literal: operator})
 			i = next
 		default:
-			return nil, fmt.Errorf("lex RelicQL at byte %d: unexpected character %q", i, input[i])
+			return nil, fmt.Errorf("lex PithosysQL at byte %d: unexpected character %q", i, input[i])
 		}
 	}
 
@@ -867,7 +867,7 @@ func scanString(input string, start int) (string, int, error) {
 		return builder.String(), i + 1, nil
 	}
 
-	return "", 0, fmt.Errorf("lex RelicQL at byte %d: unterminated string", start)
+	return "", 0, fmt.Errorf("lex PithosysQL at byte %d: unterminated string", start)
 }
 
 func scanNumber(input string, start int) (string, int, error) {
@@ -886,7 +886,7 @@ func scanNumber(input string, start int) (string, int, error) {
 		i++
 	}
 	if fractionStart == i {
-		return "", 0, fmt.Errorf("lex RelicQL at byte %d: invalid float literal", start)
+		return "", 0, fmt.Errorf("lex PithosysQL at byte %d: invalid float literal", start)
 	}
 
 	return input[start:i], i, nil
@@ -905,7 +905,7 @@ func scanOperator(input string, start int) (string, int, error) {
 	case '=', '<', '>':
 		return input[start : start+1], start + 1, nil
 	default:
-		return "", 0, fmt.Errorf("lex RelicQL at byte %d: unsupported operator", start)
+		return "", 0, fmt.Errorf("lex PithosysQL at byte %d: unsupported operator", start)
 	}
 }
 

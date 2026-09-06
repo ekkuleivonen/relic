@@ -165,7 +165,7 @@ export function StorageBackendsPage() {
             <DialogTitle>Add Storage Backend</DialogTitle>
             <DialogDescription>
               Register a remote S3-compatible namespace or a local filesystem
-              directory for Relic to place blobs.
+              directory for Pithosys to place blobs.
             </DialogDescription>
           </DialogHeader>
           <StorageBackendForm

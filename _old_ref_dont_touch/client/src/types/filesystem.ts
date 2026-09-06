@@ -26,7 +26,7 @@ export type Folder = {
   effective_preferred_storage_backend_id?: string | null
 }
 
-/** Opaque consumer-owned metadata; shape is not enforced by Relic. */
+/** Opaque consumer-owned metadata; shape is not enforced by Pithosys. */
 export type FileMeta = Record<string, unknown>
 
 export type FileGateway = {

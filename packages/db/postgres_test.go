@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ekkuleivonen/relic/packages/testdb"
+	"github.com/elei-io/pithosys/packages/testdb"
 )
 
 func TestConnectRejectsMissingDatabaseURL(t *testing.T) {

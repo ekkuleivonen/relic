@@ -1,4 +1,4 @@
-# ADR 0002: Use RelicQL as the Search and Collection Query Contract
+# ADR 0002: Use PithosysQL as the Search and Collection Query Contract
 
 ## Status
 
@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Relic's search surface is not only an object list filter.
+Pithosys's search surface is not only an object list filter.
 
 Search will eventually support:
 
@@ -17,27 +17,27 @@ Search will eventually support:
 * Cross-bucket inventory views.
 * Future relation, event, and governance queries.
 
-The manifest describes collections as saved searches and recommends avoiding a new query language unless there is a clear need. At the same time, storing raw Postgres SQL as the durable collection contract would expose Relic's physical storage layout, make permission checks harder, and couple saved collections to current JSONB implementation details.
+The manifest describes collections as saved searches and recommends avoiding a new query language unless there is a clear need. At the same time, storing raw Postgres SQL as the durable collection contract would expose Pithosys's physical storage layout, make permission checks harder, and couple saved collections to current JSONB implementation details.
 
-Relic needs a query contract that is close enough to SQL to feel familiar and work well in an editor, but constrained enough that the backend can validate and compile it safely.
+Pithosys needs a query contract that is close enough to SQL to feel familiar and work well in an editor, but constrained enough that the backend can validate and compile it safely.
 
 ## Decision
 
-Relic will introduce **RelicQL v1**, a SQL-shaped query language over Relic primitives.
+Pithosys will introduce **PithosysQL v1**, a SQL-shaped query language over Pithosys primitives.
 
-The frontend may treat RelicQL as text and provide an editor experience with Postgres-like syntax highlighting, autocomplete, and linting.
+The frontend may treat PithosysQL as text and provide an editor experience with Postgres-like syntax highlighting, autocomplete, and linting.
 
-The backend will never execute RelicQL text directly.
+The backend will never execute PithosysQL text directly.
 
 Backend execution flow:
 
-1. Parse RelicQL text into a canonical AST.
-2. Bind and validate the AST against Relic's current field and attribute definitions.
+1. Parse PithosysQL text into a canonical AST.
+2. Bind and validate the AST against Pithosys's current field and attribute definitions.
 3. Record query dependencies.
 4. Compile the bound query to parameterized storage queries.
 5. Execute only the generated parameterized query.
 
-RelicQL v1 starts with objects:
+PithosysQL v1 starts with objects:
 
 ```sql
 FROM objects
@@ -53,7 +53,7 @@ Saved collections should store the authoring text, canonical AST, and bound depe
 {
   "query_text": "FROM objects WHERE attr('user.owner') = 'finance'",
   "query_ast": {
-    "version": "relicql.v1",
+    "version": "pithosysql.v1",
     "from": "objects",
     "where": {
       "op": "eq",
@@ -61,7 +61,7 @@ Saved collections should store the authoring text, canonical AST, and bound depe
       "right": { "string": "finance" }
     }
   },
-  "query_version": "relicql.v1",
+  "query_version": "pithosysql.v1",
   "dependencies": [
     {
       "kind": "attribute",
@@ -77,15 +77,15 @@ The query text is the editable authoring form.
 
 The AST is the parsed syntax form.
 
-The bound dependencies are the view-like contract Relic uses to validate, invalidate, refresh, and explain collections.
+The bound dependencies are the view-like contract Pithosys uses to validate, invalidate, refresh, and explain collections.
 
 ## Collections As Managed Views
 
-Relic collections are managed views over Relic primitives.
+Pithosys collections are managed views over Pithosys primitives.
 
 The default collection mode is virtual:
 
-* Relic stores the query definition.
+* Pithosys stores the query definition.
 * Collection reads execute the current valid query.
 * Membership is derived, not manually maintained.
 
@@ -113,11 +113,11 @@ Examples:
 * An attribute changes from `integer` to `string`.
 * A future relation type used by a collection is removed or redefined.
 
-This is expected. Collections should fail like schema-bound database views, not like ad hoc runtime queries. Relic should know what a collection depends on and explain why it is invalid or stale.
+This is expected. Collections should fail like schema-bound database views, not like ad hoc runtime queries. Pithosys should know what a collection depends on and explain why it is invalid or stale.
 
 ## Relationships
 
-Object relationships should become queryable facts in RelicQL.
+Object relationships should become queryable facts in PithosysQL.
 
 Future syntax may look like:
 
@@ -126,7 +126,7 @@ FROM objects
 WHERE EXISTS relation(type = 'duplicate')
 ```
 
-or a more Relic-specific helper:
+or a more Pithosys-specific helper:
 
 ```sql
 FROM objects
@@ -161,7 +161,7 @@ This reinforces the need for a bound query and dependency layer. Search cannot b
 
 ## Initial Scope
 
-RelicQL v1 initially supports:
+PithosysQL v1 initially supports:
 
 * `FROM objects`.
 * `WHERE` boolean predicates.
@@ -178,7 +178,7 @@ The first implementation may support only a subset of those features, but the pa
 
 `packages/search` owns:
 
-* RelicQL AST types.
+* PithosysQL AST types.
 * Text parsing.
 * AST binding and validation.
 * Field and attribute definition registry interfaces.
@@ -189,7 +189,7 @@ The first implementation may support only a subset of those features, but the pa
 
 `packages/storage` owns:
 
-* Compiling validated and bound RelicQL queries to Postgres queries.
+* Compiling validated and bound PithosysQL queries to Postgres queries.
 * JSONB path handling.
 * Parameter binding.
 * Index-aware storage optimizations.
@@ -202,9 +202,9 @@ The first implementation may support only a subset of those features, but the pa
 
 `apps/web` owns:
 
-* RelicQL editor UI.
+* PithosysQL editor UI.
 * Autocomplete and linting integration.
-* Query builder affordances that produce RelicQL text or ASTs.
+* Query builder affordances that produce PithosysQL text or ASTs.
 
 Collections own:
 
@@ -216,7 +216,7 @@ Collections own:
 
 ## Consequences
 
-This gives Relic:
+This gives Pithosys:
 
 * A single query model for search, saved collections, jobs, and future workflows.
 * A SQL-like user experience without exposing raw SQL execution.
@@ -224,17 +224,17 @@ This gives Relic:
 * A safe path to CodeMirror syntax highlighting and autocomplete.
 * A clean boundary between product semantics and Postgres JSONB details.
 
-This also costs Relic:
+This also costs Pithosys:
 
 * A parser and validator must be maintained.
-* RelicQL behavior must be documented and tested.
+* PithosysQL behavior must be documented and tested.
 * Query features need careful versioning as saved collections become durable product data.
 * Attribute and field definitions become schema-like dependencies for collections.
 * Collection invalidation and refresh behavior must be explicit once collections are persisted.
 
 ## Rules
 
-* Do not execute RelicQL text directly.
+* Do not execute PithosysQL text directly.
 * Do not store only raw query text for saved collections.
 * Keep AST parsing and validation free of database dependencies.
 * Bind collection queries against explicit field and attribute definitions.

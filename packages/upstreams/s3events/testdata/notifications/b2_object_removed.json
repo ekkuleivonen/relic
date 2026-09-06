@@ -8,12 +8,12 @@
       {
         "accountId": "e85c6a500333",
         "bucketId": "aea8c5bc362ae55070130333",
-        "bucketName": "relic-fixtures",
+        "bucketName": "pithosys-fixtures",
         "eventId": "c1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f80",
         "eventTimestamp": 1719393609123,
         "eventType": "b2:ObjectDeleted:Delete",
         "eventVersion": 1,
-        "matchedRuleName": "relic-import",
+        "matchedRuleName": "pithosys-import",
         "objectName": "photos/b.jpg",
         "objectVersionId": "4_zaea8c5bc362ae55070130333_d20260626m010500"
       }

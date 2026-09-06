@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/search"
+	"github.com/elei-io/pithosys/packages/search"
 )
 
 type CaptureFieldCategory string

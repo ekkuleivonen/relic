@@ -81,8 +81,8 @@ func TestParseBucketJetStreamConfigDefaultsConsumerName(t *testing.T) {
 	if !enabled {
 		t.Fatal("enabled = false, want true")
 	}
-	if cfg.Consumer != "relic-bucket_abc" {
-		t.Fatalf("consumer = %q, want relic-bucket_abc", cfg.Consumer)
+	if cfg.Consumer != "pithosys-bucket_abc" {
+		t.Fatalf("consumer = %q, want pithosys-bucket_abc", cfg.Consumer)
 	}
 }
 

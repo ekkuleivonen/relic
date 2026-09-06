@@ -1,5 +1,5 @@
 {
-  "name": "@relic/web",
+  "name": "@pithosys/web",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
-    "generate:relicql": "lezer-generator src/features/search/codemirror/relicql.grammar -o src/features/search/codemirror/relicql.parser.ts --typeScript"
+    "generate:pithosysql": "lezer-generator src/features/search/codemirror/pithosysql.grammar -o src/features/search/codemirror/pithosysql.parser.ts --typeScript"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

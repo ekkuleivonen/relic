@@ -38,7 +38,7 @@ def upsert_root_folder(db) -> Folder:
 
 
 def upsert_seed_folder(db, root: Folder) -> Folder | None:
-    name = S.RELIC_SEED_FOLDER_NAME.strip()
+    name = S.PITHOSYS_SEED_FOLDER_NAME.strip()
     if not name:
         return None
 
@@ -54,15 +54,15 @@ def upsert_seed_folder(db, root: Folder) -> Folder | None:
 
 
 def upsert_admin_user(db) -> User:
-    email = S.RELIC_ADMIN_EMAIL
+    email = S.PITHOSYS_ADMIN_EMAIL
     admin = db.scalar(select(User).where(User.email == email))
     if admin:
         return admin
 
     admin = User(
-        name=S.RELIC_ADMIN_NAME,
+        name=S.PITHOSYS_ADMIN_NAME,
         email=email,
-        password_hash=hash_password(S.RELIC_ADMIN_PASSWORD),
+        password_hash=hash_password(S.PITHOSYS_ADMIN_PASSWORD),
         role=UserRole.ADMIN,
     )
     db.add(admin)

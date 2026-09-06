@@ -26,7 +26,7 @@ export function CollectionsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Collections</h1>
           <p className="mt-4 max-w-2xl text-sm/7 text-muted-foreground">
-            Saved RelicQL queries that stay up to date as your catalog changes.
+            Saved PithosysQL queries that stay up to date as your catalog changes.
             Collections are views, not folders.
           </p>
         </div>
@@ -88,8 +88,8 @@ function EmptyState({ isAdmin }: { isAdmin: boolean }) {
         <h2 className="mt-4 text-lg font-medium">No collections yet</h2>
         <p className="mt-2 max-w-md text-sm text-muted-foreground">
           {isAdmin
-            ? "Create a collection from a RelicQL query, or save one from the Objects search panel."
-            : "An admin can create collections from saved RelicQL queries."}
+            ? "Create a collection from a PithosysQL query, or save one from the Objects search panel."
+            : "An admin can create collections from saved PithosysQL queries."}
         </p>
         {isAdmin ? (
           <div className="mt-6">

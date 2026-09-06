@@ -14,7 +14,7 @@ export type BucketScanConfig = {
   interval?: string
 }
 
-export type BucketRelicConfig = {
+export type BucketPithosysConfig = {
   scan?: BucketScanConfig
 }
 
@@ -27,7 +27,7 @@ export type Bucket = {
   bucket_name: string
   prefix: string
   upstream_config: BucketUpstreamConfig
-  relic_config: BucketRelicConfig
+  pithosys_config: BucketPithosysConfig
   created_at: string
   updated_at: string
 }
@@ -45,7 +45,7 @@ export type CreateBucketInput = {
   prefix: string
   upstream_config: BucketUpstreamConfig
   credentials: Record<string, unknown>
-  relic_config?: BucketRelicConfig
+  pithosys_config?: BucketPithosysConfig
 }
 
 export type UpdateBucketInput = {
@@ -55,5 +55,5 @@ export type UpdateBucketInput = {
   prefix?: string
   upstream_config?: BucketUpstreamConfig
   credentials?: Record<string, unknown>
-  relic_config?: BucketRelicConfig
+  pithosys_config?: BucketPithosysConfig
 }

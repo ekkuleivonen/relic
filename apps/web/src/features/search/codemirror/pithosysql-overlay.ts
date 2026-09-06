@@ -9,15 +9,15 @@ import {
   type ViewUpdate,
 } from "@codemirror/view"
 
-import { parser as relicOverlayParser } from "@/features/search/codemirror/relicql.parser"
+import { parser as pithosysOverlayParser } from "@/features/search/codemirror/pithosysql.parser"
 
-const relicSpanHighlight = HighlightStyle.define([
-  { tag: tags.function(tags.variableName), class: "cm-relicAttrCall" },
-  { tag: tags.function(tags.typeName), class: "cm-relicRelationCall" },
+const pithosysSpanHighlight = HighlightStyle.define([
+  { tag: tags.function(tags.variableName), class: "cm-pithosysAttrCall" },
+  { tag: tags.function(tags.typeName), class: "cm-pithosysRelationCall" },
 ])
 
-const relicBuiltinMark = Decoration.mark({ class: "cm-relicBuiltin" })
-const relicArgStringMark = Decoration.mark({ class: "cm-relicArgString" })
+const pithosysBuiltinMark = Decoration.mark({ class: "cm-pithosysBuiltin" })
+const pithosysArgStringMark = Decoration.mark({ class: "cm-pithosysArgString" })
 
 const attrPattern =
   /^(\s*)(attr)(\s*\(\s*)('(?:[^'\\]|\\.)*')(\s*\))/i
@@ -45,14 +45,14 @@ function addAttrDecorations(
   entries.push({
     from: builtinStart,
     to: builtinStart + match[2].length,
-    decoration: relicBuiltinMark,
+    decoration: pithosysBuiltinMark,
   })
 
   const pathStart = base + match[0].indexOf(match[4])
   entries.push({
     from: pathStart,
     to: pathStart + match[4].length,
-    decoration: relicArgStringMark,
+    decoration: pithosysArgStringMark,
   })
 }
 
@@ -71,14 +71,14 @@ function addRelationDecorations(
   entries.push({
     from: builtinStart,
     to: builtinStart + match[2].length,
-    decoration: relicBuiltinMark,
+    decoration: pithosysBuiltinMark,
   })
 
   const typeStart = base + match[0].indexOf(match[4])
   entries.push({
     from: typeStart,
     to: typeStart + match[4].length,
-    decoration: relicArgStringMark,
+    decoration: pithosysArgStringMark,
   })
 
   if (match[5]) {
@@ -86,21 +86,21 @@ function addRelationDecorations(
     entries.push({
       from: directionStart,
       to: directionStart + match[5].length,
-      decoration: relicArgStringMark,
+      decoration: pithosysArgStringMark,
     })
   }
 }
 
-function buildRelicDecorations(view: EditorView): DecorationSet {
+function buildPithosysDecorations(view: EditorView): DecorationSet {
   const entries: DecorationEntry[] = []
   const docText = view.state.doc.toString()
   if (!docText) {
     return Decoration.none
   }
 
-  const tree = relicOverlayParser.parse(docText)
+  const tree = pithosysOverlayParser.parse(docText)
 
-  highlightTree(tree, relicSpanHighlight, (from, to, classes) => {
+  highlightTree(tree, pithosysSpanHighlight, (from, to, classes) => {
     if (!classes) {
       return
     }
@@ -115,12 +115,12 @@ function buildRelicDecorations(view: EditorView): DecorationSet {
   tree.iterate({
     enter: (node) => {
       const text = view.state.doc.sliceString(node.from, node.to)
-      if (node.name === "RelicAttr") {
+      if (node.name === "PithosysAttr") {
         addAttrDecorations(entries, node.from, text)
         return
       }
 
-      if (node.name === "RelicRelation") {
+      if (node.name === "PithosysRelation") {
         addRelationDecorations(entries, node.from, text)
       }
     },
@@ -136,20 +136,20 @@ function buildRelicDecorations(view: EditorView): DecorationSet {
   return builder.finish()
 }
 
-class RelicOverlayView {
+class PithosysOverlayView {
   decorations: DecorationSet
 
   constructor(view: EditorView) {
-    this.decorations = buildRelicDecorations(view)
+    this.decorations = buildPithosysDecorations(view)
   }
 
   update(update: ViewUpdate) {
     if (update.docChanged) {
-      this.decorations = buildRelicDecorations(update.view)
+      this.decorations = buildPithosysDecorations(update.view)
     }
   }
 }
 
-export const relicqlOverlayExtension = ViewPlugin.fromClass(RelicOverlayView, {
+export const pithosysqlOverlayExtension = ViewPlugin.fromClass(PithosysOverlayView, {
   decorations: (plugin) => plugin.decorations,
 })

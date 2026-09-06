@@ -53,7 +53,7 @@ class FileGatewayRead(BaseModel):
 
     bucket: str = Field(
         description=(
-            "Fixed S3 gateway bucket name (default `relic`). Constant for all objects; "
+            "Fixed S3 gateway bucket name (default `pithosys`). Constant for all objects; "
             "the virtual folder tree lives in `key`."
         ),
     )
@@ -66,7 +66,7 @@ class FileGatewayRead(BaseModel):
     object_uri: str = Field(
         description=(
             "Percent-encoded path-style gateway URI "
-            "(e.g. `/s3/relic/photos/2024/cat.jpg`). Use in native SigV4 signing URLs."
+            "(e.g. `/s3/pithosys/photos/2024/cat.jpg`). Use in native SigV4 signing URLs."
         ),
     )
 

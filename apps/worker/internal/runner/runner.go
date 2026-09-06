@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
-	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
-	"github.com/ekkuleivonen/relic/apps/worker/internal/tracecompletion"
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/apps/worker/internal/jobs"
+	"github.com/elei-io/pithosys/apps/worker/internal/settings"
+	"github.com/elei-io/pithosys/apps/worker/internal/tracecompletion"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 type Runner struct {

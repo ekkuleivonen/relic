@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
-	"github.com/ekkuleivonen/relic/packages/db"
-	"github.com/ekkuleivonen/relic/packages/secrets"
-	"github.com/ekkuleivonen/relic/packages/storage"
-	"github.com/ekkuleivonen/relic/packages/testdb"
+	"github.com/elei-io/pithosys/apps/worker/internal/settings"
+	"github.com/elei-io/pithosys/packages/db"
+	"github.com/elei-io/pithosys/packages/secrets"
+	"github.com/elei-io/pithosys/packages/storage"
+	"github.com/elei-io/pithosys/packages/testdb"
 )
 
 var (
@@ -24,7 +24,7 @@ func TestScanSchedulerTickEnqueuesDueScan(t *testing.T) {
 	store, cleanup := schedulerTestStore(t, ctx)
 	defer cleanup()
 
-	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketRelicConfig{
+	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketPithosysConfig{
 		Scan: storage.BucketScanConfig{Enabled: storage.BoolPtr(true), Interval: "24h"},
 	})
 
@@ -67,7 +67,7 @@ func TestScanSchedulerTickDedupesActiveScan(t *testing.T) {
 	store, cleanup := schedulerTestStore(t, ctx)
 	defer cleanup()
 
-	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketRelicConfig{
+	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketPithosysConfig{
 		Scan: storage.BucketScanConfig{Enabled: storage.BoolPtr(true)},
 	})
 	if _, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
@@ -104,7 +104,7 @@ func TestScanSchedulerTickSkipsWhenSyncTraceActive(t *testing.T) {
 	store, cleanup := schedulerTestStore(t, ctx)
 	defer cleanup()
 
-	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketRelicConfig{
+	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketPithosysConfig{
 		Scan: storage.BucketScanConfig{Enabled: storage.BoolPtr(true), Interval: "24h"},
 	})
 	root, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
@@ -155,7 +155,7 @@ func TestScanSchedulerTickSkipsWhenScanTraceSyncChildActive(t *testing.T) {
 	store, cleanup := schedulerTestStore(t, ctx)
 	defer cleanup()
 
-	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketRelicConfig{
+	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketPithosysConfig{
 		Scan: storage.BucketScanConfig{Enabled: storage.BoolPtr(true), Interval: "24h"},
 	})
 	scanRoot, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
@@ -208,7 +208,7 @@ func TestScanSchedulerTickSkipsWhenNotDue(t *testing.T) {
 	store, cleanup := schedulerTestStore(t, ctx)
 	defer cleanup()
 
-	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketRelicConfig{
+	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketPithosysConfig{
 		Scan: storage.BucketScanConfig{Enabled: storage.BoolPtr(true), Interval: "24h"},
 	})
 	run, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
@@ -252,7 +252,7 @@ func TestScanSchedulerTickSkipsWhenRecentFailedScan(t *testing.T) {
 	store, cleanup := schedulerTestStore(t, ctx)
 	defer cleanup()
 
-	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketRelicConfig{
+	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketPithosysConfig{
 		Scan: storage.BucketScanConfig{Enabled: storage.BoolPtr(true), Interval: "24h"},
 	})
 	run, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
@@ -328,7 +328,7 @@ func schedulerTestStore(t *testing.T, ctx context.Context) (*storage.Store, func
 	return store, pool.Close
 }
 
-func createSchedulerTestBucket(t *testing.T, ctx context.Context, store *storage.Store, relicConfig storage.BucketRelicConfig) storage.Bucket {
+func createSchedulerTestBucket(t *testing.T, ctx context.Context, store *storage.Store, pithosysConfig storage.BucketPithosysConfig) storage.Bucket {
 	t.Helper()
 
 	bucket, err := store.Buckets().CreateBucket(ctx, storage.CreateBucketParams{
@@ -343,7 +343,7 @@ func createSchedulerTestBucket(t *testing.T, ctx context.Context, store *storage
 			Nonce:      []byte("012345678901234567890123"),
 			Ciphertext: []byte("encrypted-credentials"),
 		},
-		RelicConfig: relicConfig,
+		PithosysConfig: pithosysConfig,
 	})
 	if err != nil {
 		t.Fatalf("CreateBucket returned error: %v", err)

@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
-	"github.com/ekkuleivonen/relic/packages/auth"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
+	"github.com/elei-io/pithosys/packages/auth"
 )
 
 func Auth(next http.Handler, dependencies deps.Dependencies) http.Handler {

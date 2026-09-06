@@ -46,10 +46,10 @@ export function AdminHomePage() {
         <div className="max-w-2xl">
           <Badge variant="outline">Admin preview</Badge>
           <h1 className="mt-6 text-4xl font-semibold tracking-tight text-balance lg:text-6xl">
-            Hello from Relic admin.
+            Hello from Pithosys admin.
           </h1>
           <p className="mt-5 max-w-xl text-sm/7 text-muted-foreground lg:text-base/8">
-            This is the first web surface for Relic: a metadata and discovery
+            This is the first web surface for Pithosys: a metadata and discovery
             platform for object storage. Use the sidebar to manage buckets,
             browse objects, and inspect job runs.
           </p>

@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"testing"
 
-	workerjobs "github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
-	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
-	"github.com/ekkuleivonen/relic/apps/worker/internal/tracecompletion"
-	"github.com/ekkuleivonen/relic/packages/storage"
+	workerjobs "github.com/elei-io/pithosys/apps/worker/internal/jobs"
+	"github.com/elei-io/pithosys/apps/worker/internal/settings"
+	"github.com/elei-io/pithosys/apps/worker/internal/tracecompletion"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func TestRunnerDefersCompletionForFanOutJobs(t *testing.T) {

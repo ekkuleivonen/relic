@@ -113,18 +113,18 @@ let attributeCatalog: SearchAttribute[] = BUILTIN_SEARCH_ATTRIBUTES
 let relationTypeCatalog: string[] = [...BUILTIN_RELATION_TYPES]
 let bucketNameCatalog: string[] = []
 
-export function setRelicqlAttributeCatalog(attributes: SearchAttribute[]) {
+export function setPithosysqlAttributeCatalog(attributes: SearchAttribute[]) {
   attributeCatalog =
     attributes.length > 0 ? attributes : BUILTIN_SEARCH_ATTRIBUTES
 }
 
-export function setRelicqlBucketNames(bucketNames: string[]) {
+export function setPithosysqlBucketNames(bucketNames: string[]) {
   bucketNameCatalog = [...bucketNames].sort((left, right) =>
     left.localeCompare(right)
   )
 }
 
-export function setRelicqlRelationTypes(relationTypes: string[]) {
+export function setPithosysqlRelationTypes(relationTypes: string[]) {
   const merged = new Set<string>(BUILTIN_RELATION_TYPES)
   for (const relationType of relationTypes) {
     if (relationType.trim()) {
@@ -699,7 +699,7 @@ function generalCompletions(context: CompletionContext): CompletionResult | null
   }
 }
 
-function relicqlCompletionSource(context: CompletionContext): CompletionResult | null {
+function pithosysqlCompletionSource(context: CompletionContext): CompletionResult | null {
   const bucketMatch = bucketCallCompletions(context)
   if (bucketMatch) {
     return bucketMatch
@@ -736,10 +736,10 @@ function maybeStartQuotedArgCompletion(update: ViewUpdate) {
   startCompletion(update.view)
 }
 
-export const relicqlAutocompletion: Extension = [
+export const pithosysqlAutocompletion: Extension = [
   Prec.highest(
     autocompletion({
-      override: [relicqlCompletionSource],
+      override: [pithosysqlCompletionSource],
       activateOnTyping: true,
       activateOnTypingDelay: 0,
       maxRenderedOptions: 50,

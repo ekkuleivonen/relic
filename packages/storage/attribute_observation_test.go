@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ekkuleivonen/relic/packages/search"
+	"github.com/elei-io/pithosys/packages/search"
 )
 
 func TestFlattenObjectAttributes(t *testing.T) {
@@ -158,7 +158,7 @@ func mustCreateNestedUserAttributeObject(t *testing.T, ctx context.Context, stor
 	return object.ID
 }
 
-func TestValidateRelicQL(t *testing.T) {
+func TestValidatePithosysQL(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := testStore(t, ctx)
 	defer cleanup()
@@ -167,12 +167,12 @@ func TestValidateRelicQL(t *testing.T) {
 		t.Fatalf("SeedAttributeCatalog returned error: %v", err)
 	}
 
-	bound, err := ValidateRelicQL(ctx, store.AttributeCatalog(), `
+	bound, err := ValidatePithosysQL(ctx, store.AttributeCatalog(), `
 		FROM objects
 		WHERE attr('upstream.size') >= 1048576
 	`)
 	if err != nil {
-		t.Fatalf("ValidateRelicQL returned error: %v", err)
+		t.Fatalf("ValidatePithosysQL returned error: %v", err)
 	}
 	if bound.Query.From != search.TargetObjects {
 		t.Fatalf("from = %q, want objects", bound.Query.From)

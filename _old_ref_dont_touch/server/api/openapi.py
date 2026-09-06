@@ -1,4 +1,4 @@
-"""OpenAPI schema customization for Relic API docs."""
+"""OpenAPI schema customization for Pithosys API docs."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel, ConfigDict, Field
 
 API_DESCRIPTION = """
-Relic exposes two HTTP planes:
+Pithosys exposes two HTTP planes:
 
 ## JSON control plane (`/api/*`)
 
@@ -43,8 +43,8 @@ Business rule violations return JSON: `{{"detail": "<message>"}}`
 
 S3-compatible XML API for object bytes. **Path-style only:**
 `/s3/{{bucket}}/{{key}}` where `bucket` is always the fixed gateway bucket
-(`relic` by default, `RELIC_GATEWAY_BUCKET`) and `key` is the full virtual
-folder path plus filename (e.g. `/s3/relic/photos/2024/cat.jpg`).
+(`pithosys` by default, `PITHOSYS_GATEWAY_BUCKET`) and `key` is the full virtual
+folder path plus filename (e.g. `/s3/pithosys/photos/2024/cat.jpg`).
 
 Authentication is **AWS SigV4** (access key signing or presigned URLs).
 These routes are **not testable via Authorize** — use `POST /api/uploads/presign*`
@@ -62,11 +62,11 @@ a REST client.
 
 ### Gateway bucket/key mapping
 
-Relic maps the virtual folder tree onto path-style S3 addresses:
+Pithosys maps the virtual folder tree onto path-style S3 addresses:
 
 | Concept | Rule | Example |
 |---------|------|---------|
-| Gateway **bucket** | Fixed (`relic` by default) | Always `relic` |
+| Gateway **bucket** | Fixed (`pithosys` by default) | Always `pithosys` |
 | Gateway **key** | Full folder path from root + file name | `photos/2024/cat.jpg` |
 | Flat file under top folder | Key is folder path + filename | path `photos`, name `cat.jpg` → key `photos/cat.jpg` |
 
@@ -80,7 +80,7 @@ One access key, two wire formats:
 
 - **`/api/*`** — `Authorization: Bearer {{key_id}}:{{secret}}`
 - **`/s3/*`** — AWS SigV4 `Authorization` header with the same credentials
-  (region `relic`, path-style). Do not send Bearer tokens to `/s3`.
+  (region `pithosys`, path-style). Do not send Bearer tokens to `/s3`.
 
 Presigned URLs are optional when your client can sign SigV4 requests directly.
 
@@ -88,17 +88,17 @@ Presigned URLs are optional when your client can sign SigV4 requests directly.
 
 Use the **same access key** as Bearer (`key_id` + secret). Requirements:
 
-- Region: `relic` (or your deployment's `RELIC_SIGNING_REGION`)
+- Region: `pithosys` (or your deployment's `PITHOSYS_SIGNING_REGION`)
 - Path-style only; set `x-amz-content-sha256: UNSIGNED-PAYLOAD` on GET/HEAD/DELETE
 - Use **`gateway.object_uri`** as the request path in your signing URL (percent-encoded,
-  e.g. `/s3/Local%20Testing/file.csv`). Relic's canonical SigV4 URI uses encoding;
+  e.g. `/s3/Local%20Testing/file.csv`). Pithosys's canonical SigV4 URI uses encoding;
   signing a literal-space path (e.g. `/s3/Local Testing/...`) causes
   `SignatureDoesNotMatch` with botocore.
 
 `gateway.bucket` and `gateway.key` are literal display strings (may contain spaces).
 They are not always safe to concatenate into a signing URL without encoding.
 
-Presign URLs use separate server signing keys (`relic-prod-1`, etc.) in the
+Presign URLs use separate server signing keys (`pithosys-prod-1`, etc.) in the
 query string — not the integrator access key.
 """.format(cookie=S.SESSION_COOKIE_NAME)
 
@@ -119,7 +119,7 @@ OPENAPI_TAGS: list[dict[str, str]] = [
         "name": "access-keys",
         "description": (
             "Programmatic credentials. One key works as Bearer on `/api/*` and "
-            "SigV4 on `/s3/*` (region `relic`, path-style). **Admin only** to "
+            "SigV4 on `/s3/*` (region `pithosys`, path-style). **Admin only** to "
             "create; users can list their own keys."
         ),
     },
@@ -134,7 +134,7 @@ OPENAPI_TAGS: list[dict[str, str]] = [
         "name": "folders",
         "description": (
             "Virtual filesystem tree. Folder paths map to S3 object key prefixes "
-            "under the fixed gateway bucket (`relic` by default). Requires folder "
+            "under the fixed gateway bucket (`pithosys` by default). Requires folder "
             "permissions."
         ),
     },
@@ -214,7 +214,7 @@ SECURITY_SCHEMES = {
         "type": "http",
         "scheme": "bearer",
         "description": (
-            "Relic access key. In **Authorize**, paste `key_id:secret` "
+            "Pithosys access key. In **Authorize**, paste `key_id:secret` "
             "(Swagger adds the `Bearer ` prefix). Not a JWT."
         ),
     },

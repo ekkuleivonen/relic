@@ -28,7 +28,7 @@ from tests.factories.models import (
 
 @pytest.fixture()
 def user(db_session):
-    user = UserFactory.build(name="User", email="user@relic.local", role=UserRole.USER)
+    user = UserFactory.build(name="User", email="user@pithosys.local", role=UserRole.USER)
     db_session.add(user)
     db_session.commit()
     return user
@@ -37,7 +37,7 @@ def user(db_session):
 @pytest.fixture()
 def admin(db_session):
     admin = UserFactory.build(
-        name="Admin", email="admin@relic.local", role=UserRole.ADMIN
+        name="Admin", email="admin@pithosys.local", role=UserRole.ADMIN
     )
     db_session.add(admin)
     db_session.commit()
@@ -50,7 +50,7 @@ def make_client(db_session, current_user: User) -> TestClient:
 
     app.dependency_overrides[get_db] = override_get_db
     test_client = TestClient(app)
-    test_client.cookies.set("relic_session", create_session_token(current_user))
+    test_client.cookies.set("pithosys_session", create_session_token(current_user))
     return test_client
 
 
@@ -307,7 +307,7 @@ def test_move_folder_returns_403_without_write_on_destination(
     photos = add_folder(db_session, root_folder, "photos")
     archive = add_folder(db_session, root_folder, "archive")
     # Create a normal user with WRITE on photos but not on archive
-    bob = UserFactory.build(name="Bob", email="bob@relic.local")
+    bob = UserFactory.build(name="Bob", email="bob@pithosys.local")
     db_session.add(bob)
     db_session.commit()
     grant(db_session, bob, photos, int(Permission.READ | Permission.WRITE))
@@ -670,7 +670,7 @@ def test_duplicate_returns_403_without_write_on_destination(
 ):
     photos = add_folder(db_session, root_folder, "photos")
     archive = add_folder(db_session, root_folder, "archive")
-    bob = UserFactory.build(name="Bob", email="bob@relic.local")
+    bob = UserFactory.build(name="Bob", email="bob@pithosys.local")
     db_session.add(bob)
     db_session.commit()
     grant(db_session, bob, photos, int(Permission.READ))

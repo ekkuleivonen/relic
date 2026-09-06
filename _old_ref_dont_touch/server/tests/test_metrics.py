@@ -41,11 +41,11 @@ def test_metrics_endpoint_exposes_core_series(client):
     assert response.status_code == 200
     assert "text/plain" in response.headers["content-type"]
     body = response.text
-    assert "relic_api_requests_total" in body
-    assert "relic_dependency_up" in body
-    assert "relic_db_pool_size" in body
-    assert "relic_worker_heartbeat_age_seconds" in body
-    assert "relic_api_inflight_requests" in body
+    assert "pithosys_api_requests_total" in body
+    assert "pithosys_dependency_up" in body
+    assert "pithosys_db_pool_size" in body
+    assert "pithosys_worker_heartbeat_age_seconds" in body
+    assert "pithosys_api_inflight_requests" in body
 
 
 def test_s3_requests_use_gateway_metrics_only(client, monkeypatch):
@@ -58,7 +58,7 @@ def test_s3_requests_use_gateway_metrics_only(client, monkeypatch):
 
     assert response.status_code in {200, 400, 403, 404, 405}
     body = client.get("/metrics").text
-    assert "relic_gateway_requests_total" in body
+    assert "pithosys_gateway_requests_total" in body
     assert 'route="/s3"' not in body
 
 
@@ -66,7 +66,7 @@ def test_observe_storage_backend_probe_includes_backend_type():
     metrics.observe_storage_backend_probe(status="succeeded", backend_type="s3")
 
     output = metrics.metrics_body().decode()
-    assert 'relic_storage_backend_probe_total{backend_type="s3",status="succeeded"}' in output
+    assert 'pithosys_storage_backend_probe_total{backend_type="s3",status="succeeded"}' in output
 
 
 def test_observe_maintenance_batch_result_records_tier_movements():
@@ -76,8 +76,8 @@ def test_observe_maintenance_batch_result_records_tier_movements():
     )
 
     output = metrics.metrics_body().decode()
-    assert 'relic_maintenance_operations_total{operation="demote",status="moved"} 2.0' in output
-    assert 'relic_maintenance_operations_total{operation="demote",status="failed"} 3.0' in output
+    assert 'pithosys_maintenance_operations_total{operation="demote",status="moved"} 2.0' in output
+    assert 'pithosys_maintenance_operations_total{operation="demote",status="failed"} 3.0' in output
 
 
 def test_observe_gateway_bytes_and_object_size():
@@ -89,8 +89,8 @@ def test_observe_gateway_bytes_and_object_size():
     metrics.observe_gateway_object_size(operation="put_object", size_bytes=4096)
 
     output = metrics.metrics_body().decode()
-    assert "relic_gateway_bytes_total" in output
-    assert "relic_gateway_object_size_bytes" in output
+    assert "pithosys_gateway_bytes_total" in output
+    assert "pithosys_gateway_object_size_bytes" in output
 
 
 def test_s3_signing_failure_records_auth_metric():
@@ -107,7 +107,7 @@ def test_s3_signing_failure_records_auth_metric():
         verify_request(request, db=None)  # type: ignore[arg-type]
 
     output = metrics.metrics_body().decode()
-    assert 'relic_auth_attempts_total{auth_type="s3",result="failed"}' in output
+    assert 'pithosys_auth_attempts_total{auth_type="s3",result="failed"}' in output
 
 
 def test_refresh_business_gauges(db_session, monkeypatch):
@@ -140,9 +140,9 @@ def test_refresh_business_gauges(db_session, monkeypatch):
     refresh_business_gauges()
 
     output = metrics.metrics_body().decode()
-    assert "relic_files_total 1.0" in output
-    assert "relic_blobs_total 1.0" in output
-    assert 'relic_storage_bytes{backend_kind="s3"} 1024.0' in output
+    assert "pithosys_files_total 1.0" in output
+    assert "pithosys_blobs_total 1.0" in output
+    assert 'pithosys_storage_bytes{backend_kind="s3"} 1024.0' in output
 
 
 def test_blob_storage_upload_records_bytes():
@@ -168,7 +168,7 @@ def test_blob_storage_upload_records_bytes():
     )
 
     output = metrics.metrics_body().decode()
-    assert "relic_gateway_bytes_total" in output
+    assert "pithosys_gateway_bytes_total" in output
     assert 'operation="put_object"' in output
     assert " 5.0" in output
 
@@ -202,6 +202,6 @@ def test_refresh_scrape_gauges_sets_dependency_series(monkeypatch):
     refresh_scrape_gauges()
 
     output = metrics.metrics_body().decode()
-    assert 'relic_dependency_up{dependency="postgres"} 1.0' in output
-    assert 'relic_dependency_up{dependency="redis"} 1.0' in output
-    assert 'relic_worker_heartbeat_age_seconds{worker="maintenance"} 12.5' in output
+    assert 'pithosys_dependency_up{dependency="postgres"} 1.0' in output
+    assert 'pithosys_dependency_up{dependency="redis"} 1.0' in output
+    assert 'pithosys_worker_heartbeat_age_seconds{worker="maintenance"} 12.5' in output

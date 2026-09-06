@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/middleware"
-	observabilityhttp "github.com/ekkuleivonen/relic/apps/api/internal/httpserver/observability"
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/middleware"
+	observabilityhttp "github.com/elei-io/pithosys/apps/api/internal/httpserver/observability"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func Register(api huma.API, dependencies deps.Dependencies, basePath string) {

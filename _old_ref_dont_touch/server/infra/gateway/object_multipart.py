@@ -562,7 +562,7 @@ def validate_part_number(part_number: int) -> None:
 
 
 def build_part_bucket_key(upload_id: uuid.UUID, part_number: int) -> str:
-    return f"__relic_multipart_uploads/{upload_id}/{part_number}"
+    return f"__pithosys_multipart_uploads/{upload_id}/{part_number}"
 
 
 def build_complete_multipart_etag(parts: list[MultipartUploadPart]) -> str | None:

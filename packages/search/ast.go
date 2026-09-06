@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const VersionV1 = "relicql.v1"
+const VersionV1 = "pithosysql.v1"
 
 type Target string
 

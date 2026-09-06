@@ -1,6 +1,6 @@
 import { ExternalTokenizer } from "@lezer/lr"
 
-import { relicAttr, relicRelation, text } from "./relicql.parser.terms"
+import { pithosysAttr, pithosysRelation, text } from "./pithosysql.parser.terms"
 
 const QUOTE = 39
 const LPAREN = 40
@@ -80,7 +80,7 @@ function readQuotedStringLength(input: { peek: (offset: number) => number }, sta
   }
 }
 
-function matchRelicAttr(input: { peek: (offset: number) => number }) {
+function matchPithosysAttr(input: { peek: (offset: number) => number }) {
   if (!equalsCaseInsensitive(input, "attr")) {
     return null
   }
@@ -104,7 +104,7 @@ function matchRelicAttr(input: { peek: (offset: number) => number }) {
   return offset + 1
 }
 
-function matchRelicRelation(input: { peek: (offset: number) => number }) {
+function matchPithosysRelation(input: { peek: (offset: number) => number }) {
   if (!equalsCaseInsensitive(input, "has_relation")) {
     return null
   }
@@ -139,8 +139,8 @@ function matchRelicRelation(input: { peek: (offset: number) => number }) {
   return offset + 1
 }
 
-function matchRelicCallAt(input: { peek: (offset: number) => number }) {
-  return matchRelicAttr(input) ?? matchRelicRelation(input)
+function matchPithosysCallAt(input: { peek: (offset: number) => number }) {
+  return matchPithosysAttr(input) ?? matchPithosysRelation(input)
 }
 
 function readPlainTextLength(input: { peek: (offset: number) => number }) {
@@ -153,7 +153,7 @@ function readPlainTextLength(input: { peek: (offset: number) => number }) {
     const nextInput = {
       peek: (offset: number) => input.peek(length + offset),
     }
-    if (matchRelicCallAt(nextInput) !== null) {
+    if (matchPithosysCallAt(nextInput) !== null) {
       break
     }
 
@@ -163,17 +163,17 @@ function readPlainTextLength(input: { peek: (offset: number) => number }) {
   return length
 }
 
-export const relicOverlay = new ExternalTokenizer((input) => {
+export const pithosysOverlay = new ExternalTokenizer((input) => {
   const start = input.pos
-  const attrLength = matchRelicAttr(input)
+  const attrLength = matchPithosysAttr(input)
   if (attrLength !== null) {
-    input.acceptTokenTo(relicAttr, start + attrLength)
+    input.acceptTokenTo(pithosysAttr, start + attrLength)
     return
   }
 
-  const relationLength = matchRelicRelation(input)
+  const relationLength = matchPithosysRelation(input)
   if (relationLength !== null) {
-    input.acceptTokenTo(relicRelation, start + relationLength)
+    input.acceptTokenTo(pithosysRelation, start + relationLength)
     return
   }
 

@@ -7,7 +7,7 @@ import (
 
 func TestLoadFromLookupDefaults(t *testing.T) {
 	_, err := LoadFromLookup(mapLookup(map[string]string{
-		"DATABASE_URL":          "postgres://relic:relic@localhost:5432/relic",
+		"DATABASE_URL":          "postgres://pithosys:pithosys@localhost:5432/pithosys",
 		"ENCRYPTION_KEY_ID":     "local-dev",
 		"ENCRYPTION_KEY_BASE64": testEncryptionKeyBase64(),
 	}))
@@ -19,7 +19,7 @@ func TestLoadFromLookupDefaults(t *testing.T) {
 func TestLoadFromLookupOverrides(t *testing.T) {
 	cfg, err := LoadFromLookup(mapLookup(mergeEnv(map[string]string{
 		"HTTP_ADDR":    ":9090",
-		"DATABASE_URL": "postgres://relic:relic@localhost:5432/relic",
+		"DATABASE_URL": "postgres://pithosys:pithosys@localhost:5432/pithosys",
 		"LOG_LEVEL":    "debug",
 	})))
 	if err != nil {
@@ -49,7 +49,7 @@ func TestLoadFromLookupOverrides(t *testing.T) {
 
 func TestLoadFromLookupRequiresAuthConfig(t *testing.T) {
 	cfg, err := LoadFromLookup(mapLookup(mergeEnv(map[string]string{
-		"DATABASE_URL": "postgres://relic:relic@localhost:5432/relic",
+		"DATABASE_URL": "postgres://pithosys:pithosys@localhost:5432/pithosys",
 	})))
 	if err != nil {
 		t.Fatalf("LoadFromLookup returned error: %v", err)
@@ -61,7 +61,7 @@ func TestLoadFromLookupRequiresAuthConfig(t *testing.T) {
 
 func TestLoadFromLookupRejectsPartialOIDCConfig(t *testing.T) {
 	_, err := LoadFromLookup(mapLookup(mergeEnv(map[string]string{
-		"DATABASE_URL":    "postgres://relic:relic@localhost:5432/relic",
+		"DATABASE_URL":    "postgres://pithosys:pithosys@localhost:5432/pithosys",
 		"OIDC_ISSUER_URL": "https://issuer.example",
 	})))
 	if err == nil {
@@ -71,7 +71,7 @@ func TestLoadFromLookupRejectsPartialOIDCConfig(t *testing.T) {
 
 func TestLoadFromLookupRejectsMissingSessionSecret(t *testing.T) {
 	_, err := LoadFromLookup(mapLookup(map[string]string{
-		"DATABASE_URL":          "postgres://relic:relic@localhost:5432/relic",
+		"DATABASE_URL":          "postgres://pithosys:pithosys@localhost:5432/pithosys",
 		"ENCRYPTION_KEY_ID":     "local-dev",
 		"ENCRYPTION_KEY_BASE64": testEncryptionKeyBase64(),
 		"SUPERUSER_EMAIL":       "admin@example.com",
@@ -94,7 +94,7 @@ func TestLoadFromLookupRequiresDatabaseURL(t *testing.T) {
 
 func TestLoadFromLookupRequiresEncryptionKeyID(t *testing.T) {
 	_, err := LoadFromLookup(mapLookup(map[string]string{
-		"DATABASE_URL":          "postgres://relic:relic@localhost:5432/relic",
+		"DATABASE_URL":          "postgres://pithosys:pithosys@localhost:5432/pithosys",
 		"ENCRYPTION_KEY_BASE64": testEncryptionKeyBase64(),
 	}))
 	if err == nil {
@@ -104,7 +104,7 @@ func TestLoadFromLookupRequiresEncryptionKeyID(t *testing.T) {
 
 func TestLoadFromLookupRequiresEncryptionKey(t *testing.T) {
 	_, err := LoadFromLookup(mapLookup(map[string]string{
-		"DATABASE_URL":      "postgres://relic:relic@localhost:5432/relic",
+		"DATABASE_URL":      "postgres://pithosys:pithosys@localhost:5432/pithosys",
 		"ENCRYPTION_KEY_ID": "local-dev",
 	}))
 	if err == nil {
@@ -114,7 +114,7 @@ func TestLoadFromLookupRequiresEncryptionKey(t *testing.T) {
 
 func TestLoadFromLookupRejectsInvalidEncryptionKeyBase64(t *testing.T) {
 	_, err := LoadFromLookup(mapLookup(map[string]string{
-		"DATABASE_URL":          "postgres://relic:relic@localhost:5432/relic",
+		"DATABASE_URL":          "postgres://pithosys:pithosys@localhost:5432/pithosys",
 		"ENCRYPTION_KEY_ID":     "local-dev",
 		"ENCRYPTION_KEY_BASE64": "not-base64",
 	}))
@@ -125,7 +125,7 @@ func TestLoadFromLookupRejectsInvalidEncryptionKeyBase64(t *testing.T) {
 
 func TestLoadFromLookupRejectsWrongLengthEncryptionKey(t *testing.T) {
 	_, err := LoadFromLookup(mapLookup(map[string]string{
-		"DATABASE_URL":          "postgres://relic:relic@localhost:5432/relic",
+		"DATABASE_URL":          "postgres://pithosys:pithosys@localhost:5432/pithosys",
 		"ENCRYPTION_KEY_ID":     "local-dev",
 		"ENCRYPTION_KEY_BASE64": base64.StdEncoding.EncodeToString([]byte("too-short")),
 	}))

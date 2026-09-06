@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/jobs"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/middleware"
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/jobs"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/middleware"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
@@ -41,9 +41,9 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
 
-		relicConfig := storage.BucketRelicConfig{}
-		if input.Body.RelicConfig != nil {
-			relicConfig = *input.Body.RelicConfig
+		pithosysConfig := storage.BucketPithosysConfig{}
+		if input.Body.PithosysConfig != nil {
+			pithosysConfig = *input.Body.PithosysConfig
 		}
 
 		var bucket storage.Bucket
@@ -57,7 +57,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 				Prefix:               input.Body.Prefix,
 				UpstreamConfig:       input.Body.UpstreamConfig,
 				EncryptedCredentials: envelope,
-				RelicConfig:          relicConfig,
+				PithosysConfig:          pithosysConfig,
 			})
 			if err != nil {
 				return err
@@ -150,7 +150,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			Region:         input.Body.Region,
 			Prefix:         input.Body.Prefix,
 			UpstreamConfig: input.Body.UpstreamConfig,
-			RelicConfig: input.Body.RelicConfig,
+			PithosysConfig: input.Body.PithosysConfig,
 		}
 
 		if input.Body.Credentials != nil {
@@ -403,7 +403,7 @@ type createBucketBody struct {
 	Prefix         string                          `json:"prefix" example:"raw/"`
 	UpstreamConfig storage.BucketUpstreamConfig    `json:"upstream_config"`
 	Credentials    map[string]any                  `json:"credentials"`
-	RelicConfig    *storage.BucketRelicConfig    `json:"relic_config,omitempty"`
+	PithosysConfig    *storage.BucketPithosysConfig    `json:"pithosys_config,omitempty"`
 }
 
 type listBucketsInput struct {
@@ -445,7 +445,7 @@ type updateBucketBody struct {
 	Prefix         *string                          `json:"prefix,omitempty" example:"raw/"`
 	UpstreamConfig *storage.BucketUpstreamConfig    `json:"upstream_config,omitempty"`
 	Credentials    *map[string]any                  `json:"credentials,omitempty"`
-	RelicConfig    *storage.BucketRelicConfig    `json:"relic_config,omitempty"`
+	PithosysConfig    *storage.BucketPithosysConfig    `json:"pithosys_config,omitempty"`
 }
 
 type bucketOutput struct {
@@ -483,7 +483,7 @@ type bucketResponse struct {
 	BucketName     string                          `json:"bucket_name" example:"example-bucket"`
 	Prefix         string                          `json:"prefix" example:"raw/"`
 	UpstreamConfig storage.BucketUpstreamConfig    `json:"upstream_config"`
-	RelicConfig    storage.BucketRelicConfig    `json:"relic_config"`
+	PithosysConfig    storage.BucketPithosysConfig    `json:"pithosys_config"`
 	CreatedAt      time.Time                       `json:"created_at"`
 	UpdatedAt      time.Time                       `json:"updated_at"`
 }
@@ -498,7 +498,7 @@ func bucketResponseFromStorage(bucket storage.Bucket) bucketResponse {
 		BucketName:     bucket.BucketName,
 		Prefix:         bucket.Prefix,
 		UpstreamConfig: bucket.UpstreamConfig,
-		RelicConfig:    bucket.RelicConfig,
+		PithosysConfig:    bucket.PithosysConfig,
 		CreatedAt:      bucket.CreatedAt,
 		UpdatedAt:      bucket.UpdatedAt,
 	}

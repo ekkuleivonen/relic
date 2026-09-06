@@ -5,7 +5,7 @@
   "source": "https://github.com/rustfs/rustfs/pull/1138",
   "body": {
     "EventName": "s3:ObjectCreated:Put",
-    "Key": "relic-fixtures/photos/a.jpg",
+    "Key": "pithosys-fixtures/photos/a.jpg",
     "Records": [
       {
         "eventVersion": "2.1",
@@ -14,7 +14,7 @@
         "eventTime": "2026-06-26T01:00:00.000Z",
         "eventName": "s3:ObjectCreated:Put",
         "userIdentity": {
-          "principalId": "relic-access-key"
+          "principalId": "pithosys-access-key"
         },
         "requestParameters": {
           "sourceIPAddress": "192.168.1.10"
@@ -26,13 +26,13 @@
         },
         "s3": {
           "s3SchemaVersion": "1.0",
-          "configurationId": "relic-import",
+          "configurationId": "pithosys-import",
           "bucket": {
-            "name": "relic-fixtures",
+            "name": "pithosys-fixtures",
             "ownerIdentity": {
-              "principalId": "relic-access-key"
+              "principalId": "pithosys-access-key"
             },
-            "arn": "arn:aws:s3:::relic-fixtures"
+            "arn": "arn:aws:s3:::pithosys-fixtures"
           },
           "object": {
             "key": "photos/a.jpg",

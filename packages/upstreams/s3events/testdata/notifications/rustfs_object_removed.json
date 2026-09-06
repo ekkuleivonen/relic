@@ -5,7 +5,7 @@
   "source": "https://github.com/rustfs/rustfs/pull/1138",
   "body": {
     "EventName": "s3:ObjectRemoved:Delete",
-    "Key": "relic-fixtures/photos/b.jpg",
+    "Key": "pithosys-fixtures/photos/b.jpg",
     "Records": [
       {
         "eventVersion": "2.1",
@@ -14,7 +14,7 @@
         "eventTime": "2026-06-26T01:05:00.000Z",
         "eventName": "s3:ObjectRemoved:Delete",
         "userIdentity": {
-          "principalId": "relic-access-key"
+          "principalId": "pithosys-access-key"
         },
         "requestParameters": {
           "sourceIPAddress": "192.168.1.10"
@@ -25,13 +25,13 @@
         },
         "s3": {
           "s3SchemaVersion": "1.0",
-          "configurationId": "relic-import",
+          "configurationId": "pithosys-import",
           "bucket": {
-            "name": "relic-fixtures",
+            "name": "pithosys-fixtures",
             "ownerIdentity": {
-              "principalId": "relic-access-key"
+              "principalId": "pithosys-access-key"
             },
-            "arn": "arn:aws:s3:::relic-fixtures"
+            "arn": "arn:aws:s3:::pithosys-fixtures"
           },
           "object": {
             "key": "photos/b.jpg",

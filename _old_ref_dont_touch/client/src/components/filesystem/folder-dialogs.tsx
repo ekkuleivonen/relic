@@ -227,7 +227,7 @@ function PreferredStorageBackendForm({
         <DialogTitle>Preferred storage backend</DialogTitle>
         <DialogDescription>
           Optional placement hint for <code>{folder.path || "/"}</code>. Without
-          a preference Relic places new uploads in the hottest reachable
+          a preference Pithosys places new uploads in the hottest reachable
           backend. The preference is honored when the backend has capacity; the
           maintenance loop can still demote/promote based on access patterns.
         </DialogDescription>

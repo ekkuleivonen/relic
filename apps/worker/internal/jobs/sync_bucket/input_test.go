@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/ekkuleivonen/relic/packages/storage"
-	"github.com/ekkuleivonen/relic/packages/verification"
+	"github.com/elei-io/pithosys/packages/storage"
+	"github.com/elei-io/pithosys/packages/verification"
 )
 
 func TestBucketIDUsesInputBucketID(t *testing.T) {

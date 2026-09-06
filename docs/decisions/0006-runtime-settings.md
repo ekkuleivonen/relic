@@ -8,7 +8,7 @@ Accepted
 
 ## Context
 
-Most operational configuration in Relic was loaded from environment variables at process startup. That made it awkward to tune worker polling, job schedulers, and similar knobs without redeploying or editing `.env` on every host.
+Most operational configuration in Pithosys was loaded from environment variables at process startup. That made it awkward to tune worker polling, job schedulers, and similar knobs without redeploying or editing `.env` on every host.
 
 We needed a runtime configuration store for worker and job settings while keeping bootstrap concerns (database connectivity, encryption keys, auth) in environment variables.
 
@@ -73,7 +73,7 @@ No process restart is required for interval or enable changes.
 
 ### Per-bucket scan settings
 
-Per-bucket `relic_config.scan.enabled` and `relic_config.scan.interval` are ignored. Scan scheduling uses global `SCAN_BUCKET_ENABLED` and `SCAN_BUCKET_INTERVAL` only. Existing per-bucket values remain in the database but have no effect.
+Per-bucket `pithosys_config.scan.enabled` and `pithosys_config.scan.interval` are ignored. Scan scheduling uses global `SCAN_BUCKET_ENABLED` and `SCAN_BUCKET_INTERVAL` only. Existing per-bucket values remain in the database but have no effect.
 
 ## Consequences
 

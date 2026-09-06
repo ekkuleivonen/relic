@@ -20,7 +20,7 @@ def bearer_headers(access_key: AccessKey) -> dict[str, str]:
 
 @pytest.fixture()
 def user(db_session):
-    user = UserFactory.build(name="Service User", email="service@relic.local")
+    user = UserFactory.build(name="Service User", email="service@pithosys.local")
     db_session.add(user)
     db_session.commit()
     return user
@@ -210,7 +210,7 @@ def test_bearer_access_key_respects_folder_permissions(
 def test_admin_access_key_can_reach_admin_routes(client, db_session):
     admin = UserFactory.build(
         name="Admin",
-        email="admin@relic.local",
+        email="admin@pithosys.local",
         role=UserRole.ADMIN,
     )
     db_session.add(admin)

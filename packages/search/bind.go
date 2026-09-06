@@ -37,10 +37,10 @@ func (q BoundQuery) Diff(want BoundQuery) string {
 
 func Bind(query Query, registry Registry) (BoundQuery, error) {
 	if registry == nil {
-		return BoundQuery{}, fmt.Errorf("bind RelicQL: registry is required")
+		return BoundQuery{}, fmt.Errorf("bind PithosysQL: registry is required")
 	}
 	if _, ok := registry.ResolveTarget(query.From); !ok {
-		return BoundQuery{}, fmt.Errorf("bind RelicQL: unsupported target %q", query.From)
+		return BoundQuery{}, fmt.Errorf("bind PithosysQL: unsupported target %q", query.From)
 	}
 
 	binder := queryBinder{
@@ -78,16 +78,16 @@ func (b *queryBinder) bindExpr(expr Expr) error {
 	case *BoolExpr:
 		for index, term := range typed.Terms {
 			if err := b.bindExpr(term); err != nil {
-				return fmt.Errorf("bind RelicQL: %s term %d: %w", typed.Op, index+1, err)
+				return fmt.Errorf("bind PithosysQL: %s term %d: %w", typed.Op, index+1, err)
 			}
 		}
 	case *NotExpr:
 		if err := b.bindExpr(typed.Expr); err != nil {
-			return fmt.Errorf("bind RelicQL: not expression: %w", err)
+			return fmt.Errorf("bind PithosysQL: not expression: %w", err)
 		}
 	case NotExpr:
 		if err := b.bindExpr(typed.Expr); err != nil {
-			return fmt.Errorf("bind RelicQL: not expression: %w", err)
+			return fmt.Errorf("bind PithosysQL: not expression: %w", err)
 		}
 	case *Comparison:
 		return b.bindComparison(*typed)
@@ -129,7 +129,7 @@ func (b *queryBinder) bindExpr(expr Expr) error {
 	case StringLiteral, IntLiteral, FloatLiteral, BoolLiteral, TimestampLiteral, NullLiteral:
 		return nil
 	default:
-		return fmt.Errorf("bind RelicQL: unsupported expression %T", expr)
+		return fmt.Errorf("bind PithosysQL: unsupported expression %T", expr)
 	}
 
 	return nil
@@ -138,7 +138,7 @@ func (b *queryBinder) bindExpr(expr Expr) error {
 func (b *queryBinder) bindField(field FieldRef) error {
 	definition, ok := b.registry.ResolveField(b.query.From, field.Name)
 	if !ok {
-		return fmt.Errorf("bind RelicQL: field %q is not available on target %q", field.Name, b.query.From)
+		return fmt.Errorf("bind PithosysQL: field %q is not available on target %q", field.Name, b.query.From)
 	}
 
 	b.addDependency(Dependency{
@@ -160,7 +160,7 @@ func (b *queryBinder) bindComparison(comparison Comparison) error {
 	}
 
 	if !comparisonTypesCompatible(comparison.Op, leftType, rightType) {
-		return fmt.Errorf("bind RelicQL: cannot apply %s to %s and %s", comparison.Op, leftType, rightType)
+		return fmt.Errorf("bind PithosysQL: cannot apply %s to %s and %s", comparison.Op, leftType, rightType)
 	}
 
 	return nil
@@ -178,7 +178,7 @@ func (b *queryBinder) bindInComparison(comparison InComparison) error {
 			return err
 		}
 		if !comparisonTypesCompatible(OpEq, leftType, valueType) {
-			return fmt.Errorf("bind RelicQL: cannot apply in to %s and %s", leftType, valueType)
+			return fmt.Errorf("bind PithosysQL: cannot apply in to %s and %s", leftType, valueType)
 		}
 	}
 
@@ -200,13 +200,13 @@ func (b *queryBinder) bindBetweenComparison(comparison BetweenComparison) error 
 	}
 
 	if !comparisonTypesCompatible(OpGte, leftType, lowerType) {
-		return fmt.Errorf("bind RelicQL: cannot apply between to %s and %s lower bound", leftType, lowerType)
+		return fmt.Errorf("bind PithosysQL: cannot apply between to %s and %s lower bound", leftType, lowerType)
 	}
 	if !comparisonTypesCompatible(OpLte, leftType, upperType) {
-		return fmt.Errorf("bind RelicQL: cannot apply between to %s and %s upper bound", leftType, upperType)
+		return fmt.Errorf("bind PithosysQL: cannot apply between to %s and %s upper bound", leftType, upperType)
 	}
 	if !sameOrNumericTypes(lowerType, upperType) {
-		return fmt.Errorf("bind RelicQL: between bounds must have compatible types, got %s and %s", lowerType, upperType)
+		return fmt.Errorf("bind PithosysQL: between bounds must have compatible types, got %s and %s", lowerType, upperType)
 	}
 
 	return nil
@@ -217,7 +217,7 @@ func (b *queryBinder) exprType(expr Expr) (ValueType, error) {
 	case FieldRef:
 		definition, ok := b.registry.ResolveField(b.query.From, typed.Name)
 		if !ok {
-			return "", fmt.Errorf("bind RelicQL: field %q is not available on target %q", typed.Name, b.query.From)
+			return "", fmt.Errorf("bind PithosysQL: field %q is not available on target %q", typed.Name, b.query.From)
 		}
 		b.addDependency(Dependency{
 			Kind: DependencyField,
@@ -241,7 +241,7 @@ func (b *queryBinder) exprType(expr Expr) (ValueType, error) {
 		return definition.Type, nil
 	case CastExpr:
 		if !isValidCastOperand(typed.Expr) {
-			return "", fmt.Errorf("bind RelicQL: cannot cast %T", typed.Expr)
+			return "", fmt.Errorf("bind PithosysQL: cannot cast %T", typed.Expr)
 		}
 		if err := b.bindExpr(typed.Expr); err != nil {
 			return "", err
@@ -315,7 +315,7 @@ func bothNumericTypes(left ValueType, right ValueType) bool {
 
 func (b *queryBinder) bindRelationPredicate(predicate RelationPredicate) error {
 	if b.query.From != TargetObjects {
-		return fmt.Errorf("bind RelicQL: has_relation is only supported on target %q", b.query.From)
+		return fmt.Errorf("bind PithosysQL: has_relation is only supported on target %q", b.query.From)
 	}
 
 	b.addDependency(Dependency{
@@ -327,7 +327,7 @@ func (b *queryBinder) bindRelationPredicate(predicate RelationPredicate) error {
 
 func (b *queryBinder) bindBucketPredicate(predicate BucketPredicate) error {
 	if b.query.From != TargetObjects {
-		return fmt.Errorf("bind RelicQL: bucket is only supported on target %q", b.query.From)
+		return fmt.Errorf("bind PithosysQL: bucket is only supported on target %q", b.query.From)
 	}
 
 	b.addDependency(Dependency{
@@ -339,7 +339,7 @@ func (b *queryBinder) bindBucketPredicate(predicate BucketPredicate) error {
 
 func (b *queryBinder) bindCastExpr(cast CastExpr) error {
 	if !isValidCastOperand(cast.Expr) {
-		return fmt.Errorf("bind RelicQL: cannot cast %T", cast.Expr)
+		return fmt.Errorf("bind PithosysQL: cannot cast %T", cast.Expr)
 	}
 
 	return b.bindExpr(cast.Expr)

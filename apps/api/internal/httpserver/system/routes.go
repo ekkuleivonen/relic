@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
 )
 
 func Register(api huma.API, _ deps.Dependencies, basePath string) {
@@ -18,7 +18,7 @@ func Register(api huma.API, _ deps.Dependencies, basePath string) {
 	}, func(ctx context.Context, input *healthInput) (*healthOutput, error) {
 		return &healthOutput{
 			Body: healthBody{
-				Service: "relic-api",
+				Service: "pithosys-api",
 				Status:  "ok",
 			},
 		}, nil
@@ -32,6 +32,6 @@ type healthOutput struct {
 }
 
 type healthBody struct {
-	Service string `json:"service" example:"relic-api"`
+	Service string `json:"service" example:"pithosys-api"`
 	Status  string `json:"status" example:"ok"`
 }

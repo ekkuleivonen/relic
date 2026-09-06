@@ -1,6 +1,6 @@
 package auth
 
-import "github.com/ekkuleivonen/relic/packages/storage"
+import "github.com/elei-io/pithosys/packages/storage"
 
 type Role string
 

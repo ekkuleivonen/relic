@@ -55,12 +55,12 @@ def sign_request_url(
     ttl_seconds: int | None = None,
     query_params: dict[str, str] | None = None,
 ) -> SignedUrl:
-    ttl = ttl_seconds if ttl_seconds is not None else S.RELIC_SIGNING_TTL_SECONDS
+    ttl = ttl_seconds if ttl_seconds is not None else S.PITHOSYS_SIGNING_TTL_SECONDS
     request_time = now_utc()
     date_stamp = request_time.strftime("%Y%m%d")
     amz_date = request_time.strftime("%Y%m%dT%H%M%SZ")
     expires_at = request_time + dt.timedelta(seconds=ttl)
-    key_id = S.RELIC_SIGNING_CURRENT_KEY_ID
+    key_id = S.PITHOSYS_SIGNING_CURRENT_KEY_ID
     signed_headers = normalize_headers(
         {
             **headers,
@@ -70,7 +70,7 @@ def sign_request_url(
         }
     )
     signed_header_names = ";".join(sorted(signed_headers))
-    credential = f"{key_id}/{date_stamp}/{S.RELIC_SIGNING_REGION}/{S3_SIGNING_SERVICE}/{S3_SIGNING_TERMINATOR}"
+    credential = f"{key_id}/{date_stamp}/{S.PITHOSYS_SIGNING_REGION}/{S3_SIGNING_SERVICE}/{S3_SIGNING_TERMINATOR}"
     canonical_uri = canonical_object_uri(bucket, key)
     signed_query_params = {
         **(query_params or {}),
@@ -89,7 +89,7 @@ def sign_request_url(
         payload_hash=S3_UNSIGNED_PAYLOAD,
     )
     signature = sign_string(
-        secret=S.RELIC_SIGNING_KEYS[key_id],
+        secret=S.PITHOSYS_SIGNING_KEYS[key_id],
         date_stamp=date_stamp,
         string_to_sign=build_string_to_sign(
             amz_date=amz_date,
@@ -156,12 +156,12 @@ def sign_request_path_url(
     ttl_seconds: int | None = None,
     query_params: dict[str, str] | None = None,
 ) -> SignedUrl:
-    ttl = ttl_seconds if ttl_seconds is not None else S.RELIC_SIGNING_TTL_SECONDS
+    ttl = ttl_seconds if ttl_seconds is not None else S.PITHOSYS_SIGNING_TTL_SECONDS
     request_time = now_utc()
     date_stamp = request_time.strftime("%Y%m%d")
     amz_date = request_time.strftime("%Y%m%dT%H%M%SZ")
     expires_at = request_time + dt.timedelta(seconds=ttl)
-    key_id = S.RELIC_SIGNING_CURRENT_KEY_ID
+    key_id = S.PITHOSYS_SIGNING_CURRENT_KEY_ID
     signed_headers = normalize_headers(
         {
             **headers,
@@ -171,7 +171,7 @@ def sign_request_path_url(
         }
     )
     signed_header_names = ";".join(sorted(signed_headers))
-    credential = f"{key_id}/{date_stamp}/{S.RELIC_SIGNING_REGION}/{S3_SIGNING_SERVICE}/{S3_SIGNING_TERMINATOR}"
+    credential = f"{key_id}/{date_stamp}/{S.PITHOSYS_SIGNING_REGION}/{S3_SIGNING_SERVICE}/{S3_SIGNING_TERMINATOR}"
     signed_query_params = {
         **(query_params or {}),
         "X-Amz-Algorithm": S3_SIGNING_ALGORITHM,
@@ -189,7 +189,7 @@ def sign_request_path_url(
         payload_hash=S3_UNSIGNED_PAYLOAD,
     )
     signature = sign_string(
-        secret=S.RELIC_SIGNING_KEYS[key_id],
+        secret=S.PITHOSYS_SIGNING_KEYS[key_id],
         date_stamp=date_stamp,
         string_to_sign=build_string_to_sign(
             amz_date=amz_date,
@@ -321,10 +321,10 @@ def verify_presigned_request(request: Request) -> VerifiedRequest:
         )
 
     key_id, date_stamp, region = parse_credential(params["X-Amz-Credential"])
-    secret = S.RELIC_SIGNING_KEYS.get(key_id)
+    secret = S.PITHOSYS_SIGNING_KEYS.get(key_id)
     if secret is None:
         raise S3SigningError("InvalidAccessKeyId", "Unknown signing key")
-    if region != S.RELIC_SIGNING_REGION:
+    if region != S.PITHOSYS_SIGNING_REGION:
         raise S3SigningError(
             "AuthorizationHeaderMalformed",
             "Credential region is invalid",
@@ -388,7 +388,7 @@ def verify_presigned_request(request: Request) -> VerifiedRequest:
 def verify_authorization_header_request(request: Request, db: Session) -> VerifiedRequest:
     auth = parse_authorization_header(request.headers.get("authorization") or "")
     key_id, date_stamp, region = parse_credential(auth["Credential"])
-    if region != S.RELIC_SIGNING_REGION:
+    if region != S.PITHOSYS_SIGNING_REGION:
         raise S3SigningError(
             "AuthorizationHeaderMalformed",
             "Credential region is invalid",
@@ -602,7 +602,7 @@ def canonical_query_string(params: dict[str, str]) -> str:
 
 
 def credential_scope(date_stamp: str, *, region: str | None = None) -> str:
-    return f"{date_stamp}/{region or S.RELIC_SIGNING_REGION}/{S3_SIGNING_SERVICE}/{S3_SIGNING_TERMINATOR}"
+    return f"{date_stamp}/{region or S.PITHOSYS_SIGNING_REGION}/{S3_SIGNING_SERVICE}/{S3_SIGNING_TERMINATOR}"
 
 
 def build_string_to_sign(
@@ -636,7 +636,7 @@ def derive_signing_key(*, secret: str, date_stamp: str, region: str | None = Non
     date_key = hmac.new(f"AWS4{secret}".encode(), date_stamp.encode(), hashlib.sha256).digest()
     region_key = hmac.new(
         date_key,
-        (region or S.RELIC_SIGNING_REGION).encode(),
+        (region or S.PITHOSYS_SIGNING_REGION).encode(),
         hashlib.sha256,
     ).digest()
     service_key = hmac.new(region_key, S3_SIGNING_SERVICE.encode(), hashlib.sha256).digest()

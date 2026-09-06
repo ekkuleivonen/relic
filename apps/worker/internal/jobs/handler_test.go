@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func TestRegistryRejectsDuplicateHandler(t *testing.T) {

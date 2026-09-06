@@ -35,7 +35,7 @@ export function UpstreamCapturePage() {
             Upstream capture
           </h1>
           <p className="mt-4 max-w-3xl text-sm/7 text-muted-foreground">
-            Control which S3 HEAD and tagging data Relic stores under{" "}
+            Control which S3 HEAD and tagging data Pithosys stores under{" "}
             <span className="font-mono">upstream.*</span> during import and
             refresh. Required fields stay enabled for sync and scan. Disabling a
             field stops future writes; existing object JSON is unchanged until

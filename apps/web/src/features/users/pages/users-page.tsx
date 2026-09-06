@@ -80,7 +80,7 @@ export function UsersPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Users</h1>
           <p className="mt-4 max-w-2xl text-sm/7 text-muted-foreground">
-            Manage accounts, roles, and access for this Relic instance.
+            Manage accounts, roles, and access for this Pithosys instance.
           </p>
         </div>
         <Button type="button" onClick={() => setIsCreateOpen(true)}>

@@ -96,7 +96,7 @@ func TestCollectionStoreCreateGetListUpdateDelete(t *testing.T) {
 	}
 }
 
-func TestPrepareCollectionQueryRejectsInvalidRelicQL(t *testing.T) {
+func TestPrepareCollectionQueryRejectsInvalidPithosysQL(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := testStore(t, ctx)
 	defer cleanup()

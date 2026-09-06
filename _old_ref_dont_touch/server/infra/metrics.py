@@ -48,111 +48,111 @@ _OBJECT_SIZE_BUCKETS = (
 )
 
 API_REQUESTS = Counter(
-    "relic_api_requests_total",
+    "pithosys_api_requests_total",
     "Total HTTP API requests.",
     ("method", "route", "status_class"),
 )
 API_DURATION = Histogram(
-    "relic_api_duration_seconds",
+    "pithosys_api_duration_seconds",
     "HTTP API request duration.",
     ("method", "route"),
     buckets=_API_DURATION_BUCKETS,
 )
 API_INFLIGHT = Gauge(
-    "relic_api_inflight_requests",
+    "pithosys_api_inflight_requests",
     "In-flight HTTP API requests.",
 )
 GATEWAY_REQUESTS = Counter(
-    "relic_gateway_requests_total",
+    "pithosys_gateway_requests_total",
     "Total S3 gateway requests.",
     ("operation", "status_class"),
 )
 GATEWAY_DURATION = Histogram(
-    "relic_gateway_duration_seconds",
+    "pithosys_gateway_duration_seconds",
     "S3 gateway request duration.",
     ("operation",),
     buckets=_GATEWAY_DURATION_BUCKETS,
 )
 GATEWAY_BYTES = Counter(
-    "relic_gateway_bytes_total",
+    "pithosys_gateway_bytes_total",
     "Total S3 gateway bytes transferred.",
     ("operation", "direction"),
 )
 GATEWAY_OBJECT_SIZE = Histogram(
-    "relic_gateway_object_size_bytes",
+    "pithosys_gateway_object_size_bytes",
     "S3 gateway object sizes.",
     ("operation",),
     buckets=_OBJECT_SIZE_BUCKETS,
 )
 MAINTENANCE_JOBS = Counter(
-    "relic_maintenance_jobs_total",
+    "pithosys_maintenance_jobs_total",
     "Total maintenance worker jobs.",
     ("job", "status"),
 )
 MAINTENANCE_DURATION = Histogram(
-    "relic_maintenance_duration_seconds",
+    "pithosys_maintenance_duration_seconds",
     "Maintenance worker job duration.",
     ("job",),
 )
 MAINTENANCE_QUEUE_DEPTH = Gauge(
-    "relic_maintenance_queue_depth",
+    "pithosys_maintenance_queue_depth",
     "Pending maintenance queue depth.",
     ("queue",),
 )
 MAINTENANCE_OPERATIONS = Counter(
-    "relic_maintenance_operations_total",
+    "pithosys_maintenance_operations_total",
     "Maintenance batch operation outcomes.",
     ("operation", "status"),
 )
 BUCKET_PROBES = Counter(
-    "relic_storage_backend_probe_total",
+    "pithosys_storage_backend_probe_total",
     "StorageBackend probe outcomes.",
     ("status", "backend_type"),
 )
 AUTH_ATTEMPTS = Counter(
-    "relic_auth_attempts_total",
+    "pithosys_auth_attempts_total",
     "Authentication attempts.",
     ("auth_type", "result"),
 )
 DEPENDENCY_UP = Gauge(
-    "relic_dependency_up",
+    "pithosys_dependency_up",
     "Dependency readiness (1=up, 0=down).",
     ("dependency",),
 )
 WORKER_HEARTBEAT_AGE = Gauge(
-    "relic_worker_heartbeat_age_seconds",
+    "pithosys_worker_heartbeat_age_seconds",
     "Seconds since the worker last wrote a heartbeat.",
     ("worker",),
 )
-DB_POOL_SIZE = Gauge("relic_db_pool_size", "Current SQLAlchemy pool size.")
+DB_POOL_SIZE = Gauge("pithosys_db_pool_size", "Current SQLAlchemy pool size.")
 DB_POOL_CHECKED_OUT = Gauge(
-    "relic_db_pool_checked_out",
+    "pithosys_db_pool_checked_out",
     "SQLAlchemy pool connections currently checked out.",
 )
 DB_POOL_OVERFLOW = Gauge(
-    "relic_db_pool_overflow",
+    "pithosys_db_pool_overflow",
     "SQLAlchemy pool overflow connection count.",
 )
 DB_QUERY_DURATION = Histogram(
-    "relic_db_query_duration_seconds",
+    "pithosys_db_query_duration_seconds",
     "Database query duration.",
     buckets=_API_DURATION_BUCKETS,
 )
 REDIS_COMMAND_DURATION = Histogram(
-    "relic_redis_command_duration_seconds",
+    "pithosys_redis_command_duration_seconds",
     "Redis command duration.",
     ("command",),
     buckets=_API_DURATION_BUCKETS,
 )
 ARQ_JOBS_ENQUEUED = Counter(
-    "relic_arq_jobs_enqueued_total",
+    "pithosys_arq_jobs_enqueued_total",
     "Total ARQ jobs enqueued.",
     ("job",),
 )
-FILES_TOTAL = Gauge("relic_files_total", "Total file rows.")
-BLOBS_TOTAL = Gauge("relic_blobs_total", "Total live blob rows (refcount > 0).")
+FILES_TOTAL = Gauge("pithosys_files_total", "Total file rows.")
+BLOBS_TOTAL = Gauge("pithosys_blobs_total", "Total live blob rows (refcount > 0).")
 STORAGE_BYTES = Gauge(
-    "relic_storage_bytes",
+    "pithosys_storage_bytes",
     "Total live blob bytes grouped by backend kind.",
     ("backend_kind",),
 )

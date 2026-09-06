@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ekkuleivonen/relic/packages/search"
+	"github.com/elei-io/pithosys/packages/search"
 )
 
 func BuildSearchRegistry(ctx context.Context, catalog *AttributeCatalogStore) (search.Registry, error) {
@@ -28,16 +28,16 @@ func BuildSearchRegistry(ctx context.Context, catalog *AttributeCatalogStore) (s
 	return search.NewStaticRegistry(search.BuiltinTargetDefinitions(), attributes), nil
 }
 
-func ValidateRelicQL(ctx context.Context, catalog *AttributeCatalogStore, text string) (search.BoundQuery, error) {
+func ValidatePithosysQL(ctx context.Context, catalog *AttributeCatalogStore, text string) (search.BoundQuery, error) {
 	query, err := search.Parse(text)
 	if err != nil {
 		return search.BoundQuery{}, search.ValidationError(err)
 	}
 
-	return bindRelicQL(ctx, catalog, query)
+	return bindPithosysQL(ctx, catalog, query)
 }
 
-func bindRelicQL(ctx context.Context, catalog *AttributeCatalogStore, query search.Query) (search.BoundQuery, error) {
+func bindPithosysQL(ctx context.Context, catalog *AttributeCatalogStore, query search.Query) (search.BoundQuery, error) {
 	registry, err := BuildSearchRegistry(ctx, catalog)
 	if err != nil {
 		return search.BoundQuery{}, err

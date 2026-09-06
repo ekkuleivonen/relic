@@ -1,15 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 
-HOT_CONTAINER="${HOT_CONTAINER:-relic_garage_hot}"
-COLD_CONTAINER="${COLD_CONTAINER:-relic_garage_cold}"
+HOT_CONTAINER="${HOT_CONTAINER:-pithosys_garage_hot}"
+COLD_CONTAINER="${COLD_CONTAINER:-pithosys_garage_cold}"
 ZONE="${GARAGE_ZONE:-dc1}"
 CAPACITY="${GARAGE_CAPACITY:-4G}"
 LAKE_BUCKET="${LAKE_BUCKET:-lake}"
 BLOB_BUCKET="${BLOB_BUCKET:-blobs}"
 
-HOT_KEY_NAME="${GARAGE_HOT_KEY_NAME:-relic-hot-app}"
-COLD_KEY_NAME="${GARAGE_COLD_KEY_NAME:-relic-cold-app}"
+HOT_KEY_NAME="${GARAGE_HOT_KEY_NAME:-pithosys-hot-app}"
+COLD_KEY_NAME="${GARAGE_COLD_KEY_NAME:-pithosys-cold-app}"
 
 garage_exec() {
   local container="$1"

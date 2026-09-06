@@ -17,7 +17,7 @@ from tests.factories.models import FolderFactory, UserFactory
 @pytest.fixture()
 def admin(db_session):
     admin = UserFactory.build(
-        name="Admin", email="admin@relic.local", role=UserRole.ADMIN
+        name="Admin", email="admin@pithosys.local", role=UserRole.ADMIN
     )
     db_session.add(admin)
     db_session.commit()
@@ -32,7 +32,7 @@ def client(db_session, admin):
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(admin))
+            test_client.cookies.set("pithosys_session", create_session_token(admin))
             yield test_client
     finally:
         app.dependency_overrides.clear()
@@ -63,7 +63,7 @@ def test_list_returns_empty_when_no_grants(client):
 def test_grant_and_list_resolves_folder_paths(client, db_session, root_folder):
     loans = add_folder(db_session, root_folder, "loans")
     applications = add_folder(db_session, loans, "applications")
-    alice = UserFactory.build(name="Alice", email="alice@relic.local")
+    alice = UserFactory.build(name="Alice", email="alice@pithosys.local")
     db_session.add(alice)
     db_session.commit()
 
@@ -80,7 +80,7 @@ def test_grant_and_list_resolves_folder_paths(client, db_session, root_folder):
     body = grant.json()
     assert body["folder_path"] == "/loans/applications"
     assert body["permissions"] == int(Permission.READ | Permission.WRITE)
-    assert body["user"]["email"] == "alice@relic.local"
+    assert body["user"]["email"] == "alice@pithosys.local"
 
     listing = client.get("/api/folder-access/").json()
     assert len(listing) == 1
@@ -88,7 +88,7 @@ def test_grant_and_list_resolves_folder_paths(client, db_session, root_folder):
 
 
 def test_grant_on_root_renders_path_as_slash(client, db_session, root_folder):
-    bob = UserFactory.build(email="bob@relic.local")
+    bob = UserFactory.build(email="bob@pithosys.local")
     db_session.add(bob)
     db_session.commit()
 
@@ -106,7 +106,7 @@ def test_grant_on_root_renders_path_as_slash(client, db_session, root_folder):
 
 
 def test_grant_is_idempotent_on_user_folder_pair(client, db_session, root_folder):
-    alice = UserFactory.build(email="alice@relic.local")
+    alice = UserFactory.build(email="alice@pithosys.local")
     db_session.add(alice)
     db_session.commit()
     payload = {
@@ -126,7 +126,7 @@ def test_grant_is_idempotent_on_user_folder_pair(client, db_session, root_folder
 
 
 def test_grant_rejects_unknown_permission_bits(client, db_session, root_folder):
-    user = UserFactory.build(email="user@relic.local")
+    user = UserFactory.build(email="user@pithosys.local")
     db_session.add(user)
     db_session.commit()
 
@@ -144,7 +144,7 @@ def test_grant_rejects_unknown_permission_bits(client, db_session, root_folder):
 
 
 def test_grant_rejects_write_without_read(client, db_session, root_folder):
-    user = UserFactory.build(email="user@relic.local")
+    user = UserFactory.build(email="user@pithosys.local")
     db_session.add(user)
     db_session.commit()
 
@@ -162,7 +162,7 @@ def test_grant_rejects_write_without_read(client, db_session, root_folder):
 
 
 def test_grant_rejects_removed_admin_permission_bit(client, db_session, root_folder):
-    user = UserFactory.build(email="user@relic.local")
+    user = UserFactory.build(email="user@pithosys.local")
     db_session.add(user)
     db_session.commit()
 
@@ -194,7 +194,7 @@ def test_grant_404_when_user_missing(client, db_session, root_folder):
 
 
 def test_grant_404_when_folder_missing(client, db_session):
-    user = UserFactory.build(email="user@relic.local")
+    user = UserFactory.build(email="user@pithosys.local")
     db_session.add(user)
     db_session.commit()
 
@@ -212,7 +212,7 @@ def test_grant_404_when_folder_missing(client, db_session):
 
 
 def test_revoke_removes_row(client, db_session, root_folder):
-    alice = UserFactory.build(email="alice@relic.local")
+    alice = UserFactory.build(email="alice@pithosys.local")
     db_session.add(alice)
     db_session.commit()
     grant = client.post(
@@ -240,13 +240,13 @@ def test_non_admin_is_forbidden(db_session, root_folder):
     def override_get_db():
         yield db_session
 
-    user = UserFactory.build(email="user@relic.local", role=UserRole.USER)
+    user = UserFactory.build(email="user@pithosys.local", role=UserRole.USER)
     db_session.add(user)
     db_session.commit()
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as anon_client:
-            anon_client.cookies.set("relic_session", create_session_token(user))
+            anon_client.cookies.set("pithosys_session", create_session_token(user))
             response = anon_client.get("/api/folder-access/")
     finally:
         app.dependency_overrides.clear()

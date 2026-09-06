@@ -1,6 +1,6 @@
 import type { SearchAttribute } from "@/types/search"
 
-export const DEFAULT_RELICQL_QUERY = `FROM objects
+export const DEFAULT_PITHOSYSQL_QUERY = `FROM objects
 LIMIT 100`
 
 export const BUILTIN_SEARCH_ATTRIBUTES: SearchAttribute[] = [

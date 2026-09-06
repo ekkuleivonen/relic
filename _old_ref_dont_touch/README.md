@@ -1,11 +1,11 @@
-# Relic
+# Pithosys
 
-Relic is a storage control plane for organizing files across S3-compatible
+Pithosys is a storage control plane for organizing files across S3-compatible
 object stores. It presents a permissioned virtual filesystem to users, stores
 file bytes in registered bucket backends, and gives admins tools to manage
 users, access, storage tiers, and bucket health.
 
-At a high level, Relic separates logical files from physical blobs:
+At a high level, Pithosys separates logical files from physical blobs:
 
 - Users browse folders, upload files, search metadata, and download objects.
 - Admins register storage buckets, grant recursive folder permissions, and
@@ -85,14 +85,14 @@ trims old rows on its cron tick.
 - Admin view for audit events is live.
 - Prometheus-compatible `GET /metrics` on the API process (not under `/api`).
   Low-cardinality counters and histograms in `server/infra/metrics.py`:
-  - `relic_api_requests_total` / `relic_api_duration_seconds` — HTTP API
+  - `pithosys_api_requests_total` / `pithosys_api_duration_seconds` — HTTP API
     traffic by method, route template, and status class (`2xx`, `4xx`, …).
-  - `relic_gateway_requests_total` / `relic_gateway_duration_seconds` — S3
+  - `pithosys_gateway_requests_total` / `pithosys_gateway_duration_seconds` — S3
     gateway traffic under `/s3` by operation (e.g. `put_object`, `get_object`).
-  - `relic_maintenance_jobs_total` / `relic_maintenance_duration_seconds` —
+  - `pithosys_maintenance_jobs_total` / `pithosys_maintenance_duration_seconds` —
     maintenance worker jobs by name and outcome.
-  - `relic_maintenance_queue_depth` — pending jobs on the maintenance ARQ queue.
-  - `relic_storage_backend_probe_total` — bucket probe successes and failures.
+  - `pithosys_maintenance_queue_depth` — pending jobs on the maintenance ARQ queue.
+  - `pithosys_storage_backend_probe_total` — bucket probe successes and failures.
   Standard `prometheus-client` process metrics are included in the scrape body.
 
 ### Health and Readiness
@@ -115,11 +115,11 @@ trims old rows on its cron tick.
   `ListObjectsV2`.
 - Multipart upload lifecycle: create upload, upload part, complete, and abort.
 - Native SigV4 `Authorization` header authentication for path-style boto3,
-  botocore, and AWS CLI style clients using Relic access keys.
+  botocore, and AWS CLI style clients using Pithosys access keys.
 
-Relic still supports its presigned SigV4 query URL contract for web/API upload
+Pithosys still supports its presigned SigV4 query URL contract for web/API upload
 and download flows. Native clients should use path-style addressing and set
-their region to `RELIC_SIGNING_REGION` (default: `relic`), for example:
+their region to `PITHOSYS_SIGNING_REGION` (default: `pithosys`), for example:
 
 ```python
 import boto3
@@ -130,7 +130,7 @@ s3 = boto3.client(
     endpoint_url="http://localhost:8000/s3",
     aws_access_key_id="RK...",
     aws_secret_access_key="...",
-    region_name="relic",
+    region_name="pithosys",
     config=Config(s3={"addressing_style": "path"}),
 )
 ```
@@ -140,37 +140,37 @@ must be reissued before they can authenticate native clients.
 
 ### Integrating as a service
 
-Relic separates **metadata** (`/api/*`) from **bytes** (`/s3/*`). Every
+Pithosys separates **metadata** (`/api/*`) from **bytes** (`/s3/*`). Every
 `GET /api/files/{id}` response includes a `gateway` object:
 
 ```json
 {
   "gateway": {
-    "bucket": "relic",
+    "bucket": "pithosys",
     "key": "photos/2024/cat.jpg",
-    "object_uri": "/s3/relic/photos/2024/cat.jpg"
+    "object_uri": "/s3/pithosys/photos/2024/cat.jpg"
   }
 }
 ```
 
 **Bucket/key mapping:** `gateway.bucket` is always the fixed gateway bucket
-(`relic` by default). `gateway.key` is the full virtual folder path from the
+(`pithosys` by default). `gateway.key` is the full virtual folder path from the
 root plus the file name (e.g. `photos/2024/cat.jpg`).
 
-With boto3, use `Bucket="relic"` and `Key=file["gateway"]["key"]`.
+With boto3, use `Bucket="pithosys"` and `Key=file["gateway"]["key"]`.
 
 **Authentication:** Use one access key in two forms:
 
 | Surface | Auth |
 |---------|------|
 | `/api/*` | `Authorization: Bearer {key_id}:{secret}` |
-| `/s3/*` | AWS SigV4 `Authorization` header (same credentials, region `relic`, path-style) |
+| `/s3/*` | AWS SigV4 `Authorization` header (same credentials, region `pithosys`, path-style) |
 
 Do not send Bearer tokens to the S3 gateway — use SigV4 or presigned URLs.
 
 **Reading bytes (workers):** Native SigV4 GET is the recommended service path.
 Use **`gateway.object_uri`** as the signing URL path — it is percent-encoded for
-SigV4 (e.g. `/s3/Local%20Testing/file.csv`). Relic's canonical URI uses encoding;
+SigV4 (e.g. `/s3/Local%20Testing/file.csv`). Pithosys's canonical URI uses encoding;
 passing literal spaces in the signing URL (e.g. `/s3/Local Testing/...`) causes
 `SignatureDoesNotMatch` with botocore.
 
@@ -189,7 +189,7 @@ from botocore.auth import S3SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 
-RELIC_HOST = "relic.example.com"
+PITHOSYS_HOST = "pithosys.example.com"
 KEY_ID = "RK..."
 SECRET = "..."
 
@@ -198,10 +198,10 @@ path = file["gateway"]["object_uri"]  # percent-encoded; required for SigV4
 
 request = AWSRequest(
     method="GET",
-    url=urljoin(f"https://{RELIC_HOST}", path),
-    headers={"Host": RELIC_HOST, "x-amz-content-sha256": "UNSIGNED-PAYLOAD"},
+    url=urljoin(f"https://{PITHOSYS_HOST}", path),
+    headers={"Host": PITHOSYS_HOST, "x-amz-content-sha256": "UNSIGNED-PAYLOAD"},
 )
-S3SigV4Auth(Credentials(KEY_ID, SECRET), "s3", "relic").add_auth(request)
+S3SigV4Auth(Credentials(KEY_ID, SECRET), "s3", "pithosys").add_auth(request)
 
 # Issue GET with dict(request.headers) — e.g. httpx, requests, aiohttp
 ```
@@ -212,7 +212,7 @@ S3SigV4Auth(Credentials(KEY_ID, SECRET), "s3", "relic").add_auth(request)
 
 ## Architecture
 
-Relic is split into a React client, a FastAPI server, and ARQ workers:
+Pithosys is split into a React client, a FastAPI server, and ARQ workers:
 
 - `client/` is a Vite, React, TypeScript, Tailwind, and shadcn/ui app.
 - `server/api/` contains the HTTP API and S3 gateway routes.
@@ -223,7 +223,7 @@ Relic is split into a React client, a FastAPI server, and ARQ workers:
 - `server/composition.py` wires the Unit of Work from settings.
 - PostgreSQL stores users, folders, files, blobs, access grants, access keys,
   bucket registrations, and audit events. SQLite is used in tests.
-- Redis backs ARQ maintenance jobs on the `relic:maintenance` queue.
+- Redis backs ARQ maintenance jobs on the `pithosys:maintenance` queue.
 - Garage is used by the local Docker setup as two S3-compatible object stores,
   one hot and one cold.
 
@@ -264,8 +264,8 @@ Default local URLs:
 Default seeded admin credentials:
 
 ```text
-Email: admin@relic.local
-Password: relic-admin
+Email: admin@pithosys.local
+Password: pithosys-admin
 ```
 
 These defaults are for local development only. Override secrets and seed values
@@ -273,9 +273,9 @@ with environment variables before using non-local data.
 
 ## Production Deployment (Kubernetes)
 
-This section is for the infra team deploying Relic into an existing cluster.
+This section is for the infra team deploying Pithosys into an existing cluster.
 Postgres, Redis, and S3-compatible object storage (Garage, MinIO, AWS S3, etc.)
-are **external** — Relic only ships three application workloads plus a
+are **external** — Pithosys only ships three application workloads plus a
 one-off migration job.
 
 ### Container images
@@ -285,8 +285,8 @@ every push to `main` and on version tags (`v*`):
 
 | Image | Context | Default command |
 |-------|---------|-----------------|
-| `ghcr.io/<owner>/<repo>/relic-server` | `server/` | `uvicorn api.app:app --host 0.0.0.0 --port 8000` |
-| `ghcr.io/<owner>/<repo>/relic-client` | `client/` | nginx on port 80 |
+| `ghcr.io/<owner>/<repo>/pithosys-server` | `server/` | `uvicorn api.app:app --host 0.0.0.0 --port 8000` |
+| `ghcr.io/<owner>/<repo>/pithosys-client` | `client/` | nginx on port 80 |
 
 The **server image** serves both the API Deployment and the maintenance worker.
 Only the container command differs.
@@ -312,15 +312,15 @@ private (`kubectl create secret docker-registry …`).
 - **Probes:**
   - Liveness: `GET /healthz` — process is up.
   - Readiness: `GET /readyz` — DB, Redis, registered storage-backend probe state, optional worker heartbeat. Returns **503** until storage backends are probed (maintenance worker must be running; first probe within ~1 minute of deploy).
-- **Metrics:** `GET /metrics` (Prometheus text format, **not** under `/api`). Scrape port 8000 from the pod or via your ingress policy. Exposes API/gateway traffic, dependency readiness (`relic_dependency_up`), worker heartbeat age, DB pool stats, Redis command latency, auth attempts, and process metrics.
+- **Metrics:** `GET /metrics` (Prometheus text format, **not** under `/api`). Scrape port 8000 from the pod or via your ingress policy. Exposes API/gateway traffic, dependency readiness (`pithosys_dependency_up`), worker heartbeat age, DB pool stats, Redis command latency, auth attempts, and process metrics.
 
 #### Maintenance worker container
 
 - **Image:** server image.
 - **Command:** `arq workers.maintenance.WorkerSettings`
-- **Port:** **9100** — Prometheus metrics (`METRICS_WORKER_PORT`, disable with `METRICS_WORKER_ENABLED=false`). Scrape separately from the API; this is where maintenance job counters, queue depth, storage probes, and business gauges (`relic_files_total`, `relic_blobs_total`, `relic_storage_bytes`) are updated.
+- **Port:** **9100** — Prometheus metrics (`METRICS_WORKER_PORT`, disable with `METRICS_WORKER_ENABLED=false`). Scrape separately from the API; this is where maintenance job counters, queue depth, storage probes, and business gauges (`pithosys_files_total`, `pithosys_blobs_total`, `pithosys_storage_bytes`) are updated.
 - **Cron:** enqueues seven jobs every minute (blob purge, storage-backend probes, tier demotion/promotion, audit/filesystem event retention trim, stale multipart abort).
-- **Heartbeat:** writes `relic:heartbeat:maintenance` in Redis. Set `MAINTENANCE_HEARTBEAT_REQUIRED=true` on the API so `/readyz` fails when the worker is absent or stale.
+- **Heartbeat:** writes `pithosys:heartbeat:maintenance` in Redis. Set `MAINTENANCE_HEARTBEAT_REQUIRED=true` on the API so `/readyz` fails when the worker is absent or stale.
 
 #### Client container
 
@@ -357,7 +357,7 @@ cutover, production sequencing, and local Alembic workflows.
 
 ### External dependencies
 
-Relic expects these services to already exist in the cluster or network:
+Pithosys expects these services to already exist in the cluster or network:
 
 | Dependency | Used by | Purpose |
 |------------|---------|---------|
@@ -365,12 +365,12 @@ Relic expects these services to already exist in the cluster or network:
 | **Redis** | API, worker | ARQ maintenance queue, tiered cache, worker heartbeats |
 | **S3-compatible storage** | API, worker | Blob bytes — **registered at runtime** via admin UI, not configured purely by env |
 
-Storage backends (bucket endpoint, credentials, tier) are created in the Relic
+Storage backends (bucket endpoint, credentials, tier) are created in the Pithosys
 admin UI after deploy. Until at least one backend is registered and probed,
 `/readyz` object-store check passes vacuously (zero backends = healthy). Plan to
 register backends immediately after first deploy.
 
-If using Relic's **embedded filesystem storage backend** (local disk instead of
+If using Pithosys's **embedded filesystem storage backend** (local disk instead of
 remote S3), mount a PVC at `STORAGE_FILESYSTEM_BASE_PATH` on API and worker
 pods. Both must share the same path if tiering moves blobs between backends on
 disk.
@@ -406,8 +406,8 @@ but does not fail on them.
 |----------|---------|
 | `ENCRYPTION_SECRET` | Fernet key for encrypted storage-backend credentials and access-key secrets at rest |
 | `SESSION_SECRET` | HMAC key for session cookies — use a **separate** value from `ENCRYPTION_SECRET` |
-| `RELIC_SIGNING_KEYS` | JSON map of `{ "key_id": "secret" }` for presigned S3 URLs |
-| `RELIC_SIGNING_CURRENT_KEY_ID` | Active key id; must exist in `RELIC_SIGNING_KEYS` |
+| `PITHOSYS_SIGNING_KEYS` | JSON map of `{ "key_id": "secret" }` for presigned S3 URLs |
+| `PITHOSYS_SIGNING_CURRENT_KEY_ID` | Active key id; must exist in `PITHOSYS_SIGNING_KEYS` |
 | `POSTGRES_PASSWORD` or `DATABASE_URL` | Database credentials |
 | `REDIS_PASSWORD` | Redis AUTH |
 
@@ -420,9 +420,9 @@ individual `POSTGRES_*` fields.
 |----------|---------|-------|
 | `POSTGRES_HOST` | `localhost` | |
 | `POSTGRES_PORT` | `5432` | |
-| `POSTGRES_DB` | `relic` | |
-| `POSTGRES_USER` | `relic` | |
-| `POSTGRES_PASSWORD` | `relic` | |
+| `POSTGRES_DB` | `pithosys` | |
+| `POSTGRES_USER` | `pithosys` | |
+| `POSTGRES_PASSWORD` | `pithosys` | |
 | `DATABASE_URL` | — | Overrides `POSTGRES_*` when set |
 
 #### Redis
@@ -432,32 +432,32 @@ individual `POSTGRES_*` fields.
 | `REDIS_HOST` | `localhost` | |
 | `REDIS_PORT` | `6379` | |
 | `REDIS_PASSWORD` | `replace_me` | |
-| `MAINTENANCE_QUEUE_NAME` | `relic:maintenance` | ARQ queue name |
+| `MAINTENANCE_QUEUE_NAME` | `pithosys:maintenance` | ARQ queue name |
 
-Redis keys are prefixed `relic:` (cache generations, heartbeats, etc.). API
+Redis keys are prefixed `pithosys:` (cache generations, heartbeats, etc.). API
 replicas require a **shared** Redis instance for cache invalidation coherence.
 
 #### Sessions and seed data
 
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `SESSION_COOKIE_NAME` | `relic_session` | |
+| `SESSION_COOKIE_NAME` | `pithosys_session` | |
 | `SESSION_MAX_AGE_SECONDS` | `604800` (7 days) | |
 | `SESSION_COOKIE_SECURE` | `false` | Set `true` behind TLS |
-| `RELIC_ADMIN_NAME` | `Relic Admin` | Used only when seeding a new admin |
-| `RELIC_ADMIN_EMAIL` | `admin@relic.local` | |
-| `RELIC_ADMIN_PASSWORD` | `relic-admin` | Only applied on **first** admin creation |
-| `RELIC_SEED_FOLDER_NAME` | `Uploads` | Optional top-level folder; empty skips |
+| `PITHOSYS_ADMIN_NAME` | `Pithosys Admin` | Used only when seeding a new admin |
+| `PITHOSYS_ADMIN_EMAIL` | `admin@pithosys.local` | |
+| `PITHOSYS_ADMIN_PASSWORD` | `pithosys-admin` | Only applied on **first** admin creation |
+| `PITHOSYS_SEED_FOLDER_NAME` | `Uploads` | Optional top-level folder; empty skips |
 
 #### S3 gateway
 
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `RELIC_GATEWAY_BUCKET` | `relic` | Fixed S3 bucket name for all `/s3` object paths |
-| `RELIC_SIGNING_TTL_SECONDS` | `300` | Presigned URL lifetime |
-| `RELIC_SIGNING_REGION` | `relic` | Native SigV4 clients must use this region |
-| `RELIC_SIGNING_KEY_ID` | `relic-dev` | Fallback when `RELIC_SIGNING_KEYS` unset |
-| `RELIC_SIGNING_SECRET` | derived | Fallback when `RELIC_SIGNING_KEYS` unset |
+| `PITHOSYS_GATEWAY_BUCKET` | `pithosys` | Fixed S3 bucket name for all `/s3` object paths |
+| `PITHOSYS_SIGNING_TTL_SECONDS` | `300` | Presigned URL lifetime |
+| `PITHOSYS_SIGNING_REGION` | `pithosys` | Native SigV4 clients must use this region |
+| `PITHOSYS_SIGNING_KEY_ID` | `pithosys-dev` | Fallback when `PITHOSYS_SIGNING_KEYS` unset |
+| `PITHOSYS_SIGNING_SECRET` | derived | Fallback when `PITHOSYS_SIGNING_KEYS` unset |
 | `S3_CORS_ALLOWED_ORIGINS` | empty | Comma-separated browser origins |
 | `MAX_OBJECT_BYTES` | `5368709120` (5 GiB) | Upload size cap |
 | `UPLOAD_SPOOL_MAX_MEMORY_BYTES` | `8388608` | In-memory spool before disk |
@@ -528,9 +528,9 @@ nothing worker-specific today — share a ConfigMap/Secret).
 
 - Logs: structured JSON on stdout (`structlog`). No separate log shipper in-repo.
 - Metrics: scrape `http://<api-pod>:8000/metrics`. Key series include
-  `relic_api_requests_total`, `relic_gateway_requests_total`,
-  `relic_maintenance_jobs_total`, `relic_maintenance_queue_depth`,
-  `relic_storage_backend_probe_total`.
+  `pithosys_api_requests_total`, `pithosys_gateway_requests_total`,
+  `pithosys_maintenance_jobs_total`, `pithosys_maintenance_queue_depth`,
+  `pithosys_storage_backend_probe_total`.
 - Readiness JSON includes per-check detail (DB, Redis queue depth, unhealthy
   storage backends, worker heartbeat age, configuration warnings).
 
@@ -600,9 +600,9 @@ uv run python compat/s3_gateway_compat.py
 This expects the local stack to be running at `http://localhost:8000`, the
 seeded admin login to work, and at least one physical bucket backend to be
 registered. The harness creates a temporary top-level folder, uploads a few
-objects through Relic presigned PUT URLs, verifies `ListBuckets`, `HeadBucket`,
+objects through Pithosys presigned PUT URLs, verifies `ListBuckets`, `HeadBucket`,
 `ListObjectsV2`, multipart upload, `HeadObject`, and `GetObject`, then creates a
-Relic access key and repeats representative object, listing, and multipart flows
+Pithosys access key and repeats representative object, listing, and multipart flows
 through a native boto3 client. Use `--api-url`, `--email`, `--password`,
 `--bucket-name`, or `--keep-data` to override defaults.
 
@@ -614,12 +614,12 @@ Environment variables are documented in the
 `docker-compose.yaml` and the variables listed there.
 
 Key groups: Postgres (`POSTGRES_*` or `DATABASE_URL`), Redis (`REDIS_*`),
-encryption/session secrets, S3 signing keys (`RELIC_SIGNING_*`), maintenance
+encryption/session secrets, S3 signing keys (`PITHOSYS_SIGNING_*`), maintenance
 tuning, and retention (`EVENT_RETENTION_DAYS`).
 
 ## Product Status
 
-Relic is an early product with substantial core behavior in place. The web
+Pithosys is an early product with substantial core behavior in place. The web
 app, JSON API, object gateway, native SigV4 clients, content-hash
 deduplication, tiered storage placement, unified `audit_events`, Prometheus
 `/metrics`, and production health / readiness endpoints are live. Planned work

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/secrets"
+	"github.com/elei-io/pithosys/packages/secrets"
 )
 
 func TestJobSpillStoreInsertAndQuery(t *testing.T) {

@@ -23,7 +23,7 @@ from tests.factories.models import StorageBackendFactory, UserFactory
 
 @pytest.fixture()
 def user(db_session):
-    user = UserFactory.build(email="user@relic.local")
+    user = UserFactory.build(email="user@pithosys.local")
     db_session.add(user)
     db_session.commit()
     return user
@@ -31,7 +31,7 @@ def user(db_session):
 
 @pytest.fixture()
 def admin(db_session):
-    admin = UserFactory.build(email="admin@relic.local", role=UserRole.ADMIN)
+    admin = UserFactory.build(email="admin@pithosys.local", role=UserRole.ADMIN)
     db_session.add(admin)
     db_session.commit()
     return admin
@@ -45,7 +45,7 @@ def client(db_session, user):
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(user))
+            test_client.cookies.set("pithosys_session", create_session_token(user))
             yield test_client
     finally:
         app.dependency_overrides.clear()
@@ -59,7 +59,7 @@ def admin_client(db_session, admin):
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(admin))
+            test_client.cookies.set("pithosys_session", create_session_token(admin))
             yield test_client
     finally:
         app.dependency_overrides.clear()

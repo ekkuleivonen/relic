@@ -328,7 +328,7 @@ function applyingView(
   const applied = totalApplied(summary)
   const batchLine = batchDetail(summary)
 
-  let detailLine = ""
+  let detailLine: string
   if (planned > 0) {
     detailLine = `${formatCount(applied)} / ${formatCount(planned)} objects ${verb}`
   } else if (summary.objects_listed > 0) {

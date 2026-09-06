@@ -24,7 +24,7 @@ def client(db_session):
     app.dependency_overrides[get_db] = override_get_db
     admin = User(
         name="Admin",
-        email="admin@relic.local",
+        email="admin@pithosys.local",
         password_hash=hash_password("password"),
         role=UserRole.ADMIN,
     )
@@ -32,7 +32,7 @@ def client(db_session):
     db_session.commit()
     try:
         with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(admin))
+            test_client.cookies.set("pithosys_session", create_session_token(admin))
             yield test_client
     finally:
         app.dependency_overrides.clear()
@@ -229,7 +229,7 @@ def test_probe_storage_backend_records_probe_sample(client, db_session, monkeypa
         def get_object(self, Bucket, Key):
             class Body:
                 def read(self):
-                    return b"relic-probe"
+                    return b"pithosys-probe"
 
             return {"Body": Body()}
 

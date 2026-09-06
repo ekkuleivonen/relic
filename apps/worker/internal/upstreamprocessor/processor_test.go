@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
-	"github.com/ekkuleivonen/relic/packages/db"
-	"github.com/ekkuleivonen/relic/packages/secrets"
-	"github.com/ekkuleivonen/relic/packages/storage"
-	"github.com/ekkuleivonen/relic/packages/testdb"
+	"github.com/elei-io/pithosys/apps/worker/internal/settings"
+	"github.com/elei-io/pithosys/packages/db"
+	"github.com/elei-io/pithosys/packages/secrets"
+	"github.com/elei-io/pithosys/packages/storage"
+	"github.com/elei-io/pithosys/packages/testdb"
 )
 
 var (

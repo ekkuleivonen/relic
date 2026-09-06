@@ -50,7 +50,7 @@ export function DeleteBucketDialog({
         <DialogHeader>
           <DialogTitle>Delete bucket?</DialogTitle>
           <DialogDescription>
-            This removes the Relic bucket connection and all catalog objects
+            This removes the Pithosys bucket connection and all catalog objects
             synced under it. It does not delete anything from the upstream
             bucket.
           </DialogDescription>

@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Relic needs a background job that detects catalog drift against upstream object storage without performing a full reconciliation on every run.
+Pithosys needs a background job that detects catalog drift against upstream object storage without performing a full reconciliation on every run.
 
 The jobs proposal defines two related job types:
 
@@ -15,15 +15,15 @@ The jobs proposal defines two related job types:
 
 `sync_bucket` is implemented today. It performs a full upstream listing for the bucket scope, compares listing evidence against local `upstream.*` attributes, and creates child mutation jobs. It does not yet accept per-run scope overrides such as `prefix` from job input.
 
-Relic's portable S3-compatible upstream boundary exposes only `ListObjects` and `HeadObject`. There is **no standard S3 API** for bucket-level object count or total bytes. Portable totals require enumerating objects and summing listing results. Provider-specific metrics such as AWS CloudWatch exist but are delayed, approximate, and not available across MinIO, R2, Wasabi, and other compatible backends.
+Pithosys's portable S3-compatible upstream boundary exposes only `ListObjects` and `HeadObject`. There is **no standard S3 API** for bucket-level object count or total bytes. Portable totals require enumerating objects and summing listing results. Provider-specific metrics such as AWS CloudWatch exist but are delayed, approximate, and not available across MinIO, R2, Wasabi, and other compatible backends.
 
-Because of that limitation, bucket-level upstream aggregate checks are a poor foundation for `scan_bucket`. They would either require a full upstream listing — the same cost as `sync_bucket` — or couple Relic to non-portable provider APIs outside the current `packages/upstreams/s3compat` contract.
+Because of that limitation, bucket-level upstream aggregate checks are a poor foundation for `scan_bucket`. They would either require a full upstream listing — the same cost as `sync_bucket` — or couple Pithosys to non-portable provider APIs outside the current `packages/upstreams/s3compat` contract.
 
-Relic still needs a bounded-cost verification path. The architectural answer is to operate over **verification partitions**: disjoint slices of the scan scope that can be sampled, fingerprinted, and escalated separately. Escalation remains scoped `sync_bucket`; the scan handler itself never mutates the catalog.
+Pithosys still needs a bounded-cost verification path. The architectural answer is to operate over **verification partitions**: disjoint slices of the scan scope that can be sampled, fingerprinted, and escalated separately. Escalation remains scoped `sync_bucket`; the scan handler itself never mutates the catalog.
 
 ### Why not key-root partitioning
 
-A tempting first approach is to partition by first path segment (`photos/`, `logs/`, `/`). That maps cleanly to S3 prefix listing, but it makes verification cost **dependent on how users organize their buckets** — something Relic does not control.
+A tempting first approach is to partition by first path segment (`photos/`, `logs/`, `/`). That maps cleanly to S3 prefix listing, but it makes verification cost **dependent on how users organize their buckets** — something Pithosys does not control.
 
 Production buckets frequently concentrate objects under a single prefix:
 
@@ -44,11 +44,11 @@ With key-root partitioning, selecting one of these partitions requires listing h
 
 There is no upper bound on key-root partition size. Sampling cannot fix this when a single partition dominates the bucket. A run-level cost budget can stop the work, but it cannot make verification predictable — it only makes it incomplete.
 
-**Verification cost must be determined by Relic's partitioning strategy, not by user-defined key layout.**
+**Verification cost must be determined by Pithosys's partitioning strategy, not by user-defined key layout.**
 
 ## Decision
 
-Relic will implement `scan_bucket` as a **read-only verification job** over sampled **verification partitions**.
+Pithosys will implement `scan_bucket` as a **read-only verification job** over sampled **verification partitions**.
 
 The handler will:
 
@@ -73,7 +73,7 @@ The handler will:
 
 ### Verification partitions
 
-A **verification partition** is a disjoint slice of the scan scope that Relic can fingerprint independently of other partitions.
+A **verification partition** is a disjoint slice of the scan scope that Pithosys can fingerprint independently of other partitions.
 
 The scan pipeline is defined in terms of partitions, not a specific partitioning scheme:
 
@@ -83,7 +83,7 @@ assign partitions → sample partitions → fingerprint(partition) → escalate 
 
 How partitions are assigned is an implementation choice, but the scheme must satisfy one architectural requirement:
 
-**If verification becomes too expensive, Relic must be able to reduce per-partition cost by increasing partition count — without requiring users to reorganize their buckets.**
+**If verification becomes too expensive, Pithosys must be able to reduce per-partition cost by increasing partition count — without requiring users to reorganize their buckets.**
 
 Schemes that satisfy this include:
 
@@ -104,7 +104,7 @@ partition_index = hash(key) % N
 Where:
 
 * `hash` is a stable, portable function over the full object key (implementation detail; must be consistent between local catalog queries and upstream listing routing).
-* `N` is a Relic-controlled partition count, not derived from bucket layout. Start with a sensible default (e.g. 256 or 1024) and tune operationally.
+* `N` is a Pithosys-controlled partition count, not derived from bucket layout. Start with a sensible default (e.g. 256 or 1024) and tune operationally.
 * Partition identifiers are logical — e.g. `"042/256"` — not S3 prefixes.
 
 Properties:
@@ -156,7 +156,7 @@ Skip empty partitions: if both local and upstream accumulators show zero objects
 
 ### Fingerprints
 
-For each sampled partition, Relic compares:
+For each sampled partition, Pithosys compares:
 
 ```text
 fingerprint(local) == fingerprint(upstream)
@@ -203,9 +203,9 @@ Consumers of scan results must understand exactly what is and is not verified.
 
 **Listing-pass blind spot.** Upstream partition accumulators are only as complete as the listing pass before the budget stops. If the budget is exhausted mid-pass, upstream fingerprints for partitions not yet fully covered must not be treated as complete. Do not report `healthy` when the listing pass did not finish and sampled partitions lack complete upstream evidence.
 
-**Compensating drift blind spot.** Aggregate fingerprint equality does not guarantee per-key correctness. Compensating add/remove pairs within a partition may preserve some aggregate signals while individual keys differ. Escalation to scoped `sync_bucket` is how Relic resolves confirmed partition mismatches precisely.
+**Compensating drift blind spot.** Aggregate fingerprint equality does not guarantee per-key correctness. Compensating add/remove pairs within a partition may preserve some aggregate signals while individual keys differ. Escalation to scoped `sync_bucket` is how Pithosys resolves confirmed partition mismatches precisely.
 
-**Hash collision blind spot.** Keys in different prefixes that share a hash partition are verified together. A mismatch localizes drift to a partition, not to a user-visible prefix. Escalation and operational tooling must describe partition scope in Relic terms (`042/256`), not assume a single directory caused the drift.
+**Hash collision blind spot.** Keys in different prefixes that share a hash partition are verified together. A mismatch localizes drift to a partition, not to a user-visible prefix. Escalation and operational tooling must describe partition scope in Pithosys terms (`042/256`), not assume a single directory caused the drift.
 
 Future enhancements may add optional prefix-aware partition strategies for operators who want directory-local verification. Those are not required for v1 and must not become the default.
 
@@ -301,15 +301,15 @@ sampling_partitions → listing_upstream → evaluating → escalating
 
 ## Consequences
 
-This gives Relic:
+This gives Pithosys:
 
 * A portable drift-detection path that works through the existing S3-compatible list API.
 * Clear separation between detection (`scan_bucket`) and reconciliation (`sync_bucket`).
 * A partition abstraction that can evolve without rewriting the scan pipeline.
-* Predictable operational cost: partition size is controlled by Relic's `N`, not user key layout.
+* Predictable operational cost: partition size is controlled by Pithosys's `N`, not user key layout.
 * Actionable escalation: mismatches become partition-scoped `sync_bucket` runs instead of whole-bucket syncs.
 
-This also costs Relic:
+This also costs Pithosys:
 
 * `sync_bucket` must gain partition-scoped input semantics (hash filter) before scan escalation is fully useful.
 * Storage needs efficient partition-scoped object queries (hash predicate over keys in scope).

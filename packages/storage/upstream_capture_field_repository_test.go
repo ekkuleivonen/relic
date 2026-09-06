@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ekkuleivonen/relic/packages/search"
+	"github.com/elei-io/pithosys/packages/search"
 )
 
 func TestSeedUpstreamCaptureFields(t *testing.T) {

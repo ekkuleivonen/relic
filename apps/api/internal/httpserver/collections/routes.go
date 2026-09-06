@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/middleware"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/objects"
-	searchhttp "github.com/ekkuleivonen/relic/apps/api/internal/httpserver/search"
-	"github.com/ekkuleivonen/relic/packages/search"
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/middleware"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/objects"
+	searchhttp "github.com/elei-io/pithosys/apps/api/internal/httpserver/search"
+	"github.com/elei-io/pithosys/packages/search"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
@@ -224,7 +224,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			return nil, err
 		}
 
-		results, err := dependencies.Storage.SearchRelicQL(ctx, collection.QueryText, storage.SearchScope{})
+		results, err := dependencies.Storage.SearchPithosysQL(ctx, collection.QueryText, storage.SearchScope{})
 		if err != nil {
 			if search.IsValidationError(err) {
 				return nil, huma.Error400BadRequest(err.Error())

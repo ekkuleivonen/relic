@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
+	"github.com/elei-io/pithosys/packages/upstreams/s3compat"
 )
 
 func TestParseNotificationFixtures(t *testing.T) {
@@ -21,7 +21,7 @@ func TestParseNotificationFixtures(t *testing.T) {
 		{
 			fixture:    "aws_object_created.json",
 			wantAction: EventActionImport,
-			wantBucket: "relic-fixtures",
+			wantBucket: "pithosys-fixtures",
 			wantKey:    "photos/a.jpg",
 			wantETag:   "fba9dede5f27731c9771645a39863328",
 			wantSize:   434234,
@@ -30,14 +30,14 @@ func TestParseNotificationFixtures(t *testing.T) {
 		{
 			fixture:    "aws_object_removed.json",
 			wantAction: EventActionRemove,
-			wantBucket: "relic-fixtures",
+			wantBucket: "pithosys-fixtures",
 			wantKey:    "photos/b.jpg",
 			wantTime:   "2026-06-26T01:05:00Z",
 		},
 		{
 			fixture:    "aws_sns_object_created.json",
 			wantAction: EventActionImport,
-			wantBucket: "relic-fixtures",
+			wantBucket: "pithosys-fixtures",
 			wantKey:    "photos/a.jpg",
 			wantETag:   "fba9dede5f27731c9771645a39863328",
 			wantSize:   434234,
@@ -46,7 +46,7 @@ func TestParseNotificationFixtures(t *testing.T) {
 		{
 			fixture:    "aws_eventbridge_object_created.json",
 			wantAction: EventActionImport,
-			wantBucket: "relic-fixtures",
+			wantBucket: "pithosys-fixtures",
 			wantKey:    "photos/a.jpg",
 			wantETag:   "fba9dede5f27731c9771645a39863328",
 			wantSize:   434234,
@@ -55,7 +55,7 @@ func TestParseNotificationFixtures(t *testing.T) {
 		{
 			fixture:    "b2_object_created.json",
 			wantAction: EventActionImport,
-			wantBucket: "relic-fixtures",
+			wantBucket: "pithosys-fixtures",
 			wantKey:    "photos/a.jpg",
 			wantSize:   434234,
 			wantTime:   "2024-06-26T09:15:09.123Z",
@@ -64,7 +64,7 @@ func TestParseNotificationFixtures(t *testing.T) {
 		{
 			fixture:    "b2_object_removed.json",
 			wantAction: EventActionRemove,
-			wantBucket: "relic-fixtures",
+			wantBucket: "pithosys-fixtures",
 			wantKey:    "photos/b.jpg",
 			wantTime:   "2024-06-26T09:20:09.123Z",
 			wantID:     "c1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f80",
@@ -72,7 +72,7 @@ func TestParseNotificationFixtures(t *testing.T) {
 		{
 			fixture:    "gcp_object_created.json",
 			wantAction: EventActionImport,
-			wantBucket: "relic-fixtures",
+			wantBucket: "pithosys-fixtures",
 			wantKey:    "photos/a.jpg",
 			wantETag:   "fba9dede5f27731c9771645a39863328",
 			wantSize:   434234,
@@ -81,14 +81,14 @@ func TestParseNotificationFixtures(t *testing.T) {
 		{
 			fixture:    "gcp_object_removed.json",
 			wantAction: EventActionRemove,
-			wantBucket: "relic-fixtures",
+			wantBucket: "pithosys-fixtures",
 			wantKey:    "photos/b.jpg",
 			wantTime:   "2026-06-26T01:05:00Z",
 		},
 		{
 			fixture:    "r2_object_created.json",
 			wantAction: EventActionImport,
-			wantBucket: "relic-fixtures",
+			wantBucket: "pithosys-fixtures",
 			wantKey:    "photos/a.jpg",
 			wantETag:   "fba9dede5f27731c9771645a39863328",
 			wantSize:   434234,
@@ -97,14 +97,14 @@ func TestParseNotificationFixtures(t *testing.T) {
 		{
 			fixture:    "r2_object_removed.json",
 			wantAction: EventActionRemove,
-			wantBucket: "relic-fixtures",
+			wantBucket: "pithosys-fixtures",
 			wantKey:    "photos/b.jpg",
 			wantTime:   "2026-06-26T01:05:00Z",
 		},
 		{
 			fixture:    "rustfs_object_created.json",
 			wantAction: EventActionImport,
-			wantBucket: "relic-fixtures",
+			wantBucket: "pithosys-fixtures",
 			wantKey:    "photos/a.jpg",
 			wantETag:   "fba9dede5f27731c9771645a39863328",
 			wantSize:   434234,
@@ -113,7 +113,7 @@ func TestParseNotificationFixtures(t *testing.T) {
 		{
 			fixture:    "rustfs_object_removed.json",
 			wantAction: EventActionRemove,
-			wantBucket: "relic-fixtures",
+			wantBucket: "pithosys-fixtures",
 			wantKey:    "photos/b.jpg",
 			wantTime:   "2026-06-26T01:05:00Z",
 		},
@@ -171,17 +171,17 @@ func TestParseDetectsUpstreamFromS3CompatibleRecords(t *testing.T) {
 	}{
 		{
 			name: "aws",
-			body: `{"Records":[{"eventSource":"aws:s3","eventName":"ObjectCreated:Put","eventTime":"2026-06-26T01:00:00.000Z","s3":{"bucket":{"name":"relic-fixtures"},"object":{"key":"photos/a.jpg"}}}]}`,
+			body: `{"Records":[{"eventSource":"aws:s3","eventName":"ObjectCreated:Put","eventTime":"2026-06-26T01:00:00.000Z","s3":{"bucket":{"name":"pithosys-fixtures"},"object":{"key":"photos/a.jpg"}}}]}`,
 			wantSource: s3compat.UpstreamAWS,
 		},
 		{
 			name: "rustfs",
-			body: `{"Records":[{"eventSource":"rustfs:s3","eventName":"s3:ObjectCreated:Put","eventTime":"2026-06-26T01:00:00.000Z","s3":{"bucket":{"name":"relic-fixtures"},"object":{"key":"photos/a.jpg"}}}]}`,
+			body: `{"Records":[{"eventSource":"rustfs:s3","eventName":"s3:ObjectCreated:Put","eventTime":"2026-06-26T01:00:00.000Z","s3":{"bucket":{"name":"pithosys-fixtures"},"object":{"key":"photos/a.jpg"}}}]}`,
 			wantSource: s3compat.UpstreamRustFS,
 		},
 		{
 			name: "minio",
-			body: `{"Records":[{"eventSource":"minio:s3","eventName":"s3:ObjectCreated:Put","eventTime":"2026-06-26T01:00:00.000Z","s3":{"bucket":{"name":"relic-fixtures"},"object":{"key":"photos/a.jpg"}}}]}`,
+			body: `{"Records":[{"eventSource":"minio:s3","eventName":"s3:ObjectCreated:Put","eventTime":"2026-06-26T01:00:00.000Z","s3":{"bucket":{"name":"pithosys-fixtures"},"object":{"key":"photos/a.jpg"}}}]}`,
 			wantSource: s3compat.UpstreamAWS,
 		},
 	}
@@ -203,7 +203,7 @@ func TestParseDetectsUpstreamFromS3CompatibleRecords(t *testing.T) {
 }
 
 func TestParseIgnoresTaggingAndMetadataEvents(t *testing.T) {
-	body := []byte(`{"Records":[{"eventSource":"aws:s3","eventName":"ObjectTagging:Put","eventTime":"2026-06-26T01:00:00.000Z","s3":{"bucket":{"name":"relic-fixtures"},"object":{"key":"photos/a.jpg"}}}]}`)
+	body := []byte(`{"Records":[{"eventSource":"aws:s3","eventName":"ObjectTagging:Put","eventTime":"2026-06-26T01:00:00.000Z","s3":{"bucket":{"name":"pithosys-fixtures"},"object":{"key":"photos/a.jpg"}}}]}`)
 
 	got, err := Parse(body)
 	if err != nil {
@@ -215,7 +215,7 @@ func TestParseIgnoresTaggingAndMetadataEvents(t *testing.T) {
 }
 
 func TestParseSkipsRecordsWithEmptyObjectKey(t *testing.T) {
-	body := []byte(`{"Records":[{"eventSource":"rustfs:s3","eventName":"s3:ObjectCreated:Put","eventTime":"2026-06-26T01:00:00.000Z","s3":{"bucket":{"name":"relic-fixtures"},"object":{"key":""}}}]}`)
+	body := []byte(`{"Records":[{"eventSource":"rustfs:s3","eventName":"s3:ObjectCreated:Put","eventTime":"2026-06-26T01:00:00.000Z","s3":{"bucket":{"name":"pithosys-fixtures"},"object":{"key":""}}}]}`)
 
 	got, err := Parse(body)
 	if err != nil {

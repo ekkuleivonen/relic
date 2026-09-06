@@ -54,7 +54,7 @@ function disableTransitionsTemporarily() {
 export function ThemeProvider({
   children,
   defaultTheme = "system",
-  persistenceKey = "relic-admin-theme",
+  persistenceKey = "pithosys-admin-theme",
   disableTransitionOnChange = true,
 }: ThemeProviderProps) {
   const [theme, setThemeState] = React.useState<Theme>(() => {

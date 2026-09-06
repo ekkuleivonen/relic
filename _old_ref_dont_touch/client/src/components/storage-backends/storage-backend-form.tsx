@@ -156,13 +156,13 @@ export function StorageBackendForm({
           label={isFilesystem ? "Base path" : "Endpoint"}
           tooltip={
             isFilesystem
-              ? "Absolute directory path visible to the API process. Docker Compose mounts filesystem_data at /var/relic/storage — use that path, not a host path."
+              ? "Absolute directory path visible to the API process. Docker Compose mounts filesystem_data at /var/pithosys/storage — use that path, not a host path."
               : "Base S3-compatible endpoint as seen by the API server. In Docker Compose, use http://garage-hot:3900 rather than localhost."
           }
         />
         <Input
           id="storage-backend-endpoint"
-          placeholder={isFilesystem ? "/var/relic/storage" : "http://garage-hot:3900"}
+          placeholder={isFilesystem ? "/var/pithosys/storage" : "http://garage-hot:3900"}
           value={values.endpoint}
           onChange={(event) =>
             setValues((current) => ({
@@ -200,7 +200,7 @@ export function StorageBackendForm({
             <FieldLabel
               htmlFor="storage-backend-namespace"
               label="Namespace"
-              tooltip="Single remote namespace Relic writes blobs into."
+              tooltip="Single remote namespace Pithosys writes blobs into."
             />
             <Input
               id="storage-backend-namespace"
@@ -220,7 +220,7 @@ export function StorageBackendForm({
             <FieldLabel
               htmlFor="storage-backend-key-id"
               label="Key ID"
-              tooltip="Access key ID used when Relic talks to this remote storage. Stored encrypted."
+              tooltip="Access key ID used when Pithosys talks to this remote storage. Stored encrypted."
             />
             <Input
               id="storage-backend-key-id"
@@ -290,7 +290,7 @@ export function StorageBackendForm({
         <FieldLabel
           htmlFor="storage-backend-max-size"
           label="Max Size"
-          tooltip="User-provided write limit for this backend. Relic derives usage from stored blobs when placing new data."
+          tooltip="User-provided write limit for this backend. Pithosys derives usage from stored blobs when placing new data."
         />
         <div className="grid grid-cols-[1fr_auto] gap-2">
           <Input

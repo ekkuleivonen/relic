@@ -36,7 +36,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(
-    title="Relic API",
+    title="Pithosys API",
     description=API_DESCRIPTION,
     version="0.1.0",
     openapi_tags=OPENAPI_TAGS,

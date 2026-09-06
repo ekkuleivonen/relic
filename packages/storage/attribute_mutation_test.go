@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/search"
+	"github.com/elei-io/pithosys/packages/search"
 )
 
 func TestMutateObjectAttributesSetNestedAndDelete(t *testing.T) {

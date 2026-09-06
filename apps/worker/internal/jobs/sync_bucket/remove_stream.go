@@ -3,9 +3,9 @@ package sync_bucket
 import (
 	"context"
 
-	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
-	"github.com/ekkuleivonen/relic/packages/storage"
-	"github.com/ekkuleivonen/relic/packages/verification"
+	"github.com/elei-io/pithosys/apps/worker/internal/jobs"
+	"github.com/elei-io/pithosys/packages/storage"
+	"github.com/elei-io/pithosys/packages/verification"
 )
 
 func (h *Handler) streamAndEnqueueRemoveObjects(

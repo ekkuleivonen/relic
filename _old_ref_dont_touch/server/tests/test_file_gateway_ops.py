@@ -27,7 +27,7 @@ from tests.factories.models import AccessKeyFactory, StorageBackendFactory, User
 
 @pytest.fixture()
 def user(db_session):
-    user = UserFactory.build(email="user@relic.local")
+    user = UserFactory.build(email="user@pithosys.local")
     db_session.add(user)
     db_session.commit()
     return user
@@ -41,7 +41,7 @@ def client(db_session, user):
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(user))
+            test_client.cookies.set("pithosys_session", create_session_token(user))
             yield test_client
     finally:
         app.dependency_overrides.clear()
@@ -133,7 +133,7 @@ def sign_native_s3_request(
     S3SigV4Auth(
         Credentials(access_key.key_id, access_key.secret_access_key),
         "s3",
-        S.RELIC_SIGNING_REGION,
+        S.PITHOSYS_SIGNING_REGION,
     ).add_auth(request)
     return dict(request.headers.items())
 
@@ -214,7 +214,7 @@ class FakeStorageBackendStore:
 
             def abort_multipart_upload(self, Bucket, Key, UploadId):
                 store._uploads.pop(UploadId, None)
-                prefix = f"__relic_multipart_uploads/{UploadId}/"
+                prefix = f"__pithosys_multipart_uploads/{UploadId}/"
                 for object_key in list(store.objects):
                     bucket, key = object_key
                     if bucket == Bucket and key.startswith(prefix):
@@ -263,12 +263,12 @@ def test_native_header_put_creates_file_and_marks_key_used(
     headers = sign_native_s3_request(
         access_key,
         method="PUT",
-        path="/s3/relic/photos/native-cat.jpg",
+        path="/s3/pithosys/photos/native-cat.jpg",
         body=body,
         headers={"x-amz-meta-album": "native"},
     )
 
-    response = client.put("/s3/relic/photos/native-cat.jpg", content=body, headers=headers)
+    response = client.put("/s3/pithosys/photos/native-cat.jpg", content=body, headers=headers)
 
     assert response.status_code == 200, response.text
     db_session.refresh(access_key)
@@ -290,43 +290,43 @@ def test_native_header_head_and_get_echo_user_metadata(
     put_headers = sign_native_s3_request(
         access_key,
         method="PUT",
-        path="/s3/relic/photos/native-cat.jpg",
+        path="/s3/pithosys/photos/native-cat.jpg",
         body=body,
         headers={"x-amz-meta-album": "native", "x-amz-meta-source": "facet"},
     )
     assert (
-        client.put("/s3/relic/photos/native-cat.jpg", content=body, headers=put_headers).status_code
+        client.put("/s3/pithosys/photos/native-cat.jpg", content=body, headers=put_headers).status_code
         == 200
     )
 
     head_headers = sign_native_s3_request(
         access_key,
         method="HEAD",
-        path="/s3/relic/photos/native-cat.jpg",
+        path="/s3/pithosys/photos/native-cat.jpg",
     )
-    head_response = client.head("/s3/relic/photos/native-cat.jpg", headers=head_headers)
+    head_response = client.head("/s3/pithosys/photos/native-cat.jpg", headers=head_headers)
     assert head_response.status_code == 200
-    assert head_response.headers["x-amz-meta-relic-file-id"]
-    assert head_response.headers["x-amz-meta-relic-blob-id"]
-    assert head_response.headers["x-amz-meta-relic-folder-id"]
-    relic_meta = json.loads(head_response.headers["x-amz-meta-relic-meta"])
-    assert relic_meta["album"] == "native"
-    assert relic_meta["source"] == "facet"
+    assert head_response.headers["x-amz-meta-pithosys-file-id"]
+    assert head_response.headers["x-amz-meta-pithosys-blob-id"]
+    assert head_response.headers["x-amz-meta-pithosys-folder-id"]
+    pithosys_meta = json.loads(head_response.headers["x-amz-meta-pithosys-meta"])
+    assert pithosys_meta["album"] == "native"
+    assert pithosys_meta["source"] == "facet"
     assert "x-amz-meta-album" not in head_response.headers
-    assert "x-amz-meta-relic-user" not in head_response.headers
+    assert "x-amz-meta-pithosys-user" not in head_response.headers
 
     get_headers = sign_native_s3_request(
         access_key,
         method="GET",
-        path="/s3/relic/photos/native-cat.jpg",
+        path="/s3/pithosys/photos/native-cat.jpg",
     )
-    get_response = client.get("/s3/relic/photos/native-cat.jpg", headers=get_headers)
+    get_response = client.get("/s3/pithosys/photos/native-cat.jpg", headers=get_headers)
     assert get_response.status_code == 200
-    get_relic_meta = json.loads(get_response.headers["x-amz-meta-relic-meta"])
-    assert get_relic_meta["album"] == "native"
-    assert get_response.headers["x-amz-meta-relic-file-id"]
+    get_pithosys_meta = json.loads(get_response.headers["x-amz-meta-pithosys-meta"])
+    assert get_pithosys_meta["album"] == "native"
+    assert get_response.headers["x-amz-meta-pithosys-file-id"]
     assert "x-amz-meta-album" not in get_response.headers
-    assert "x-amz-meta-relic-user" not in get_response.headers
+    assert "x-amz-meta-pithosys-user" not in get_response.headers
 
 
 def test_native_header_list_head_get_and_delete(
@@ -345,11 +345,11 @@ def test_native_header_list_head_get_and_delete(
     list_headers = sign_native_s3_request(
         access_key,
         method="GET",
-        path="/s3/relic",
+        path="/s3/pithosys",
         query_params=list_query,
     )
     list_response = client.get(
-        "/s3/relic",
+        "/s3/pithosys",
         params=list_query,
         headers=list_headers,
     )
@@ -359,25 +359,25 @@ def test_native_header_list_head_get_and_delete(
     head_headers = sign_native_s3_request(
         access_key,
         method="HEAD",
-        path="/s3/relic/photos/cat.jpg",
+        path="/s3/pithosys/photos/cat.jpg",
     )
-    assert client.head("/s3/relic/photos/cat.jpg", headers=head_headers).status_code == 200
+    assert client.head("/s3/pithosys/photos/cat.jpg", headers=head_headers).status_code == 200
 
     get_headers = sign_native_s3_request(
         access_key,
         method="GET",
-        path="/s3/relic/photos/cat.jpg",
+        path="/s3/pithosys/photos/cat.jpg",
     )
-    get_response = client.get("/s3/relic/photos/cat.jpg", headers=get_headers)
+    get_response = client.get("/s3/pithosys/photos/cat.jpg", headers=get_headers)
     assert get_response.status_code == 200, get_response.text
     assert get_response.content == b"cat photo"
 
     delete_headers = sign_native_s3_request(
         access_key,
         method="DELETE",
-        path="/s3/relic/photos/cat.jpg",
+        path="/s3/pithosys/photos/cat.jpg",
     )
-    delete_response = client.delete("/s3/relic/photos/cat.jpg", headers=delete_headers)
+    delete_response = client.delete("/s3/pithosys/photos/cat.jpg", headers=delete_headers)
     assert delete_response.status_code == 204
     assert db_session.scalar(select(File).where(File.name == "cat.jpg")) is None
 
@@ -403,9 +403,9 @@ def test_native_header_get_with_spaced_bucket_name(
     )
     access_key = create_access_key(db_session, user)
 
-    # Use percent-encoded path in the signing URL (matches Relic's SigV4 canonical URI).
+    # Use percent-encoded path in the signing URL (matches Pithosys's SigV4 canonical URI).
     # gateway.object_uri is the right input for botocore AWSRequest URLs.
-    signing_path = "/s3/relic/Local%20Testing/file.csv"
+    signing_path = "/s3/pithosys/Local%20Testing/file.csv"
     get_headers = sign_native_s3_request(
         access_key,
         method="GET",
@@ -425,11 +425,11 @@ def test_native_header_multipart_upload(
     create_headers = sign_native_s3_request(
         access_key,
         method="POST",
-        path="/s3/relic/photos/native-large.bin",
+        path="/s3/pithosys/photos/native-large.bin",
         query_params={"uploads": ""},
     )
     create_response = client.post(
-        "/s3/relic/photos/native-large.bin",
+        "/s3/pithosys/photos/native-large.bin",
         params={"uploads": ""},
         headers=create_headers,
     )
@@ -444,12 +444,12 @@ def test_native_header_multipart_upload(
         headers = sign_native_s3_request(
             access_key,
             method="PUT",
-            path="/s3/relic/photos/native-large.bin",
+            path="/s3/pithosys/photos/native-large.bin",
             body=content,
             query_params=part_query,
         )
         response = client.put(
-            "/s3/relic/photos/native-large.bin",
+            "/s3/pithosys/photos/native-large.bin",
             params=part_query,
             content=content,
             headers=headers,
@@ -468,12 +468,12 @@ def test_native_header_multipart_upload(
     complete_headers = sign_native_s3_request(
         access_key,
         method="POST",
-        path="/s3/relic/photos/native-large.bin",
+        path="/s3/pithosys/photos/native-large.bin",
         body=complete_body,
         query_params={"uploadId": upload_id},
     )
     complete_response = client.post(
-        "/s3/relic/photos/native-large.bin",
+        "/s3/pithosys/photos/native-large.bin",
         params={"uploadId": upload_id},
         content=complete_body,
         headers=complete_headers,
@@ -498,12 +498,12 @@ def test_native_header_rejects_bad_payload_hash(
     headers = sign_native_s3_request(
         access_key,
         method="PUT",
-        path="/s3/relic/photos/bad-hash.jpg",
+        path="/s3/pithosys/photos/bad-hash.jpg",
         body=b"signed body",
     )
 
     response = client.put(
-        "/s3/relic/photos/bad-hash.jpg", content=b"tampered", headers=headers
+        "/s3/pithosys/photos/bad-hash.jpg", content=b"tampered", headers=headers
     )
 
     assert response.status_code == 403
@@ -521,11 +521,11 @@ def test_native_header_revoked_access_key_is_rejected(
     headers = sign_native_s3_request(
         access_key,
         method="GET",
-        path="/s3/relic",
+        path="/s3/pithosys",
         query_params=list_query,
     )
 
-    response = client.get("/s3/relic", params=list_query, headers=headers)
+    response = client.get("/s3/pithosys", params=list_query, headers=headers)
 
     assert response.status_code == 403
     assert "InvalidAccessKeyId" in response.text
@@ -830,12 +830,12 @@ def test_presigned_head_returns_ok(
     upload_file(client, photos_folder, filename="cat.jpg", content=b"cat photo")
     signed = object_signing.sign_request_url(
         method="HEAD",
-        bucket="relic",
+        bucket="pithosys",
         key="photos/cat.jpg",
         headers={},
         user_id=user.id,
         host="testserver",
-        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        ttl_seconds=S.PITHOSYS_SIGNING_TTL_SECONDS,
     )
 
     response = client.head(signed.url, headers=signed.headers)
@@ -848,12 +848,12 @@ def test_multipart_upload_completes_object(
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     create = object_signing.sign_request_url(
         method="POST",
-        bucket="relic",
+        bucket="pithosys",
         key="photos/large.bin",
         headers={},
         user_id=user.id,
         host="testserver",
-        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        ttl_seconds=S.PITHOSYS_SIGNING_TTL_SECONDS,
         query_params={"uploads": ""},
     )
 
@@ -867,12 +867,12 @@ def test_multipart_upload_completes_object(
     for part_number, content in [(1, b"hello "), (2, b"world")]:
         signed = object_signing.sign_request_url(
             method="PUT",
-            bucket="relic",
+            bucket="pithosys",
             key="photos/large.bin",
             headers={},
             user_id=user.id,
             host="testserver",
-            ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+            ttl_seconds=S.PITHOSYS_SIGNING_TTL_SECONDS,
             query_params={"partNumber": str(part_number), "uploadId": upload_id},
         )
         response = client.put(signed.url, content=content, headers=signed.headers)
@@ -882,11 +882,11 @@ def test_multipart_upload_completes_object(
 
     uploads = object_signing.sign_bucket_url(
         method="GET",
-        bucket="relic",
+        bucket="pithosys",
         headers={},
         user_id=user.id,
         host="testserver",
-        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        ttl_seconds=S.PITHOSYS_SIGNING_TTL_SECONDS,
         query_params={"uploads": ""},
     )
     uploads_response = client.get(uploads.url, headers=uploads.headers)
@@ -896,12 +896,12 @@ def test_multipart_upload_completes_object(
 
     parts = object_signing.sign_request_url(
         method="GET",
-        bucket="relic",
+        bucket="pithosys",
         key="photos/large.bin",
         headers={},
         user_id=user.id,
         host="testserver",
-        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        ttl_seconds=S.PITHOSYS_SIGNING_TTL_SECONDS,
         query_params={"uploadId": upload_id},
     )
     parts_response = client.get(parts.url, headers=parts.headers)
@@ -919,12 +919,12 @@ def test_multipart_upload_completes_object(
     )
     complete = object_signing.sign_request_url(
         method="POST",
-        bucket="relic",
+        bucket="pithosys",
         key="photos/large.bin",
         headers={},
         user_id=user.id,
         host="testserver",
-        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        ttl_seconds=S.PITHOSYS_SIGNING_TTL_SECONDS,
         query_params={"uploadId": upload_id},
     )
 
@@ -950,15 +950,15 @@ def test_multipart_upload_completes_object(
             physical_bucket.namespace,
             blob.bucket_key,
             [
-                f"__relic_multipart_uploads/{upload_id}/1",
-                f"__relic_multipart_uploads/{upload_id}/2",
+                f"__pithosys_multipart_uploads/{upload_id}/1",
+                f"__pithosys_multipart_uploads/{upload_id}/2",
             ],
         )
     ]
     assert not [
         key
         for (_bucket, key) in fake_storage.objects
-        if key.startswith("__relic_multipart_uploads/")
+        if key.startswith("__pithosys_multipart_uploads/")
     ]
 
 
@@ -968,12 +968,12 @@ def test_multipart_upload_abort_removes_temp_parts(
     grant(db_session, user, photos_folder, int(Permission.READ | Permission.WRITE))
     create = object_signing.sign_request_url(
         method="POST",
-        bucket="relic",
+        bucket="pithosys",
         key="photos/large.bin",
         headers={},
         user_id=user.id,
         host="testserver",
-        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        ttl_seconds=S.PITHOSYS_SIGNING_TTL_SECONDS,
         query_params={"uploads": ""},
     )
     create_response = client.post(create.url, headers=create.headers)
@@ -982,12 +982,12 @@ def test_multipart_upload_abort_removes_temp_parts(
     ]
     signed = object_signing.sign_request_url(
         method="PUT",
-        bucket="relic",
+        bucket="pithosys",
         key="photos/large.bin",
         headers={},
         user_id=user.id,
         host="testserver",
-        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        ttl_seconds=S.PITHOSYS_SIGNING_TTL_SECONDS,
         query_params={"partNumber": "1", "uploadId": upload_id},
     )
     assert (
@@ -995,17 +995,17 @@ def test_multipart_upload_abort_removes_temp_parts(
         == 200
     )
     assert any(
-        key.startswith("__relic_multipart_uploads/")
+        key.startswith("__pithosys_multipart_uploads/")
         for (_bucket, key) in fake_storage.objects
     )
     abort = object_signing.sign_request_url(
         method="DELETE",
-        bucket="relic",
+        bucket="pithosys",
         key="photos/large.bin",
         headers={},
         user_id=user.id,
         host="testserver",
-        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        ttl_seconds=S.PITHOSYS_SIGNING_TTL_SECONDS,
         query_params={"uploadId": upload_id},
     )
 
@@ -1041,10 +1041,10 @@ def test_presign_download_requires_read_permission(
     upload_file(client, photos_folder, filename="cat.jpg", content=b"cat photo")
     file = db_session.scalar(select(File).where(File.name == "cat.jpg"))
 
-    other = UserFactory.build(email="other@relic.local")
+    other = UserFactory.build(email="other@pithosys.local")
     db_session.add(other)
     db_session.commit()
-    client.cookies.set("relic_session", create_session_token(other))
+    client.cookies.set("pithosys_session", create_session_token(other))
 
     response = client.post(
         "/api/uploads/presign-download",

@@ -13,44 +13,44 @@ export type ObservabilitySeriesItem = {
 }
 
 /** Primary rust — brand anchor */
-const relicRust: ObservabilitySeriesTheme = {
+const pithosysRust: ObservabilitySeriesTheme = {
   light: "#a83d2b",
   dark: "#c95a45",
 }
 
 /** Golden amber — lighter, reads clearly against rust and brown */
-const relicAmber: ObservabilitySeriesTheme = {
+const pithosysAmber: ObservabilitySeriesTheme = {
   light: "#d8a657",
   dark: "#f0a261",
 }
 
 /** Deep umber — dark enough to separate from amber/orange stacks */
-const relicUmber: ObservabilitySeriesTheme = {
+const pithosysUmber: ObservabilitySeriesTheme = {
   light: "#6b2418",
   dark: "#9a3a29",
 }
 
 /** Mid orange — between rust and amber */
-const relicOrange: ObservabilitySeriesTheme = {
+const pithosysOrange: ObservabilitySeriesTheme = {
   light: "#c8793f",
   dark: "#d8a657",
 }
 
 export const bucketSyncSeries: ObservabilitySeriesItem[] = [
-  { key: "sync_bucket", label: "Sync", theme: relicRust },
-  { key: "scan_bucket", label: "Scan", theme: relicAmber },
+  { key: "sync_bucket", label: "Sync", theme: pithosysRust },
+  { key: "scan_bucket", label: "Scan", theme: pithosysAmber },
 ]
 
 export const objectSyncSeries: ObservabilitySeriesItem[] = [
-  { key: "import_objects", label: "Import", theme: relicRust },
-  { key: "refresh_objects", label: "Refresh", theme: relicAmber },
-  { key: "remove_objects", label: "Remove", theme: relicUmber },
+  { key: "import_objects", label: "Import", theme: pithosysRust },
+  { key: "refresh_objects", label: "Refresh", theme: pithosysAmber },
+  { key: "remove_objects", label: "Remove", theme: pithosysUmber },
 ]
 
 export const bucketEventSeries: ObservabilitySeriesItem[] = [
-  { key: "created", label: "Created", theme: relicRust },
-  { key: "removed", label: "Removed", theme: relicUmber },
-  { key: "metadata_changed", label: "Metadata", theme: relicOrange },
+  { key: "created", label: "Created", theme: pithosysRust },
+  { key: "removed", label: "Removed", theme: pithosysUmber },
+  { key: "metadata_changed", label: "Metadata", theme: pithosysOrange },
   { key: "other", label: "Other", color: "var(--chart-5)" },
 ]
 

@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Relic needs human authentication for the admin UI before machine-facing API tokens are introduced. The product requires:
+Pithosys needs human authentication for the admin UI before machine-facing API tokens are introduced. The product requires:
 
 - Closed registration: only provisioned users may sign in
 - Dual login methods per user: password and OIDC SSO
@@ -32,7 +32,7 @@ Admins create users through the UI. Login endpoints reject unknown emails. There
 
 ### Bootstrap admin
 
-On startup, Relic reconciles `SUPERUSER_EMAIL`:
+On startup, Pithosys reconciles `SUPERUSER_EMAIL`:
 
 - If no user exists: create admin with optional password hash from `SUPERUSER_PASSWORD`
 - If user exists: ensure `role=admin`; update password hash when env password is provided
@@ -40,7 +40,7 @@ On startup, Relic reconciles `SUPERUSER_EMAIL`:
 
 ### Sessions
 
-- Opaque random cookie value (`relic_session`)
+- Opaque random cookie value (`pithosys_session`)
 - SHA-256 hash stored in `sessions`
 - HttpOnly, SameSite=Lax, Secure outside local dev
 - Validated by HTTP middleware before protected routes

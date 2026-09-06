@@ -30,7 +30,7 @@ class PresignUploadRequest(BaseModel):
         default_factory=dict,
         description=(
             "User metadata stored on the file. Keys become `x-amz-meta-{key}` on the "
-            "signed PUT. `relic-user` is reserved."
+            "signed PUT. `pithosys-user` is reserved."
         ),
     )
 
@@ -73,7 +73,7 @@ class PresignUploadResponse(BaseModel):
 
     url: str = Field(
         description=(
-            "Path-style S3 URL relative to the Relic host, percent-encoded where "
+            "Path-style S3 URL relative to the Pithosys host, percent-encoded where "
             "needed (e.g. `/s3/Local%20Testing/file.csv?X-Amz-...`). Prepend your "
             "API base URL's origin for an absolute URL. Same location as "
             "`FileRead.gateway`; for native SigV4 use literal `bucket`/`key` instead."
@@ -112,12 +112,12 @@ async def presign_upload(
         bucket=bucket,
         key=key,
         headers={
-            "x-relic-if-none-match": "*",
+            "x-pithosys-if-none-match": "*",
             **{f"x-amz-meta-{name}": value for name, value in user_metadata.items()},
         },
         user_id=current_user.id,
         host=request.headers.get("host", "testserver"),
-        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        ttl_seconds=S.PITHOSYS_SIGNING_TTL_SECONDS,
     )
     return PresignUploadResponse(
         url=signed.url,
@@ -145,7 +145,7 @@ async def presign_delete(
         key=key,
         user_id=current_user.id,
         host=request.headers.get("host", "testserver"),
-        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        ttl_seconds=S.PITHOSYS_SIGNING_TTL_SECONDS,
     )
     return PresignUploadResponse(
         url=signed.url,
@@ -179,7 +179,7 @@ async def presign_download(
         key=key,
         user_id=current_user.id,
         host=request.headers.get("host", "testserver"),
-        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        ttl_seconds=S.PITHOSYS_SIGNING_TTL_SECONDS,
     )
     return PresignUploadResponse(
         url=signed.url,
@@ -240,7 +240,7 @@ async def presign_copy(
         headers=signed_headers,
         user_id=current_user.id,
         host=request.headers.get("host", "testserver"),
-        ttl_seconds=S.RELIC_SIGNING_TTL_SECONDS,
+        ttl_seconds=S.PITHOSYS_SIGNING_TTL_SECONDS,
     )
     return PresignUploadResponse(
         url=signed.url,

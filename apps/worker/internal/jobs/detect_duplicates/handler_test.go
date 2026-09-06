@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/db"
-	"github.com/ekkuleivonen/relic/packages/secrets"
-	"github.com/ekkuleivonen/relic/packages/storage"
-	"github.com/ekkuleivonen/relic/packages/testdb"
-	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
+	"github.com/elei-io/pithosys/packages/db"
+	"github.com/elei-io/pithosys/packages/secrets"
+	"github.com/elei-io/pithosys/packages/storage"
+	"github.com/elei-io/pithosys/packages/testdb"
+	"github.com/elei-io/pithosys/packages/upstreams/s3compat"
 )
 
 var (
@@ -122,12 +122,12 @@ func TestHandlerCreatesDuplicateRelationsFromVerifiedGroup(t *testing.T) {
 		t.Fatalf("relation hash = %#v", relations[0].Attributes["content_sha256"])
 	}
 
-	results, err := store.SearchRelicQL(ctx, `
+	results, err := store.SearchPithosysQL(ctx, `
 		FROM objects
 		WHERE has_relation('duplicate', 'out')
 	`, storage.SearchScope{BucketID: bucket.ID})
 	if err != nil {
-		t.Fatalf("SearchRelicQL returned error: %v", err)
+		t.Fatalf("SearchPithosysQL returned error: %v", err)
 	}
 	if len(results) != 1 || results[0].ID != original.ID {
 		t.Fatalf("duplicate originals = %#v, want [%q]", results, original.ID)

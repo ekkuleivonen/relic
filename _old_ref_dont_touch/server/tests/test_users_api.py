@@ -21,7 +21,7 @@ def client(db_session):
     app.dependency_overrides[get_db] = override_get_db
     admin = User(
         name="Admin",
-        email="admin@relic.local",
+        email="admin@pithosys.local",
         password_hash=hash_password("password"),
         role=UserRole.ADMIN,
     )
@@ -29,7 +29,7 @@ def client(db_session):
     db_session.commit()
     try:
         with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(admin))
+            test_client.cookies.set("pithosys_session", create_session_token(admin))
             yield test_client
     finally:
         app.dependency_overrides.clear()
@@ -65,7 +65,7 @@ def test_create_and_list_users(client, db_session):
     assert list_response.status_code == 200
     assert [user["email"] for user in list_response.json()] == [
         "ada@example.com",
-        "admin@relic.local",
+        "admin@pithosys.local",
     ]
 
 
@@ -73,7 +73,7 @@ def test_list_users_allows_local_development_email(client):
     response = client.get("/api/users/")
 
     assert response.status_code == 200
-    assert "admin@relic.local" in [user["email"] for user in response.json()]
+    assert "admin@pithosys.local" in [user["email"] for user in response.json()]
 
 
 def test_create_user_rejects_duplicate_email(client):

@@ -220,13 +220,13 @@ def test_put_object_uploads_new_blob_and_creates_file(
         "infra.object_storage.registry.boto3.client", lambda **kwargs: FakeS3Client()
     )
 
-    user = UserFactory.build(email="user@relic.local", role=UserRole.ADMIN)
+    user = UserFactory.build(email="user@pithosys.local", role=UserRole.ADMIN)
     db_session.add(user)
     db_session.commit()
     result = object_writes.put_object(
         db_session,
         storage=storage_registry,
-        bucket_name="relic",
+        bucket_name="pithosys",
         key="photos/2026/cat.jpg",
         body=body,
         ingest_meta={"album": "spring"},
@@ -306,7 +306,7 @@ def test_put_object_passes_inherited_preferred_storage_backend_to_choose_storage
         "infra.object_storage.registry.boto3.client", lambda **kwargs: FakeS3Client()
     )
 
-    user = UserFactory.build(email="user@relic.local", role=UserRole.ADMIN)
+    user = UserFactory.build(email="user@pithosys.local", role=UserRole.ADMIN)
     db_session.add(user)
     db_session.commit()
 
@@ -314,7 +314,7 @@ def test_put_object_passes_inherited_preferred_storage_backend_to_choose_storage
     object_writes.put_object(
         db_session,
         storage=storage_registry,
-        bucket_name="relic",
+        bucket_name="pithosys",
         key="archive/2026/a.jpg",
         body=body,
         ingest_meta={},
@@ -346,13 +346,13 @@ def test_put_object_dedupes_existing_blob(
         "infra.object_storage.registry.boto3.client", lambda **kwargs: FakeS3Client()
     )
 
-    user = UserFactory.build(email="user@relic.local", role=UserRole.ADMIN)
+    user = UserFactory.build(email="user@pithosys.local", role=UserRole.ADMIN)
     db_session.add(user)
     db_session.commit()
     result = object_writes.put_object(
         db_session,
         storage=storage_registry,
-        bucket_name="relic",
+        bucket_name="pithosys",
         key="photos/copy.txt",
         body=body,
         ingest_meta={},
@@ -373,7 +373,7 @@ def test_put_object_overwrites_existing_file_name(
     physical_bucket = add_bucket(db_session, name="hot")
     mark_healthy(physical_bucket, db_session=db_session)
     old_blob = BlobFactory(storage_backend_id=physical_bucket.id, refcount=1)
-    owner = UserFactory.build(email="owner@relic.local", role=UserRole.ADMIN)
+    owner = UserFactory.build(email="owner@pithosys.local", role=UserRole.ADMIN)
     db_session.add(owner)
     db_session.add(old_blob)
     db_session.flush()
@@ -400,7 +400,7 @@ def test_put_object_overwrites_existing_file_name(
     result = object_writes.put_object(
         db_session,
         storage=storage_registry,
-        bucket_name="relic",
+        bucket_name="pithosys",
         key="photos/cat.jpg",
         body=body,
         ingest_meta={"album": "summer"},
@@ -420,7 +420,7 @@ def test_put_object_overwrites_existing_file_name(
 def test_put_object_with_user_requires_write_permission(
     db_session, bucket_folder, storage_registry
 ):
-    user = UserFactory.build(email="user@relic.local")
+    user = UserFactory.build(email="user@pithosys.local")
     db_session.add(user)
     db_session.commit()
 
@@ -428,7 +428,7 @@ def test_put_object_with_user_requires_write_permission(
         object_writes.put_object(
             db_session,
             storage=storage_registry,
-            bucket_name="relic",
+            bucket_name="pithosys",
             key="photos/cat.jpg",
             body=b"cat",
             ingest_meta={},
@@ -441,7 +441,7 @@ def test_put_object_with_admin_user_bypasses_folder_access(
 ):
     physical_bucket = add_bucket(db_session, name="hot")
     mark_healthy(physical_bucket, db_session=db_session)
-    admin = UserFactory.build(email="admin@relic.local", role=UserRole.ADMIN)
+    admin = UserFactory.build(email="admin@pithosys.local", role=UserRole.ADMIN)
     db_session.add(admin)
     db_session.commit()
 
@@ -456,7 +456,7 @@ def test_put_object_with_admin_user_bypasses_folder_access(
     result = object_writes.put_object(
         db_session,
         storage=storage_registry,
-        bucket_name="relic",
+        bucket_name="pithosys",
         key="photos/cat.jpg",
         body=b"cat",
         ingest_meta={},
@@ -471,7 +471,7 @@ def test_put_object_with_user_allows_inherited_write(
 ):
     physical_bucket = add_bucket(db_session, name="hot")
     mark_healthy(physical_bucket, db_session=db_session)
-    user = UserFactory.build(email="user@relic.local")
+    user = UserFactory.build(email="user@pithosys.local")
     db_session.add(user)
     db_session.flush()
     db_session.add(
@@ -494,7 +494,7 @@ def test_put_object_with_user_allows_inherited_write(
     result = object_writes.put_object(
         db_session,
         storage=storage_registry,
-        bucket_name="relic",
+        bucket_name="pithosys",
         key="photos/2026/cat.jpg",
         body=b"cat",
         ingest_meta={},

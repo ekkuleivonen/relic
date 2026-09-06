@@ -18,8 +18,8 @@ log = get_logger(__name__)
 
 def probe_storage_backend(uow: UnitOfWork, storage_backend_id: uuid.UUID) -> StorageBackendProbeResult:
     bucket = uow.storage_backends.get(storage_backend_id)
-    probe_key = f"__relic_probe__/{uuid.uuid4()}"
-    probe_body = b"relic-probe"
+    probe_key = f"__pithosys_probe__/{uuid.uuid4()}"
+    probe_body = b"pithosys-probe"
     put_ms: int | None = None
     head_ms: int | None = None
     get_ms: int | None = None

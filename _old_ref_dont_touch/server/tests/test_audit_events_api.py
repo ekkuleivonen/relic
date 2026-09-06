@@ -19,7 +19,7 @@ from tests.factories.models import AuditEventFactory, UserFactory
 @pytest.fixture()
 def admin(db_session):
     admin = UserFactory.build(
-        name="Admin", email="admin@relic.local", role=UserRole.ADMIN
+        name="Admin", email="admin@pithosys.local", role=UserRole.ADMIN
     )
     db_session.add(admin)
     db_session.commit()
@@ -34,7 +34,7 @@ def client(db_session, admin):
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(admin))
+            test_client.cookies.set("pithosys_session", create_session_token(admin))
             yield test_client
     finally:
         app.dependency_overrides.clear()

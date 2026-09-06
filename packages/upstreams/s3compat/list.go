@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 type ListedObject struct {

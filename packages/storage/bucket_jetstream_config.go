@@ -20,7 +20,7 @@ func (c BucketJetStreamConfig) Equal(other BucketJetStreamConfig) bool {
 }
 
 func DefaultJetStreamConsumerName(bucketID string) string {
-	return "relic-" + bucketID
+	return "pithosys-" + bucketID
 }
 
 func ParseBucketJetStreamConfig(bucketID string, config BucketUpstreamConfig) (BucketJetStreamConfig, bool, error) {

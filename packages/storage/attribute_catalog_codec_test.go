@@ -3,7 +3,7 @@ package storage
 import (
 	"testing"
 
-	"github.com/ekkuleivonen/relic/packages/search"
+	"github.com/elei-io/pithosys/packages/search"
 )
 
 func TestCatalogValueTypeRoundTrip(t *testing.T) {

@@ -8,7 +8,7 @@ Accepted
 
 ## Context
 
-Relic's core action is syncing a bucket: list upstream, compare with the local catalog, and apply import, refresh, and remove mutations. Today this is implemented as a tree of `job_runs`:
+Pithosys's core action is syncing a bucket: list upstream, compare with the local catalog, and apply import, refresh, and remove mutations. Today this is implemented as a tree of `job_runs`:
 
 ```text
 sync_bucket
@@ -25,7 +25,7 @@ Two problems make sync progress hard to understand:
 
 2. **No correlation key.** Child jobs link to their parent via `requested_by_id`, but there is no first-class identifier for the whole operation. Aggregating progress across a deep tree requires ad hoc walks. The UI falls back to raw `progress` jsonb (`listed, 4000 objects seen`) on individual rows.
 
-We considered separate tables (`sync_operations`, `job_run_progress` spans) but rejected them. They duplicate lifecycle state that already belongs on `job_runs` and risk making sync a special domain. Relic is greenfield with no backwards-compatibility constraints.
+We considered separate tables (`sync_operations`, `job_run_progress` spans) but rejected them. They duplicate lifecycle state that already belongs on `job_runs` and risk making sync a special domain. Pithosys is greenfield with no backwards-compatibility constraints.
 
 We need a generic way to group job runs into one user-visible operation, keep the root job honest about completion, and expose a simple progress read model for the UI — without deviating from the established job execution patterns.
 

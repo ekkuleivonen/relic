@@ -60,7 +60,7 @@ class AccessKeyCreated(AccessKeyRead):
     secret_access_key: str = Field(
         description=(
             "Shown once at creation. Same credential for `Bearer key_id:secret` on "
-            "`/api/*` and AWS SigV4 on `/s3/*` (region `relic`, path-style)."
+            "`/api/*` and AWS SigV4 on `/s3/*` (region `pithosys`, path-style)."
         ),
     )
 

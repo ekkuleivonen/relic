@@ -3,7 +3,7 @@ package storage
 import (
 	"fmt"
 
-	"github.com/ekkuleivonen/relic/packages/search"
+	"github.com/elei-io/pithosys/packages/search"
 )
 
 func catalogValueTypeToDB(typ search.ValueType) (string, error) {

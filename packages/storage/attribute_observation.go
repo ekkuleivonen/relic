@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/search"
+	"github.com/elei-io/pithosys/packages/search"
 )
 
 func observeAttributeCatalog(ctx context.Context, runner Runner, params []UpsertObjectParams) error {

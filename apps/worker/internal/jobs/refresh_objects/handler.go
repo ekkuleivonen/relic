@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
-	"github.com/ekkuleivonen/relic/packages/secrets"
-	"github.com/ekkuleivonen/relic/packages/storage"
-	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
+	"github.com/elei-io/pithosys/apps/worker/internal/jobs"
+	"github.com/elei-io/pithosys/packages/secrets"
+	"github.com/elei-io/pithosys/packages/storage"
+	"github.com/elei-io/pithosys/packages/upstreams/s3compat"
 )
 
 type Handler struct {

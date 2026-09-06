@@ -6,10 +6,10 @@ import uuid
 import pytest
 
 from constants import (
-    S3_RELIC_BLOB_ID_HEADER,
-    S3_RELIC_FILE_ID_HEADER,
-    S3_RELIC_FOLDER_ID_HEADER,
-    S3_RELIC_META_HEADER,
+    S3_PITHOSYS_BLOB_ID_HEADER,
+    S3_PITHOSYS_FILE_ID_HEADER,
+    S3_PITHOSYS_FOLDER_ID_HEADER,
+    S3_PITHOSYS_META_HEADER,
 )
 from domain.exceptions import BadRequestError
 from domain.files.meta import (
@@ -49,15 +49,15 @@ def test_patch_meta_replaces_scalar_and_list_values() -> None:
 
 
 def test_is_reserved_user_metadata_key() -> None:
-    assert is_reserved_user_metadata_key("relic-user")
-    assert is_reserved_user_metadata_key("relic-file-id")
-    assert is_reserved_user_metadata_key("x-amz-meta-relic-meta")
+    assert is_reserved_user_metadata_key("pithosys-user")
+    assert is_reserved_user_metadata_key("pithosys-file-id")
+    assert is_reserved_user_metadata_key("x-amz-meta-pithosys-meta")
     assert not is_reserved_user_metadata_key("source")
 
 
-def test_validate_user_metadata_ingest_rejects_relic_namespace() -> None:
+def test_validate_user_metadata_ingest_rejects_pithosys_namespace() -> None:
     with pytest.raises(BadRequestError, match="reserved"):
-        validate_user_metadata_ingest({"relic-file-id": "fake"})
+        validate_user_metadata_ingest({"pithosys-file-id": "fake"})
 
 
 def test_gateway_user_metadata_headers_exposes_lineage_and_consumer_meta() -> None:
@@ -77,13 +77,13 @@ def test_gateway_user_metadata_headers_exposes_lineage_and_consumer_meta() -> No
         meta=meta,
     )
 
-    assert headers[S3_RELIC_FILE_ID_HEADER] == str(file_id)
-    assert headers[S3_RELIC_BLOB_ID_HEADER] == str(blob_id)
-    assert headers[S3_RELIC_FOLDER_ID_HEADER] == str(folder_id)
-    assert json.loads(headers[S3_RELIC_META_HEADER]) == meta
+    assert headers[S3_PITHOSYS_FILE_ID_HEADER] == str(file_id)
+    assert headers[S3_PITHOSYS_BLOB_ID_HEADER] == str(blob_id)
+    assert headers[S3_PITHOSYS_FOLDER_ID_HEADER] == str(folder_id)
+    assert json.loads(headers[S3_PITHOSYS_META_HEADER]) == meta
     assert set(headers) == {
-        S3_RELIC_FILE_ID_HEADER,
-        S3_RELIC_BLOB_ID_HEADER,
-        S3_RELIC_FOLDER_ID_HEADER,
-        S3_RELIC_META_HEADER,
+        S3_PITHOSYS_FILE_ID_HEADER,
+        S3_PITHOSYS_BLOB_ID_HEADER,
+        S3_PITHOSYS_FOLDER_ID_HEADER,
+        S3_PITHOSYS_META_HEADER,
     }

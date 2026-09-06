@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
+	"github.com/elei-io/pithosys/packages/upstreams/s3compat"
 )
 
 type notificationFixture struct {

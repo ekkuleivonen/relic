@@ -11,8 +11,8 @@ import {
 } from "@/components/ui/card"
 import { CreateCollectionDialog } from "@/features/collections/components/create-collection-dialog"
 import { useBuckets } from "@/features/buckets/hooks/use-buckets"
-import { RelicqlEditor } from "@/features/search/components/relicql-editor"
-import { DEFAULT_RELICQL_QUERY, BUILTIN_SEARCH_ATTRIBUTES } from "@/features/search/constants"
+import { PithosysqlEditor } from "@/features/search/components/pithosysql-editor"
+import { DEFAULT_PITHOSYSQL_QUERY, BUILTIN_SEARCH_ATTRIBUTES } from "@/features/search/constants"
 import { useSearchAttributes } from "@/features/search/hooks/use-search-attributes"
 import { useSearchRelationTypes } from "@/features/search/hooks/use-search-relation-types"
 import { useSearchExecute } from "@/features/search/hooks/use-search-execute"
@@ -26,7 +26,7 @@ type ObjectsSearchPanelProps = {
 }
 
 export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
-  const [draftQuery, setDraftQuery] = React.useState(DEFAULT_RELICQL_QUERY)
+  const [draftQuery, setDraftQuery] = React.useState(DEFAULT_PITHOSYSQL_QUERY)
   const [submittedQuery, setSubmittedQuery] = React.useState<string | null>(null)
   const [validationError, setValidationError] = React.useState<string | null>(
     null
@@ -73,7 +73,7 @@ export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
     async (query = draftQuery) => {
       const trimmed = query.trim()
       if (!trimmed) {
-        setValidationError("Enter a RelicQL query before running search.")
+        setValidationError("Enter a PithosysQL query before running search.")
         setSubmittedQuery(null)
         return
       }
@@ -92,7 +92,7 @@ export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
   )
 
   React.useEffect(() => {
-    void handleSubmit(DEFAULT_RELICQL_QUERY)
+    void handleSubmit(DEFAULT_PITHOSYSQL_QUERY)
     // Validate and run the default query once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -115,9 +115,9 @@ export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
       <CardHeader>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <CardTitle>RelicQL search</CardTitle>
+            <CardTitle>PithosysQL search</CardTitle>
             <CardDescription>
-              Write RelicQL, then run search to validate and fetch matching
+              Write PithosysQL, then run search to validate and fetch matching
               objects.
             </CardDescription>
           </div>
@@ -162,7 +162,7 @@ export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
         </div>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <RelicqlEditor
+        <PithosysqlEditor
           value={draftQuery}
           onChange={setDraftQuery}
           attributes={attributes}
@@ -242,7 +242,7 @@ function SearchStatusLine({
   if (!draftQuery.trim()) {
     return (
       <p className="text-sm text-muted-foreground">
-        Enter a RelicQL query to search objects.
+        Enter a PithosysQL query to search objects.
       </p>
     )
   }

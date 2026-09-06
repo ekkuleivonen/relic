@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ekkuleivonen/relic/apps/api/internal/config"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
-	"github.com/ekkuleivonen/relic/packages/auth"
-	"github.com/ekkuleivonen/relic/packages/secrets"
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/apps/api/internal/config"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
+	"github.com/elei-io/pithosys/packages/auth"
+	"github.com/elei-io/pithosys/packages/secrets"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func TestPatchObjectAttributesRequiresAuth(t *testing.T) {

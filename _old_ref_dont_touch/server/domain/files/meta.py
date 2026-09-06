@@ -1,11 +1,11 @@
 """Opaque per-file metadata owned by external consumers.
 
-Relic does not impose a schema on ``File.meta``. Upload paths pass through
+Pithosys does not impose a schema on ``File.meta``. Upload paths pass through
 caller-supplied JSON; consumers patch fields via the files API as needed.
 
-Gateway HEAD/GET expose Relic-specific fields as ``x-amz-meta-relic-*`` headers:
+Gateway HEAD/GET expose Pithosys-specific fields as ``x-amz-meta-pithosys-*`` headers:
 lineage identifiers as flat headers and consumer ``File.meta`` as JSON in
-``x-amz-meta-relic-meta``.
+``x-amz-meta-pithosys-meta``.
 """
 
 from __future__ import annotations
@@ -15,10 +15,10 @@ import uuid
 from typing import Any
 
 from constants import (
-    S3_RELIC_BLOB_ID_HEADER,
-    S3_RELIC_FILE_ID_HEADER,
-    S3_RELIC_FOLDER_ID_HEADER,
-    S3_RELIC_META_HEADER,
+    S3_PITHOSYS_BLOB_ID_HEADER,
+    S3_PITHOSYS_FILE_ID_HEADER,
+    S3_PITHOSYS_FOLDER_ID_HEADER,
+    S3_PITHOSYS_META_HEADER,
     S3_USER_METADATA_MAX_BYTES,
 )
 from domain.exceptions import BadRequestError
@@ -49,7 +49,7 @@ def patch_meta(existing: dict[str, Any] | None, patch: dict[str, Any]) -> dict[s
 
 def is_reserved_user_metadata_key(name: str) -> bool:
     normalized = name.strip().lower().removeprefix("x-amz-meta-")
-    return normalized == "relic-user" or normalized.startswith("relic-")
+    return normalized == "pithosys-user" or normalized.startswith("pithosys-")
 
 
 def validate_user_metadata_ingest(meta: dict[str, str]) -> None:
@@ -83,14 +83,14 @@ def gateway_user_metadata_headers(
     folder_id: uuid.UUID,
     meta: dict[str, Any] | None,
 ) -> dict[str, str]:
-    """Build Relic ``x-amz-meta-relic-*`` headers for gateway HEAD/GET responses."""
+    """Build Pithosys ``x-amz-meta-pithosys-*`` headers for gateway HEAD/GET responses."""
     headers: dict[str, str] = {}
     budget = S3_USER_METADATA_MAX_BYTES
 
     for name, value in (
-        (S3_RELIC_FILE_ID_HEADER, str(file_id)),
-        (S3_RELIC_BLOB_ID_HEADER, str(blob_id)),
-        (S3_RELIC_FOLDER_ID_HEADER, str(folder_id)),
+        (S3_PITHOSYS_FILE_ID_HEADER, str(file_id)),
+        (S3_PITHOSYS_BLOB_ID_HEADER, str(blob_id)),
+        (S3_PITHOSYS_FOLDER_ID_HEADER, str(folder_id)),
     ):
         budget, added = _try_add_metadata_header(
             headers, budget=budget, name=name, value=value
@@ -103,7 +103,7 @@ def gateway_user_metadata_headers(
     budget, added = _try_add_metadata_header(
         headers,
         budget=budget,
-        name=S3_RELIC_META_HEADER,
+        name=S3_PITHOSYS_META_HEADER,
         value=meta_json,
     )
     if not added:

@@ -12,11 +12,11 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
-	"github.com/ekkuleivonen/relic/apps/api/internal/config"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
-	"github.com/ekkuleivonen/relic/packages/db"
-	"github.com/ekkuleivonen/relic/packages/storage"
-	"github.com/ekkuleivonen/relic/packages/testdb"
+	"github.com/elei-io/pithosys/apps/api/internal/config"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
+	"github.com/elei-io/pithosys/packages/db"
+	"github.com/elei-io/pithosys/packages/storage"
+	"github.com/elei-io/pithosys/packages/testdb"
 )
 
 var (
@@ -125,7 +125,7 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	t.Helper()
 
 	databaseURL := testdb.URL(t, ctx)
-	migrationDir, err := filepath.Abs("../../../../packages/storage/migrations")
+	migrationDir, err := filepath.Abs("../../../../../packages/storage/migrations")
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}

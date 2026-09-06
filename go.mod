@@ -1,4 +1,4 @@
-module github.com/ekkuleivonen/relic
+module github.com/elei-io/pithosys
 
 go 1.25.0
 

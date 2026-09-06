@@ -19,7 +19,7 @@ import (
 const (
 	DatabaseURLEnv = "TEST_DATABASE_URL"
 	SchemaEnv      = "TEST_DATABASE_SCHEMA"
-	DefaultSchema  = "relic_test"
+	DefaultSchema  = "pithosys_test"
 )
 
 var (
@@ -74,7 +74,7 @@ func ensureSchema(t testing.TB, ctx context.Context, databaseURL string, schema 
 func WithMigrationLock(t testing.TB, migrate func() error) error {
 	t.Helper()
 
-	lockPath := filepath.Join(os.TempDir(), "relic-test-migrations.lock")
+	lockPath := filepath.Join(os.TempDir(), "pithosys-test-migrations.lock")
 	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return fmt.Errorf("open migration lock file: %w", err)

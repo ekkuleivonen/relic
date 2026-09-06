@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
+	"github.com/elei-io/pithosys/packages/upstreams/s3compat"
 )
 
 func Parse(body []byte) ([]NormalizedEvent, error) {

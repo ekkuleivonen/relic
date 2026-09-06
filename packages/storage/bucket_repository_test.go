@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/db"
-	"github.com/ekkuleivonen/relic/packages/secrets"
-	"github.com/ekkuleivonen/relic/packages/testdb"
+	"github.com/elei-io/pithosys/packages/db"
+	"github.com/elei-io/pithosys/packages/secrets"
+	"github.com/elei-io/pithosys/packages/testdb"
 )
 
 var (
@@ -43,7 +43,7 @@ func TestBucketStoreCreateGetList(t *testing.T) {
 			Nonce:      []byte("012345678901234567890123"),
 			Ciphertext: []byte("encrypted-credentials"),
 		},
-		RelicConfig: BucketRelicConfig{
+		PithosysConfig: BucketPithosysConfig{
 			Scan: BucketScanConfig{
 				Enabled:  BoolPtr(true),
 				Interval: "24h",
@@ -75,11 +75,11 @@ func TestBucketStoreCreateGetList(t *testing.T) {
 	if forcePathStyle, ok := s3Config["force_path_style"].(bool); !ok || !forcePathStyle {
 		t.Fatalf("force_path_style = %#v, want true", s3Config["force_path_style"])
 	}
-	if !created.RelicConfig.ScanEnabled() {
-		t.Fatal("scan is not enabled in relic_config")
+	if !created.PithosysConfig.ScanEnabled() {
+		t.Fatal("scan is not enabled in pithosys_config")
 	}
-	if created.RelicConfig.Scan.Interval != "24h" {
-		t.Fatalf("scan interval = %q, want 24h", created.RelicConfig.Scan.Interval)
+	if created.PithosysConfig.Scan.Interval != "24h" {
+		t.Fatalf("scan interval = %q, want 24h", created.PithosysConfig.Scan.Interval)
 	}
 
 	got, err := buckets.GetBucket(ctx, created.ID)
@@ -89,8 +89,8 @@ func TestBucketStoreCreateGetList(t *testing.T) {
 	if got.ID != created.ID {
 		t.Fatalf("got ID = %q, want %q", got.ID, created.ID)
 	}
-	if !got.RelicConfig.ScanEnabled() {
-		t.Fatal("scan is not enabled in relic_config")
+	if !got.PithosysConfig.ScanEnabled() {
+		t.Fatal("scan is not enabled in pithosys_config")
 	}
 
 	listed, err := buckets.ListBuckets(ctx, ListBucketsParams{
@@ -140,7 +140,7 @@ func TestBucketStoreUpdate(t *testing.T) {
 			Nonce:      []byte("012345678901234567890123"),
 			Ciphertext: []byte("encrypted-credentials"),
 		},
-		RelicConfig: BucketRelicConfig{},
+		PithosysConfig: BucketPithosysConfig{},
 	})
 	if err != nil {
 		t.Fatalf("CreateBucket returned error: %v", err)

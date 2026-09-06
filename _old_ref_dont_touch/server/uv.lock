@@ -1056,7 +1056,7 @@ hiredis = [
 ]
 
 [[package]]
-name = "relic-server"
+name = "pithosys-server"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

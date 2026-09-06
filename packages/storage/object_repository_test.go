@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/secrets"
+	"github.com/elei-io/pithosys/packages/secrets"
 )
 
 func TestObjectStoreUpsertGetList(t *testing.T) {
@@ -388,7 +388,7 @@ func TestObjectStoreDeleteObjectsNotSeenSince(t *testing.T) {
 	}
 }
 
-func TestObjectStoreSearchRelicQLRelativeTime(t *testing.T) {
+func TestObjectStoreSearchPithosysQLRelativeTime(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := testStore(t, ctx)
 	defer cleanup()
@@ -418,12 +418,12 @@ func TestObjectStoreSearchRelicQLRelativeTime(t *testing.T) {
 		t.Fatalf("UpsertObject old returned error: %v", err)
 	}
 
-	results, err := store.SearchRelicQL(ctx, `
+	results, err := store.SearchPithosysQL(ctx, `
 		FROM objects
 		WHERE attr('core.last_seen_at') >= now() - interval '7 days'
 	`, SearchScope{BucketID: bucket.ID})
 	if err != nil {
-		t.Fatalf("SearchRelicQL returned error: %v", err)
+		t.Fatalf("SearchPithosysQL returned error: %v", err)
 	}
 	if len(results) != 1 {
 		t.Fatalf("results length = %d, want 1; got %#v", len(results), results)
@@ -433,7 +433,7 @@ func TestObjectStoreSearchRelicQLRelativeTime(t *testing.T) {
 	}
 }
 
-func TestObjectStoreSearchRelicQL(t *testing.T) {
+func TestObjectStoreSearchPithosysQL(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := testStore(t, ctx)
 	defer cleanup()
@@ -494,14 +494,14 @@ func TestObjectStoreSearchRelicQL(t *testing.T) {
 		t.Fatalf("UpsertObject other bucket returned error: %v", err)
 	}
 
-	results, err := store.SearchRelicQL(ctx, `
+	results, err := store.SearchPithosysQL(ctx, `
 		FROM objects
 		WHERE attr('user.score')::integer >= 100
 		  AND attr('upstream.header.content_type') = 'image/jpeg'
 		ORDER BY key ASC
 	`, SearchScope{BucketID: bucket.ID})
 	if err != nil {
-		t.Fatalf("SearchRelicQL returned error: %v", err)
+		t.Fatalf("SearchPithosysQL returned error: %v", err)
 	}
 	if len(results) != 1 {
 		t.Fatalf("results length = %d, want 1; got %#v", len(results), results)
@@ -511,7 +511,7 @@ func TestObjectStoreSearchRelicQL(t *testing.T) {
 	}
 }
 
-func TestObjectStoreSearchRelicQL_HasRelation(t *testing.T) {
+func TestObjectStoreSearchPithosysQL_HasRelation(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := testStore(t, ctx)
 	defer cleanup()
@@ -558,12 +558,12 @@ func TestObjectStoreSearchRelicQL_HasRelation(t *testing.T) {
 		_, _ = store.pool.Exec(context.Background(), "DELETE FROM relations WHERE id = $1", "relation_test_duplicate")
 	})
 
-	results, err := store.SearchRelicQL(ctx, `
+	results, err := store.SearchPithosysQL(ctx, `
 		FROM objects
 		WHERE has_relation('duplicate', 'out')
 	`, SearchScope{BucketID: bucket.ID})
 	if err != nil {
-		t.Fatalf("SearchRelicQL returned error: %v", err)
+		t.Fatalf("SearchPithosysQL returned error: %v", err)
 	}
 	if len(results) != 1 {
 		t.Fatalf("results length = %d, want 1; got %#v", len(results), results)

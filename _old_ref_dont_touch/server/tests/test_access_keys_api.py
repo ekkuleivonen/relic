@@ -15,7 +15,7 @@ from tests.factories.models import AccessKeyFactory, UserFactory
 @pytest.fixture()
 def admin(db_session):
     admin = UserFactory.build(
-        name="Admin", email="admin@relic.local", role=UserRole.ADMIN
+        name="Admin", email="admin@pithosys.local", role=UserRole.ADMIN
     )
     db_session.add(admin)
     db_session.commit()
@@ -30,14 +30,14 @@ def client(db_session, admin):
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(admin))
+            test_client.cookies.set("pithosys_session", create_session_token(admin))
             yield test_client
     finally:
         app.dependency_overrides.clear()
 
 
 def test_create_access_key_returns_secret_once(client, db_session):
-    alice = UserFactory.build(name="Alice", email="alice@relic.local")
+    alice = UserFactory.build(name="Alice", email="alice@pithosys.local")
     db_session.add(alice)
     db_session.commit()
 
@@ -52,7 +52,7 @@ def test_create_access_key_returns_secret_once(client, db_session):
     assert body["key_id"].startswith("RK")
     assert len(body["secret_access_key"]) > 20
     assert body["user"]["name"] == "Alice"
-    assert body["user"]["email"] == "alice@relic.local"
+    assert body["user"]["email"] == "alice@pithosys.local"
 
     access_key = db_session.scalar(
         select(AccessKey).where(AccessKey.key_id == body["key_id"])
@@ -70,8 +70,8 @@ def test_create_access_key_returns_secret_once(client, db_session):
 
 
 def test_list_access_keys_embeds_users(client, db_session):
-    alice = UserFactory.build(name="Alice", email="alice@relic.local")
-    bob = UserFactory.build(name="Bob", email="bob@relic.local")
+    alice = UserFactory.build(name="Alice", email="alice@pithosys.local")
+    bob = UserFactory.build(name="Bob", email="bob@pithosys.local")
     db_session.add_all([alice, bob])
     db_session.commit()
     db_session.add_all(
@@ -87,14 +87,14 @@ def test_list_access_keys_embeds_users(client, db_session):
     assert response.status_code == 200
     body = response.json()
     assert [row["user"]["email"] for row in body] == [
-        "alice@relic.local",
-        "bob@relic.local",
+        "alice@pithosys.local",
+        "bob@pithosys.local",
     ]
     assert [row["name"] for row in body] == ["alice key", "bob key"]
 
 
 def test_revoke_access_key_is_idempotent(client, db_session):
-    alice = UserFactory.build(name="Alice", email="alice@relic.local")
+    alice = UserFactory.build(name="Alice", email="alice@pithosys.local")
     db_session.add(alice)
     db_session.commit()
     access_key = AccessKeyFactory.build(actor_id=alice.id)

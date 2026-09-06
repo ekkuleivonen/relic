@@ -8,9 +8,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ekkuleivonen/relic/packages/db"
-	"github.com/ekkuleivonen/relic/packages/storage"
-	"github.com/ekkuleivonen/relic/packages/testdb"
+	"github.com/elei-io/pithosys/packages/db"
+	"github.com/elei-io/pithosys/packages/storage"
+	"github.com/elei-io/pithosys/packages/testdb"
 )
 
 var (
@@ -125,7 +125,7 @@ func clearJobRuns(t *testing.T, ctx context.Context) {
 func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	t.Helper()
 
-	t.Setenv(testdb.SchemaEnv, "relic_test_runner_"+schemaSuffix(t.Name()))
+	t.Setenv(testdb.SchemaEnv, "pithosys_test_runner_"+schemaSuffix(t.Name()))
 	databaseURL := testdb.URL(t, ctx)
 	migrationDir, err := filepath.Abs("../../../../packages/storage/migrations")
 	if err != nil {

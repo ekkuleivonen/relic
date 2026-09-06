@@ -3,9 +3,9 @@ package sync_bucket
 import (
 	"context"
 
-	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
-	"github.com/ekkuleivonen/relic/packages/storage"
-	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
+	"github.com/elei-io/pithosys/apps/worker/internal/jobs"
+	"github.com/elei-io/pithosys/packages/storage"
+	"github.com/elei-io/pithosys/packages/upstreams/s3compat"
 )
 
 func listedObjectsForKeys(objects []s3compat.ListedObject, keys []string) []s3compat.ListedObject {

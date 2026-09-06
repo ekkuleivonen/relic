@@ -9,13 +9,13 @@ import (
 func TestRandomTokenGenerator(t *testing.T) {
 	generator := NewRandomTokenGenerator()
 
-	token, err := generator.NewToken("relic_sk_live")
+	token, err := generator.NewToken("pithosys_sk_live")
 	if err != nil {
 		t.Fatalf("NewToken returned error: %v", err)
 	}
 
-	if !strings.HasPrefix(token.Value, "relic_sk_live.") {
-		t.Fatalf("Value = %q, want relic_sk_live prefix", token.Value)
+	if !strings.HasPrefix(token.Value, "pithosys_sk_live.") {
+		t.Fatalf("Value = %q, want pithosys_sk_live prefix", token.Value)
 	}
 	if !strings.HasPrefix(token.Value, token.LookupPrefix+".") {
 		t.Fatalf("Value = %q, want lookup prefix %q", token.Value, token.LookupPrefix)
@@ -39,7 +39,7 @@ func TestRandomTokenGeneratorRejectsInvalidPrefix(t *testing.T) {
 	if _, err := generator.NewToken(""); !errors.Is(err, ErrInvalidToken) {
 		t.Fatalf("NewToken error = %v, want %v", err, ErrInvalidToken)
 	}
-	if _, err := generator.NewToken("relic.sk"); !errors.Is(err, ErrInvalidToken) {
+	if _, err := generator.NewToken("pithosys.sk"); !errors.Is(err, ErrInvalidToken) {
 		t.Fatalf("NewToken error = %v, want %v", err, ErrInvalidToken)
 	}
 }
@@ -55,7 +55,7 @@ func TestLookupPrefixFromTokenRejectsInvalidToken(t *testing.T) {
 func TestArgon2idTokenHasherRoundTrip(t *testing.T) {
 	hasher := testTokenHasher()
 
-	hash, err := hasher.HashToken("relic_sk_live.lookup.secret")
+	hash, err := hasher.HashToken("pithosys_sk_live.lookup.secret")
 	if err != nil {
 		t.Fatalf("HashToken returned error: %v", err)
 	}
@@ -63,11 +63,11 @@ func TestArgon2idTokenHasherRoundTrip(t *testing.T) {
 	if hash.Algorithm != AlgorithmArgon2id {
 		t.Fatalf("Algorithm = %q, want %q", hash.Algorithm, AlgorithmArgon2id)
 	}
-	if string(hash.Hash) == "relic_sk_live.lookup.secret" {
+	if string(hash.Hash) == "pithosys_sk_live.lookup.secret" {
 		t.Fatal("Hash contains plaintext token")
 	}
 
-	if err := hasher.VerifyToken("relic_sk_live.lookup.secret", hash); err != nil {
+	if err := hasher.VerifyToken("pithosys_sk_live.lookup.secret", hash); err != nil {
 		t.Fatalf("VerifyToken returned error: %v", err)
 	}
 }
@@ -75,12 +75,12 @@ func TestArgon2idTokenHasherRoundTrip(t *testing.T) {
 func TestArgon2idTokenHasherRejectsWrongToken(t *testing.T) {
 	hasher := testTokenHasher()
 
-	hash, err := hasher.HashToken("relic_sk_live.lookup.secret")
+	hash, err := hasher.HashToken("pithosys_sk_live.lookup.secret")
 	if err != nil {
 		t.Fatalf("HashToken returned error: %v", err)
 	}
 
-	err = hasher.VerifyToken("relic_sk_live.lookup.other", hash)
+	err = hasher.VerifyToken("pithosys_sk_live.lookup.other", hash)
 	if !errors.Is(err, ErrTokenMismatch) {
 		t.Fatalf("VerifyToken error = %v, want %v", err, ErrTokenMismatch)
 	}

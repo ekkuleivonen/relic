@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ekkuleivonen/relic/packages/search"
+	"github.com/elei-io/pithosys/packages/search"
 )
 
 func SeedAttributeCatalog(ctx context.Context, catalog *AttributeCatalogStore) error {

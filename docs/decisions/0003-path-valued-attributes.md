@@ -6,13 +6,13 @@ Accepted
 
 ## Context
 
-Relic treats object metadata as attributes: typed values addressed by dot-separated paths such as `upstream.size`, `user.owner`, and `extracted.mime_type`.
+Pithosys treats object metadata as attributes: typed values addressed by dot-separated paths such as `upstream.size`, `user.owner`, and `extracted.mime_type`.
 
-ADR 0001 chose Postgres with JSONB attribute documents on the object row. ADR 0002 chose RelicQL as the search and collection contract, with binding against field and attribute definitions and compilation inside the storage layer.
+ADR 0001 chose Postgres with JSONB attribute documents on the object row. ADR 0002 chose PithosysQL as the search and collection contract, with binding against field and attribute definitions and compilation inside the storage layer.
 
-RelicQL, collections, and the UI all refer to attributes by path, but attribute **values** today live in a nested JSONB document per object. That is the right physical shape for sync-heavy buckets: one upsert per object, not one row per path per object.
+PithosysQL, collections, and the UI all refer to attributes by path, but attribute **values** today live in a nested JSONB document per object. That is the right physical shape for sync-heavy buckets: one upsert per object, not one row per path per object.
 
-At the same time, Relic needs a durable, typed view of which paths exist and what types they carry—for RelicQL binding, editor autocomplete, validation, and collection invalidation. That metadata should not require users to maintain a schema by hand.
+At the same time, Pithosys needs a durable, typed view of which paths exist and what types they carry—for PithosysQL binding, editor autocomplete, validation, and collection invalidation. That metadata should not require users to maintain a schema by hand.
 
 This ADR separates:
 
@@ -20,11 +20,11 @@ This ADR separates:
 * **Value storage** — `objects.attributes` JSONB (unchanged from ADR 0001)
 * **Type catalog** — `attribute_catalog` table, system-maintained
 
-Relic explicitly does **not** introduce a row-per-path attribute table as part of this decision. A 1M-object bucket with ~25 paths per object would produce tens of millions of attribute rows and amplify sync write cost without a proven need. Row projections or external search indexes remain a future option if JSONB query performance becomes a bottleneck.
+Pithosys explicitly does **not** introduce a row-per-path attribute table as part of this decision. A 1M-object bucket with ~25 paths per object would produce tens of millions of attribute rows and amplify sync write cost without a proven need. Row projections or external search indexes remain a future option if JSONB query performance becomes a bottleneck.
 
 ## Decision
 
-Relic's attribute model is **path-valued** at the logical and API level: writers set and delete values by path; readers and RelicQL refer to paths; nested JSON is how those paths are stored and returned on the object row.
+Pithosys's attribute model is **path-valued** at the logical and API level: writers set and delete values by path; readers and PithosysQL refer to paths; nested JSON is how those paths are stored and returned on the object row.
 
 Physical storage uses two concepts:
 
@@ -69,7 +69,7 @@ Only a small set of namespaces accept writes:
 Rules:
 
 * Upstream-facing catalog jobs write **`upstream.*` only**, even though they run as jobs.
-* Relic does **not** use a generic `job.<job_type>.*` write namespace. That pattern conflicts with upstream writes and implies every job type owns attribute paths when most do not.
+* Pithosys does **not** use a generic `job.<job_type>.*` write namespace. That pattern conflicts with upstream writes and implies every job type owns attribute paths when most do not.
 * Other jobs (`detect_duplicates`, future enrichment) should prefer **relations**, collections, or events before adding new attribute namespaces. If a future job needs attributes, add a dedicated namespace in a new ADR — do not revive a generic job prefix.
 * A mutation must not set or delete paths outside the caller's allowed namespace prefix.
 * Provenance still records which job run wrote a namespace via `attribute_provenance`; provenance and write permission are separate concerns.
@@ -107,17 +107,17 @@ Do **not** promote upstream or lifecycle metadata to top-level columns. Examples
 | `first_seen_at` | `core.first_seen_at` |
 | `last_seen_at` | `core.last_seen_at` |
 
-Relic catalog identity is `(bucket_id, key)` — one active row per object key. Upstream version identifiers are evidence stored under `upstream.*`, not part of the Relic row key.
+Pithosys catalog identity is `(bucket_id, key)` — one active row per object key. Upstream version identifiers are evidence stored under `upstream.*`, not part of the Pithosys row key.
 
 Storage injects and preserves `core.*` on upsert:
 
-* `core.object_id` — stable Relic object id
+* `core.object_id` — stable Pithosys object id
 * `core.first_seen_at` — preserved across updates
 * `core.last_seen_at` — updated on every successful observation
 
 Sync tombstone queries use `attributes #>> '{core,last_seen_at}'`, not a separate column.
 
-Built-in RelicQL fields remain limited to true catalog columns: `id`, `bucket_id`, `key`, `created_at`, `updated_at`. Upstream and core lifecycle paths are attributes.
+Built-in PithosysQL fields remain limited to true catalog columns: `id`, `bucket_id`, `key`, `created_at`, `updated_at`. Upstream and core lifecycle paths are attributes.
 
 ### Physical schema
 
@@ -217,7 +217,7 @@ type CatalogRegistry struct {
 
 Object upsert/sync flows may still accept nested attribute maps from upstream adapters. Storage flattens scalars for catalog observation and merges values into `objects.attributes`.
 
-RelicQL execution:
+PithosysQL execution:
 
 ```go
 type SearchStore interface {
@@ -228,9 +228,9 @@ type SearchStore interface {
 
 `Validate` uses `CatalogRegistry`. `Execute` compiles against `objects.attributes` JSONB and object columns. JSONB path construction and typed casts stay inside `packages/storage`.
 
-### Relationship to RelicQL
+### Relationship to PithosysQL
 
-RelicQL bind semantics from ADR 0002 are unchanged:
+PithosysQL bind semantics from ADR 0002 are unchanged:
 
 * Parse → Bind against registry → record dependencies → compile → execute.
 
@@ -285,7 +285,7 @@ If `upstream.size` is already `builtin`, the catalog row is left unchanged.
 
 ## Future options (out of scope)
 
-If JSONB search becomes a proven bottleneck, Relic may add without changing the logical model:
+If JSONB search becomes a proven bottleneck, Pithosys may add without changing the logical model:
 
 * Generated columns or partial indexes on hot JSONB paths
 * An async row projection for selected paths only
@@ -295,14 +295,14 @@ Those are optimizations. They are not required to adopt path-valued mutations or
 
 ## Consequences
 
-This gives Relic:
+This gives Pithosys:
 
-* Path-based semantics for RelicQL, mutations, and collections without row-per-path write amplification.
+* Path-based semantics for PithosysQL, mutations, and collections without row-per-path write amplification.
 * Auto-maintained typing for bind, validate, autocomplete, and collection invalidation.
 * Sync-friendly storage: one object row upsert per catalog object, not millions of attribute rows.
 * Continuity with ADR 0001 JSONB as the value store and query substrate for the MVP.
 
-This also costs Relic:
+This also costs Pithosys:
 
 * JSONB query compilation still requires careful casts and index discipline.
 * Catalog and JSONB values can drift if mutations bypass storage; the abstraction must be enforced.
@@ -318,7 +318,7 @@ This also costs Relic:
 * `AttributeCatalogStore` and `CatalogRegistry`
 * Catalog upsert on mutation
 * Namespace enforcement
-* RelicQL compilation to SQL over `objects` and JSONB
+* PithosysQL compilation to SQL over `objects` and JSONB
 * Centralized JSONB path and cast construction
 
 `packages/upstreams` and job packages produce nested attribute maps. They do not write Postgres directly.
@@ -330,7 +330,7 @@ This also costs Relic:
 * Treat **path + typed value** as the logical attribute atom.
 * Keep **values** in `objects.attributes` JSONB.
 * Keep **types** in `attribute_catalog`, auto-maintained on mutation.
-* Resolve RelicQL against `CatalogRegistry`; builtin and registered definitions beat observed catalog entries.
+* Resolve PithosysQL against `CatalogRegistry`; builtin and registered definitions beat observed catalog entries.
 * Compile and execute search only inside `packages/storage`.
 * Do not store compiled SQL on saved collections.
 * Enforce namespace write ownership by prefix on every mutation; do not model this as one namespace per job type.
@@ -348,13 +348,13 @@ ADR 0001 remains the source of truth for:
 * GIN indexing over attributes
 * Compact provenance sidecars
 
-ADR 0002 remains the source of truth for RelicQL parse, bind, dependencies, and collection semantics.
+ADR 0002 remains the source of truth for PithosysQL parse, bind, dependencies, and collection semantics.
 
 ## Initial implementation order
 
 1. Add migration for `attribute_catalog`.
 2. Seed catalog from builtin definitions aligned with `packages/search`.
 3. Implement catalog upsert on object attribute writes in `packages/storage`.
-4. Implement `CatalogRegistry` for RelicQL bind and validate endpoints.
-5. Implement RelicQL compilation against `objects.attributes` using catalog types for casts.
+4. Implement `CatalogRegistry` for PithosysQL bind and validate endpoints.
+5. Implement PithosysQL compilation against `objects.attributes` using catalog types for casts.
 6. Optionally backfill `attribute_catalog` from existing object JSONB in a one-off job.

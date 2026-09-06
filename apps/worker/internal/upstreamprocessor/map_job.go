@@ -3,7 +3,7 @@ package upstreamprocessor
 import (
 	"strings"
 
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func JobTypeForEventName(eventName string) (storage.JobType, bool) {

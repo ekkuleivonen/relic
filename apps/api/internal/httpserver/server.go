@@ -6,18 +6,18 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
-	authhttp "github.com/ekkuleivonen/relic/apps/api/internal/httpserver/auth"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/buckets"
-	collectionshttp "github.com/ekkuleivonen/relic/apps/api/internal/httpserver/collections"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/jobs"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/middleware"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/objects"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/search"
-	settingshttp "github.com/ekkuleivonen/relic/apps/api/internal/httpserver/settings"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/system"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/upstreamcapture"
-	bucketeventshttp "github.com/ekkuleivonen/relic/apps/api/internal/httpserver/bucketevents"
+	authhttp "github.com/elei-io/pithosys/apps/api/internal/httpserver/auth"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/buckets"
+	collectionshttp "github.com/elei-io/pithosys/apps/api/internal/httpserver/collections"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/jobs"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/middleware"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/objects"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/search"
+	settingshttp "github.com/elei-io/pithosys/apps/api/internal/httpserver/settings"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/system"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/upstreamcapture"
+	bucketeventshttp "github.com/elei-io/pithosys/apps/api/internal/httpserver/bucketevents"
 )
 
 const apiBasePath = "/api"
@@ -59,7 +59,7 @@ func noStoreMiddleware(next http.Handler) http.Handler {
 }
 
 func apiConfig() huma.Config {
-	cfg := huma.DefaultConfig("Relic API", "0.1.0")
+	cfg := huma.DefaultConfig("Pithosys API", "0.1.0")
 	cfg.Info.Description = "Metadata and discovery API for object storage."
 	cfg.OpenAPIPath = apiBasePath + "/openapi"
 	cfg.DocsPath = apiBasePath + "/docs"
@@ -67,7 +67,7 @@ func apiConfig() huma.Config {
 	cfg.Servers = []*huma.Server{
 		{
 			URL:         apiBasePath,
-			Description: "Current Relic API server",
+			Description: "Current Pithosys API server",
 		},
 	}
 	cfg.Tags = []*huma.Tag{
@@ -93,11 +93,11 @@ func apiConfig() huma.Config {
 		},
 		{
 			Name:        "Search",
-			Description: "RelicQL validation and query endpoints.",
+			Description: "PithosysQL validation and query endpoints.",
 		},
 		{
 			Name:        "Collections",
-			Description: "Saved RelicQL collections and derived object membership.",
+			Description: "Saved PithosysQL collections and derived object membership.",
 		},
 		{
 			Name:        "Settings",

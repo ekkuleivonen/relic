@@ -1,15 +1,15 @@
-# Mounting Relic with rclone
+# Mounting Pithosys with rclone
 
-Relic exposes an S3-compatible gateway at `/s3`. You can mount it on macOS with
+Pithosys exposes an S3-compatible gateway at `/s3`. You can mount it on macOS with
 [rclone](https://rclone.org/) and browse or edit files in Finder like a normal
 folder.
 
 ## Prerequisites
 
 - **rclone** — `brew install rclone`
-- **Relic running** with the S3 gateway reachable (e.g. `http://localhost:8000/s3`
+- **Pithosys running** with the S3 gateway reachable (e.g. `http://localhost:8000/s3`
   for local Docker dev, or your production host)
-- A **Relic access key** (Admin UI → Access Keys). You need the key ID (`RK…`)
+- A **Pithosys access key** (Admin UI → Access Keys). You need the key ID (`RK…`)
   and secret (shown once at creation).
 
 Access keys created before native S3 auth may need to be **reissued** before
@@ -22,11 +22,11 @@ Replace the placeholders with your credentials and endpoint.
 **Local dev:**
 
 ```bash
-rclone config create relic s3 \
+rclone config create pithosys s3 \
   provider Other \
   access_key_id "RK..." \
   secret_access_key "YOUR_SECRET" \
-  region relic \
+  region pithosys \
   endpoint "http://localhost:8000/s3" \
   force_path_style true \
   sign_accept_encoding false \
@@ -34,31 +34,31 @@ rclone config create relic s3 \
   no_check_bucket true
 ```
 
-**Production:** use your host, e.g. `https://relic.example.com/s3`.
+**Production:** use your host, e.g. `https://pithosys.example.com/s3`.
 
 | Setting | Value |
 |---------|-------|
-| Remote name | `relic` (your choice) |
+| Remote name | `pithosys` (your choice) |
 | Provider | Other (S3-compatible) |
-| Region | `relic` (`RELIC_SIGNING_REGION`) |
-| Bucket | `relic` (`RELIC_GATEWAY_BUCKET`) |
+| Region | `pithosys` (`PITHOSYS_SIGNING_REGION`) |
+| Bucket | `pithosys` (`PITHOSYS_GATEWAY_BUCKET`) |
 | Path style | `true` (required) |
 | Endpoint | `{base_url}/s3` |
 | `sign_accept_encoding` | `false` (required for rclone) |
-| `list_version` | `2` (Relic only supports ListObjectsV2) |
+| `list_version` | `2` (Pithosys only supports ListObjectsV2) |
 | `no_check_bucket` | `true` (skip ListBuckets; rclone cannot list buckets reliably) |
 
-Relic uses a fixed virtual bucket (`relic` by default). Folder paths live in
+Pithosys uses a fixed virtual bucket (`pithosys` by default). Folder paths live in
 object keys (e.g. `Uploads/2024/photo.jpg`).
 
 ## Test the connection
 
 ```bash
 # List top-level folders in the bucket
-rclone lsf relic:relic
+rclone lsf pithosys:pithosys
 ```
 
-Verify Relic is up:
+Verify Pithosys is up:
 
 ```bash
 curl -s http://localhost:8000/healthz
@@ -69,14 +69,14 @@ curl -s http://localhost:8000/healthz
 Create a mount point (once):
 
 ```bash
-mkdir -p ~/Relic
+mkdir -p ~/Pithosys
 ```
 
 On macOS, prefer **`nfsmount`** — it uses rclone’s built-in NFS server and does
 not require macFUSE or FUSE-T:
 
 ```bash
-rclone nfsmount relic:relic ~/Relic \
+rclone nfsmount pithosys:pithosys ~/Pithosys \
   --vfs-cache-mode writes \
   --daemon \
   --daemon-wait 30s
@@ -89,7 +89,7 @@ rclone nfsmount relic:relic ~/Relic \
 Mount a specific folder only:
 
 ```bash
-rclone nfsmount relic:relic/Uploads ~/Relic \
+rclone nfsmount pithosys:pithosys/Uploads ~/Pithosys \
   --vfs-cache-mode writes \
   --daemon
 ```
@@ -97,33 +97,33 @@ rclone nfsmount relic:relic/Uploads ~/Relic \
 ## Unmount
 
 ```bash
-umount ~/Relic
+umount ~/Pithosys
 ```
 
 If that fails:
 
 ```bash
-diskutil unmount ~/Relic
+diskutil unmount ~/Pithosys
 ```
 
 Stop the background daemon if needed:
 
 ```bash
-pkill -f "rclone nfsmount relic:relic"
+pkill -f "rclone nfsmount pithosys:pithosys"
 ```
 
 ## Troubleshooting
 
 ### `SignatureDoesNotMatch`
 
-rclone signs the `Accept-Encoding` header by default. Relic’s SigV4 verifier
+rclone signs the `Accept-Encoding` header by default. Pithosys’s SigV4 verifier
 does not accept that, so requests fail with `SignatureDoesNotMatch` even when
 credentials and endpoint are correct.
 
 Fix — add to the remote config (or pass as flags):
 
 ```bash
-rclone config update relic \
+rclone config update pithosys \
   sign_accept_encoding false \
   list_version 2 \
   no_check_bucket true
@@ -132,15 +132,15 @@ rclone config update relic \
 Verify:
 
 ```bash
-rclone lsf relic:relic
+rclone lsf pithosys:pithosys
 ```
 
-(`rclone lsd relic:` may still fail — use `lsf relic:relic` or mount directly instead.)
+(`rclone lsd pithosys:` may still fail — use `lsf pithosys:pithosys` or mount directly instead.)
 
 Debug with request dumps:
 
 ```bash
-rclone lsd relic: --dump headers -vv
+rclone lsd pithosys: --dump headers -vv
 ```
 
 Look for `Accept-Encoding` in `SignedHeaders` inside the `Authorization` header.
@@ -148,17 +148,17 @@ It should not appear after the fix.
 
 ### `InvalidRequest: Only ListObjectsV2 ...`
 
-Relic does not support legacy ListObjects v1. Set `list_version = 2` on the
+Pithosys does not support legacy ListObjects v1. Set `list_version = 2` on the
 remote (see above).
 
 ## Notes
 
-- Relic’s S3 gateway implements a subset of S3 (PutObject, GetObject,
+- Pithosys’s S3 gateway implements a subset of S3 (PutObject, GetObject,
   ListObjectsV2, multipart, etc.). Some rclone operations may not work — see
   `HAZARD_LOG.md` (H-015).
 - Folder names with spaces are supported; use path-style addressing (already
   set via `force_path_style`).
-- For metadata (rename, move, permissions), use the Relic API/UI. rclone mounts
+- For metadata (rename, move, permissions), use the Pithosys API/UI. rclone mounts
   the **bytes** layer only.
 
 ## Optional: mount at login

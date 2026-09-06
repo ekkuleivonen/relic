@@ -1,4 +1,4 @@
-# Relic Hazard Log
+# Pithosys Hazard Log
 
 Production-readiness hazards across the filesystem, storage, S3 gateway, access
 control, search, maintenance, and operational surfaces.
@@ -135,7 +135,7 @@ control, search, maintenance, and operational surfaces.
 - **Status:** **Partially mitigated.** When the storage adapter reports
   `server_side_copy`, completion uses `create_composed_blob` / storage compose
   (`UploadPartCopy` on S3, stream-into-final on filesystem) instead of a full
-  local reassembly file. Relic still reads each part once to compute the
+  local reassembly file. Pithosys still reads each part once to compute the
   canonical SHA-256 digest and sniff prefix. Fallback path (no server-side copy)
   still assembles via `SpooledTemporaryFile` with `MAX_OBJECT_BYTES` enforced
   per chunk.

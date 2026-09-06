@@ -17,7 +17,7 @@ from tests.factories.models import (
 
 @pytest.fixture()
 def user(db_session):
-    user = UserFactory.build(name="Subscriber", email="sub@relic.local")
+    user = UserFactory.build(name="Subscriber", email="sub@pithosys.local")
     db_session.add(user)
     db_session.commit()
     return user
@@ -31,7 +31,7 @@ def client(db_session, user):
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(user))
+            test_client.cookies.set("pithosys_session", create_session_token(user))
             yield test_client
     finally:
         app.dependency_overrides.clear()
@@ -235,7 +235,7 @@ def test_user_does_not_see_events_for_inaccessible_folder(
     client, db_session, user, root_folder
 ):
     secret = add_folder(db_session, root_folder, "secret")
-    other = UserFactory.build(name="Owner", email="owner@relic.local")
+    other = UserFactory.build(name="Owner", email="owner@pithosys.local")
     db_session.add(other)
     db_session.commit()
     grant_access(db_session, other, secret, int(Permission.READ | Permission.WRITE))
@@ -247,7 +247,7 @@ def test_user_does_not_see_events_for_inaccessible_folder(
 
 
 def test_bearer_token_can_poll_filesystem_events(db_session, root_folder):
-    user = UserFactory.build(name="Service", email="service@relic.local")
+    user = UserFactory.build(name="Service", email="service@pithosys.local")
     db_session.add(user)
     db_session.commit()
     access_key = AccessKeyFactory.build(actor_id=user.id)
@@ -282,10 +282,10 @@ def test_bearer_token_can_poll_filesystem_events(db_session, root_folder):
 def test_admin_sees_all_folder_events(db_session, root_folder):
     admin = UserFactory.build(
         name="Admin",
-        email="admin@relic.local",
+        email="admin@pithosys.local",
         role=UserRole.ADMIN,
     )
-    alice = UserFactory.build(name="Alice", email="alice@relic.local")
+    alice = UserFactory.build(name="Alice", email="alice@pithosys.local")
     db_session.add_all([admin, alice])
     db_session.commit()
 
@@ -300,7 +300,7 @@ def test_admin_sees_all_folder_events(db_session, root_folder):
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(admin))
+            test_client.cookies.set("pithosys_session", create_session_token(admin))
             response = test_client.get("/api/filesystem-events")
     finally:
         app.dependency_overrides.clear()
@@ -314,7 +314,7 @@ def test_admin_folder_scope_recursive_includes_subfolder_events(
 ):
     admin = UserFactory.build(
         name="Admin",
-        email="admin-scope@relic.local",
+        email="admin-scope@pithosys.local",
         role=UserRole.ADMIN,
     )
     db_session.add(admin)
@@ -331,7 +331,7 @@ def test_admin_folder_scope_recursive_includes_subfolder_events(
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(admin))
+            test_client.cookies.set("pithosys_session", create_session_token(admin))
             scoped = test_client.get(
                 f"/api/filesystem-events?folder_id={uploads.id}&recursive=true"
             )

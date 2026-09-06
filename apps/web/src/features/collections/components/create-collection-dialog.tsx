@@ -16,10 +16,10 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useBuckets } from "@/features/buckets/hooks/use-buckets"
 import { useCreateCollection } from "@/features/collections/hooks/use-collections"
-import { RelicqlEditor } from "@/features/search/components/relicql-editor"
+import { PithosysqlEditor } from "@/features/search/components/pithosysql-editor"
 import {
   BUILTIN_SEARCH_ATTRIBUTES,
-  DEFAULT_RELICQL_QUERY,
+  DEFAULT_PITHOSYSQL_QUERY,
 } from "@/features/search/constants"
 import { useSearchAttributes } from "@/features/search/hooks/use-search-attributes"
 import { useSearchRelationTypes } from "@/features/search/hooks/use-search-relation-types"
@@ -47,7 +47,7 @@ export function CreateCollectionDialog({
 
   const [name, setName] = React.useState("")
   const [description, setDescription] = React.useState("")
-  const [query, setQuery] = React.useState(initialQuery ?? DEFAULT_RELICQL_QUERY)
+  const [query, setQuery] = React.useState(initialQuery ?? DEFAULT_PITHOSYSQL_QUERY)
   const [validationError, setValidationError] = React.useState<string | null>(
     null
   )
@@ -89,7 +89,7 @@ export function CreateCollectionDialog({
 
     setName("")
     setDescription("")
-    setQuery(initialQuery ?? DEFAULT_RELICQL_QUERY)
+    setQuery(initialQuery ?? DEFAULT_PITHOSYSQL_QUERY)
     setValidationError(null)
   }, [open, initialQuery])
 
@@ -103,7 +103,7 @@ export function CreateCollectionDialog({
       return
     }
     if (!trimmedQuery) {
-      setValidationError("Enter a RelicQL query before saving.")
+      setValidationError("Enter a PithosysQL query before saving.")
       return
     }
 
@@ -144,7 +144,7 @@ export function CreateCollectionDialog({
         <DialogHeader>
           <DialogTitle>Create collection</DialogTitle>
           <DialogDescription>
-            Save a RelicQL query as a reusable collection. Membership updates
+            Save a PithosysQL query as a reusable collection. Membership updates
             automatically as objects match the query.
           </DialogDescription>
         </DialogHeader>
@@ -173,8 +173,8 @@ export function CreateCollectionDialog({
           </div>
 
           <div className="grid gap-2">
-            <Label>RelicQL query</Label>
-            <RelicqlEditor
+            <Label>PithosysQL query</Label>
+            <PithosysqlEditor
               value={query}
               onChange={setQuery}
               attributes={attributes}

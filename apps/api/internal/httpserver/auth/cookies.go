@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
-	"github.com/ekkuleivonen/relic/packages/auth"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
+	"github.com/elei-io/pithosys/packages/auth"
 )
 
 func setSessionCookie(w http.ResponseWriter, cfg auth.Config, token auth.SessionToken) {

@@ -1,6 +1,6 @@
 # Events reference
 
-Relic has two event logs:
+Pithosys has two event logs:
 
 | Log | Table | API | Audience |
 |-----|-------|-----|----------|

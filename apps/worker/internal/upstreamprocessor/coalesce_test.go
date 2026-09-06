@@ -3,7 +3,7 @@ package upstreamprocessor
 import (
 	"testing"
 
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func TestCoalesceMutationsKeepsLatestIntentForSameKey(t *testing.T) {

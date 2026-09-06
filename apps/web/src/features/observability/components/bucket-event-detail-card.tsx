@@ -60,7 +60,7 @@ export function BucketEventDetailCard({
         <CardHeader>
           <CardTitle>Envelope</CardTitle>
           <CardDescription>
-            Raw upstream notification payload stored by Relic.
+            Raw upstream notification payload stored by Pithosys.
           </CardDescription>
         </CardHeader>
         <CardContent>

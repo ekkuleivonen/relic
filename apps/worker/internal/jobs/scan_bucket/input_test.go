@@ -3,8 +3,8 @@ package scan_bucket
 import (
 	"testing"
 
-	syncbucket "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/sync_bucket"
-	"github.com/ekkuleivonen/relic/packages/storage"
+	syncbucket "github.com/elei-io/pithosys/apps/worker/internal/jobs/sync_bucket"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func TestParseScanInputMinimal(t *testing.T) {

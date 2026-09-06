@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/secrets"
+	"github.com/elei-io/pithosys/packages/secrets"
 	"github.com/jackc/pgx/v5"
 )
 

@@ -23,7 +23,7 @@ from tests.factories.models import StorageBackendFactory, UserFactory
 
 @pytest.fixture()
 def user(db_session):
-    user = UserFactory.build(email="user@relic.local")
+    user = UserFactory.build(email="user@pithosys.local")
     db_session.add(user)
     db_session.commit()
     return user
@@ -31,7 +31,7 @@ def user(db_session):
 
 @pytest.fixture()
 def other_user(db_session):
-    user = UserFactory.build(email="other@relic.local")
+    user = UserFactory.build(email="other@pithosys.local")
     db_session.add(user)
     db_session.commit()
     return user
@@ -45,7 +45,7 @@ def client(db_session, user):
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(user))
+            test_client.cookies.set("pithosys_session", create_session_token(user))
             yield test_client
     finally:
         app.dependency_overrides.clear()
@@ -123,9 +123,9 @@ def test_presigned_put_creates_file_and_blob(
 
     assert response.status_code == 200
     signed = response.json()
-    assert signed["url"].startswith("/s3/relic/photos/")
+    assert signed["url"].startswith("/s3/pithosys/photos/")
     assert signed["headers"]["x-amz-meta-album"] == "spring"
-    assert signed["headers"]["x-amz-meta-relic-user"] == str(user.id)
+    assert signed["headers"]["x-amz-meta-pithosys-user"] == str(user.id)
 
     put_response = client.put(
         signed["url"],
@@ -276,7 +276,7 @@ def test_replayed_url_hits_file_unique_constraint(
 
 
 def test_unsigned_gateway_put_is_rejected(client):
-    response = client.put("/s3/relic/photos/cat.jpg", content=b"cat")
+    response = client.put("/s3/pithosys/photos/cat.jpg", content=b"cat")
 
     assert response.status_code == 400
     assert "AuthorizationHeaderMalformed" in response.text
@@ -287,7 +287,7 @@ def test_unknown_signing_key_is_rejected(client, db_session, user, photos_folder
     response = presign(client, photos_folder)
     signed = response.json()
     tampered_url = signed["url"].replace(
-        "Credential=relic-dev%2F",
+        "Credential=pithosys-dev%2F",
         "Credential=missing%2F",
     )
 
@@ -323,13 +323,13 @@ def test_server_signed_and_stub_user_key_use_same_gateway_path(
 
     first = client.put(signed["url"], content=b"cat photo", headers=signed["headers"])
     monkeypatch.setattr(
-        "settings.RELIC_SIGNING_KEYS",
+        "settings.PITHOSYS_SIGNING_KEYS",
         {
-            "relic-dev": "dev-encryption-secret-change-me:s3-signing",
+            "pithosys-dev": "dev-encryption-secret-change-me:s3-signing",
             "user-fixture": "fixture-user-secret",
         },
     )
-    monkeypatch.setattr("settings.RELIC_SIGNING_CURRENT_KEY_ID", "user-fixture")
+    monkeypatch.setattr("settings.PITHOSYS_SIGNING_CURRENT_KEY_ID", "user-fixture")
     response = presign(client, photos_folder, filename="dog.jpg")
     user_signed = response.json()
     second = client.put(

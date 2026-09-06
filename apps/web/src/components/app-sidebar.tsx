@@ -150,7 +150,7 @@ export function AppSidebar() {
               <Link to="/">
                 <img src="/logo.svg" alt="" className="size-8 rounded-lg" />
                 <div className="grid flex-1 text-left leading-tight">
-                  <span className="truncate font-semibold">Relic</span>
+                  <span className="truncate font-semibold">Pithosys</span>
                   <span className="truncate text-xs text-sidebar-foreground/70">
                     Every byte in its place.
                   </span>

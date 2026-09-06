@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { useBuckets } from "@/features/buckets/hooks/use-buckets"
 import { useUpdateCollection } from "@/features/collections/hooks/use-collections"
-import { RelicqlEditor } from "@/features/search/components/relicql-editor"
+import { PithosysqlEditor } from "@/features/search/components/pithosysql-editor"
 import { BUILTIN_SEARCH_ATTRIBUTES } from "@/features/search/constants"
 import { useSearchAttributes } from "@/features/search/hooks/use-search-attributes"
 import { useSearchRelationTypes } from "@/features/search/hooks/use-search-relation-types"
@@ -88,7 +88,7 @@ export function EditCollectionDialog({ collection }: EditCollectionDialogProps) 
       return
     }
     if (!trimmedQuery) {
-      setValidationError("Enter a RelicQL query before saving.")
+      setValidationError("Enter a PithosysQL query before saving.")
       return
     }
 
@@ -129,7 +129,7 @@ export function EditCollectionDialog({ collection }: EditCollectionDialogProps) 
         <DialogHeader>
           <DialogTitle>Edit collection</DialogTitle>
           <DialogDescription>
-            Update the collection metadata or saved RelicQL query.
+            Update the collection metadata or saved PithosysQL query.
           </DialogDescription>
         </DialogHeader>
 
@@ -154,8 +154,8 @@ export function EditCollectionDialog({ collection }: EditCollectionDialogProps) 
           </div>
 
           <div className="grid gap-2">
-            <Label>RelicQL query</Label>
-            <RelicqlEditor
+            <Label>PithosysQL query</Label>
+            <PithosysqlEditor
               value={query}
               onChange={setQuery}
               attributes={attributes}

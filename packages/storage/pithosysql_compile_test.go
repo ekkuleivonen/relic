@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/search"
+	"github.com/elei-io/pithosys/packages/search"
 )
 
 func TestCompileObjectsSearchStep1FieldPredicate(t *testing.T) {
@@ -221,14 +221,14 @@ WHERE (objects.attributes #>> '{upstream,last_modified}')::timestamptz >= $1 AND
 }
 
 func TestCompileObjectsSearchRejectsUnsupportedTarget(t *testing.T) {
-	bound := mustBindRelicQL(t, "FROM relations", search.BuiltinRegistry())
+	bound := mustBindPithosysQL(t, "FROM relations", search.BuiltinRegistry())
 	_, err := CompileObjectsSearch(bound, SearchScope{})
 	if err == nil {
 		t.Fatal("CompileObjectsSearch returned nil error")
 	}
 }
 
-func mustCompileObjectsSearch(t *testing.T, relicql string, scope SearchScope, registries ...search.Registry) CompiledQuery {
+func mustCompileObjectsSearch(t *testing.T, pithosysql string, scope SearchScope, registries ...search.Registry) CompiledQuery {
 	t.Helper()
 
 	var registry search.Registry = search.BuiltinRegistry()
@@ -236,7 +236,7 @@ func mustCompileObjectsSearch(t *testing.T, relicql string, scope SearchScope, r
 		registry = registries[0]
 	}
 
-	bound := mustBindRelicQL(t, relicql, registry)
+	bound := mustBindPithosysQL(t, pithosysql, registry)
 	compiled, err := CompileObjectsSearch(bound, scope)
 	if err != nil {
 		t.Fatalf("CompileObjectsSearch returned error: %v", err)
@@ -245,10 +245,10 @@ func mustCompileObjectsSearch(t *testing.T, relicql string, scope SearchScope, r
 	return compiled
 }
 
-func mustBindRelicQL(t *testing.T, relicql string, registry search.Registry) search.BoundQuery {
+func mustBindPithosysQL(t *testing.T, pithosysql string, registry search.Registry) search.BoundQuery {
 	t.Helper()
 
-	query, err := search.Parse(relicql)
+	query, err := search.Parse(pithosysql)
 	if err != nil {
 		t.Fatalf("Parse returned error: %v", err)
 	}

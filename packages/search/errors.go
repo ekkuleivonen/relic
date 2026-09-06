@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-var ErrValidation = errors.New("relicql validation error")
+var ErrValidation = errors.New("pithosysql validation error")
 
 func ValidationError(err error) error {
 	if err == nil {

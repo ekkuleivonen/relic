@@ -14,7 +14,7 @@ from ports.entities import User
 bearer_scheme = HTTPBearer(
     auto_error=False,
     description=(
-        "Relic access key: paste `key_id:secret` as the token "
+        "Pithosys access key: paste `key_id:secret` as the token "
         "(Swagger adds the Bearer prefix)."
     ),
 )

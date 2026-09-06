@@ -11,9 +11,9 @@ from infra import metrics
 
 
 def install_db_metrics(engine: Engine) -> None:
-    if getattr(engine, "_relic_metrics_installed", False):
+    if getattr(engine, "_pithosys_metrics_installed", False):
         return
-    engine._relic_metrics_installed = True  # type: ignore[attr-defined]
+    engine._pithosys_metrics_installed = True  # type: ignore[attr-defined]
 
     @event.listens_for(engine, "before_cursor_execute")
     def _before_cursor_execute(

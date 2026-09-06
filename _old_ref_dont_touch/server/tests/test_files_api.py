@@ -22,7 +22,7 @@ from tests.factories.models import StorageBackendFactory, UserFactory
 
 @pytest.fixture()
 def user(db_session):
-    user = UserFactory.build(email="user@relic.local")
+    user = UserFactory.build(email="user@pithosys.local")
     db_session.add(user)
     db_session.commit()
     return user
@@ -36,7 +36,7 @@ def client(db_session, user):
     app.dependency_overrides[get_db] = override_get_db
     try:
         with TestClient(app) as test_client:
-            test_client.cookies.set("relic_session", create_session_token(user))
+            test_client.cookies.set("pithosys_session", create_session_token(user))
             yield test_client
     finally:
         app.dependency_overrides.clear()
@@ -141,9 +141,9 @@ def test_get_file_includes_gateway_location_for_flat_folder(
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["gateway"] == {
-        "bucket": "relic",
+        "bucket": "pithosys",
         "key": "photos/cat.jpg",
-        "object_uri": "/s3/relic/photos/cat.jpg",
+        "object_uri": "/s3/pithosys/photos/cat.jpg",
     }
 
 
@@ -171,9 +171,9 @@ def test_get_file_includes_gateway_location_for_nested_folder(
     response = client.get(f"/api/files/{file.id}")
     assert response.status_code == 200, response.text
     assert response.json()["gateway"] == {
-        "bucket": "relic",
+        "bucket": "pithosys",
         "key": "Local Testing/era-a/account-statement.csv",
-        "object_uri": "/s3/relic/Local%20Testing/era-a/account-statement.csv",
+        "object_uri": "/s3/pithosys/Local%20Testing/era-a/account-statement.csv",
     }
 
 
@@ -191,7 +191,7 @@ def test_rename_updates_gateway_key(
     response = client.patch(f"/api/files/{file.id}", json={"name": "feline.jpg"})
     assert response.status_code == 200, response.text
     assert response.json()["gateway"]["key"] == "photos/feline.jpg"
-    assert response.json()["gateway"]["object_uri"] == "/s3/relic/photos/feline.jpg"
+    assert response.json()["gateway"]["object_uri"] == "/s3/pithosys/photos/feline.jpg"
 
 
 def test_list_files_includes_gateway_on_each_item(
@@ -206,7 +206,7 @@ def test_list_files_includes_gateway_on_each_item(
     response = client.get(f"/api/files/?folder_id={photos_folder.id}")
     assert response.status_code == 200, response.text
     item = response.json()["items"][0]
-    assert item["gateway"]["bucket"] == "relic"
+    assert item["gateway"]["bucket"] == "pithosys"
     assert item["gateway"]["key"] == "photos/a.jpg"
 
 

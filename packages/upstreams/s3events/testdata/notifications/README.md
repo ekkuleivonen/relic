@@ -1,8 +1,8 @@
 # Upstream Object Notification Fixtures
 
-Raw notification payloads from object storage providers. Each fixture is a JSON envelope with metadata plus the wire-format `body` Relic receives (direct webhook, SNS wrapper, or Pub/Sub push).
+Raw notification payloads from object storage providers. Each fixture is a JSON envelope with metadata plus the wire-format `body` Pithosys receives (direct webhook, SNS wrapper, or Pub/Sub push).
 
-Fixture keys use the same bucket (`relic-fixtures`) and object keys (`photos/a.jpg`) as `packages/upstreams/s3compat/testdata/mocks/` where applicable.
+Fixture keys use the same bucket (`pithosys-fixtures`) and object keys (`photos/a.jpg`) as `packages/upstreams/s3compat/testdata/mocks/` where applicable.
 
 | Upstream | Transport | Created format | Removed format |
 | --- | --- | --- | --- |

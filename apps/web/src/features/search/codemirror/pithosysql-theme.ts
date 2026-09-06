@@ -1,7 +1,7 @@
 import { Prec } from "@codemirror/state"
 import { EditorView } from "@codemirror/view"
 
-export const relicqlEditorTheme = Prec.highest(
+export const pithosysqlEditorTheme = Prec.highest(
   EditorView.theme({
   "&": {
     backgroundColor: "var(--card)",
@@ -27,10 +27,10 @@ export const relicqlEditorTheme = Prec.highest(
     borderLeftColor: "var(--foreground)",
   },
   ".cm-content ::selection, .cm-line ::selection": {
-    backgroundColor: "var(--relic-selection-focused) !important",
+    backgroundColor: "var(--pithosys-selection-focused) !important",
   },
   ".cm-content:focus ::selection, .cm-line:focus ::selection": {
-    backgroundColor: "var(--relic-selection-focused) !important",
+    backgroundColor: "var(--pithosys-selection-focused) !important",
   },
   ".cm-panels": {
     backgroundColor: "var(--popover)",
@@ -56,61 +56,61 @@ export const relicqlEditorTheme = Prec.highest(
     backgroundImage: "none",
     borderBottom: "2px wavy var(--destructive)",
   },
-  ".cm-relicKeyword": {
-    color: "var(--relic-syntax-keyword)",
+  ".cm-pithosysKeyword": {
+    color: "var(--pithosys-syntax-keyword)",
     fontWeight: "600",
   },
-  ".cm-relicType": {
-    color: "var(--relic-syntax-type)",
+  ".cm-pithosysType": {
+    color: "var(--pithosys-syntax-type)",
   },
-  ".cm-relicSqlBuiltin": {
-    color: "var(--relic-syntax-builtin)",
+  ".cm-pithosysSqlBuiltin": {
+    color: "var(--pithosys-syntax-builtin)",
   },
-  ".cm-relicNumber": {
-    color: "var(--relic-syntax-number)",
+  ".cm-pithosysNumber": {
+    color: "var(--pithosys-syntax-number)",
   },
-  ".cm-relicBool": {
-    color: "var(--relic-syntax-bool)",
+  ".cm-pithosysBool": {
+    color: "var(--pithosys-syntax-bool)",
   },
-  ".cm-relicNull": {
-    color: "var(--relic-syntax-null)",
+  ".cm-pithosysNull": {
+    color: "var(--pithosys-syntax-null)",
     fontStyle: "italic",
   },
-  ".cm-relicString": {
-    color: "var(--relic-syntax-string)",
+  ".cm-pithosysString": {
+    color: "var(--pithosys-syntax-string)",
   },
-  ".cm-relicName": {
-    color: "var(--relic-syntax-name)",
+  ".cm-pithosysName": {
+    color: "var(--pithosys-syntax-name)",
   },
-  ".cm-relicOperator": {
-    color: "var(--relic-syntax-operator)",
+  ".cm-pithosysOperator": {
+    color: "var(--pithosys-syntax-operator)",
   },
-  ".cm-relicPunctuation": {
-    color: "var(--relic-syntax-punctuation)",
+  ".cm-pithosysPunctuation": {
+    color: "var(--pithosys-syntax-punctuation)",
   },
-  ".cm-relicComment": {
-    color: "var(--relic-syntax-comment)",
+  ".cm-pithosysComment": {
+    color: "var(--pithosys-syntax-comment)",
     fontStyle: "italic",
   },
-  ".cm-relicSpecial": {
-    color: "var(--relic-syntax-special)",
+  ".cm-pithosysSpecial": {
+    color: "var(--pithosys-syntax-special)",
   },
-  ".cm-relicAttrCall": {
+  ".cm-pithosysAttrCall": {
     borderRadius: "3px",
     backgroundColor:
-      "color-mix(in oklab, var(--relic-syntax-attr) 18%, transparent)",
+      "color-mix(in oklab, var(--pithosys-syntax-attr) 18%, transparent)",
   },
-  ".cm-relicRelationCall": {
+  ".cm-pithosysRelationCall": {
     borderRadius: "3px",
     backgroundColor:
-      "color-mix(in oklab, var(--relic-syntax-relation) 18%, transparent)",
+      "color-mix(in oklab, var(--pithosys-syntax-relation) 18%, transparent)",
   },
-  ".cm-relicBuiltin": {
-    color: "var(--relic-builtin)",
+  ".cm-pithosysBuiltin": {
+    color: "var(--pithosys-builtin)",
     fontWeight: "600",
   },
-  ".cm-relicArgString": {
-    color: "var(--relic-arg-string)",
+  ".cm-pithosysArgString": {
+    color: "var(--pithosys-arg-string)",
   },
   })
 )

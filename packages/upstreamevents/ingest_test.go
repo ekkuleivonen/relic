@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/db"
-	"github.com/ekkuleivonen/relic/packages/secrets"
-	"github.com/ekkuleivonen/relic/packages/storage"
-	"github.com/ekkuleivonen/relic/packages/testdb"
+	"github.com/elei-io/pithosys/packages/db"
+	"github.com/elei-io/pithosys/packages/secrets"
+	"github.com/elei-io/pithosys/packages/storage"
+	"github.com/elei-io/pithosys/packages/testdb"
 )
 
 var (
@@ -29,7 +29,7 @@ func TestIngestS3NotificationJetstreamTransport(t *testing.T) {
 		Upstream:    storage.BucketUpstreamS3,
 		EndpointURL: "https://rustfs.example.test:9000",
 		Region:      "us-east-1",
-		BucketName:  "relic-test-01",
+		BucketName:  "pithosys-test-01",
 		EncryptedCredentials: secrets.Envelope{
 			KeyID:      "local-dev",
 			Algorithm:  secrets.AlgorithmXChaCha20Poly1305,

@@ -60,7 +60,7 @@ class UserFactory(factory.Factory):
         model = User
 
     name = factory.Sequence(lambda n: f"User {n}")
-    email = factory.Sequence(lambda n: f"user-{n}@relic.local")
+    email = factory.Sequence(lambda n: f"user-{n}@pithosys.local")
     password_hash = factory.LazyFunction(lambda: hash_password("password"))
     role = UserRole.USER
 

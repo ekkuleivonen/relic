@@ -101,7 +101,7 @@ export function CollectionDetailPage() {
             <CardHeader>
               <CardTitle>Saved query</CardTitle>
               <CardDescription>
-                Membership is derived from this RelicQL query.
+                Membership is derived from this PithosysQL query.
               </CardDescription>
             </CardHeader>
             <CardContent>

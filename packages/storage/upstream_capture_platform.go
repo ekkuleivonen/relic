@@ -1,6 +1,6 @@
 package storage
 
-import "github.com/ekkuleivonen/relic/packages/search"
+import "github.com/elei-io/pithosys/packages/search"
 
 func PlatformUpstreamCaptureFields() []UpstreamCaptureFieldSeed {
 	return []UpstreamCaptureFieldSeed{

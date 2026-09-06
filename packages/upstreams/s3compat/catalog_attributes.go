@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/aws/smithy-go"
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func FetchCatalogAttributes(ctx context.Context, client ObjectClient, input HeadObjectInput, fields []storage.UpstreamCaptureField) (storage.ObjectAttributes, error) {

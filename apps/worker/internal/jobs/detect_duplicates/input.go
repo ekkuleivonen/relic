@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 const (

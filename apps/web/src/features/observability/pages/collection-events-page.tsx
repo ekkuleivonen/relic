@@ -14,7 +14,7 @@ export function CollectionEventsPage() {
           Collection events
         </h1>
         <p className="mt-4 max-w-2xl text-sm/7 text-muted-foreground">
-          Relic will emit catalog and workflow events to external systems here.
+          Pithosys will emit catalog and workflow events to external systems here.
         </p>
       </header>
 

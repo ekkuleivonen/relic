@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/storage"
-	"github.com/ekkuleivonen/relic/packages/upstreams/s3compat"
+	"github.com/elei-io/pithosys/packages/storage"
+	"github.com/elei-io/pithosys/packages/upstreams/s3compat"
 )
 
 func TestObjectEvidenceFromListedObject(t *testing.T) {

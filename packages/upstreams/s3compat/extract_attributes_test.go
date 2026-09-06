@@ -8,8 +8,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/ekkuleivonen/relic/packages/search"
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/packages/search"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func TestExtractAttributesRequiredFields(t *testing.T) {

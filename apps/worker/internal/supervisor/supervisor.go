@@ -8,13 +8,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ekkuleivonen/relic/apps/worker/internal/jetstreamconsumer"
-	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
-	"github.com/ekkuleivonen/relic/apps/worker/internal/runner"
-	scanscheduler "github.com/ekkuleivonen/relic/apps/worker/internal/scheduler"
-	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
-	"github.com/ekkuleivonen/relic/apps/worker/internal/upstreamprocessor"
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/apps/worker/internal/jetstreamconsumer"
+	"github.com/elei-io/pithosys/apps/worker/internal/jobs"
+	"github.com/elei-io/pithosys/apps/worker/internal/runner"
+	scanscheduler "github.com/elei-io/pithosys/apps/worker/internal/scheduler"
+	"github.com/elei-io/pithosys/apps/worker/internal/settings"
+	"github.com/elei-io/pithosys/apps/worker/internal/upstreamprocessor"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 const (

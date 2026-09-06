@@ -41,7 +41,7 @@ def test_main_runs_migrations_before_seed(monkeypatch):
 
 
 def test_upsert_seed_folder_creates_starter_folder(db_session, monkeypatch):
-    monkeypatch.setattr(seed_module.S, "RELIC_SEED_FOLDER_NAME", "Uploads")
+    monkeypatch.setattr(seed_module.S, "PITHOSYS_SEED_FOLDER_NAME", "Uploads")
 
     root = seed_module.upsert_root_folder(db_session)
     db_session.commit()
@@ -58,7 +58,7 @@ def test_upsert_seed_folder_creates_starter_folder(db_session, monkeypatch):
 
 
 def test_upsert_seed_folder_skipped_when_name_blank(db_session, monkeypatch):
-    monkeypatch.setattr(seed_module.S, "RELIC_SEED_FOLDER_NAME", "  ")
+    monkeypatch.setattr(seed_module.S, "PITHOSYS_SEED_FOLDER_NAME", "  ")
 
     root = seed_module.upsert_root_folder(db_session)
     db_session.commit()

@@ -38,7 +38,7 @@ export function AdminLayout() {
       </aside>
       <div className="lg:pl-56">
         <header className="border-b px-4 py-3 lg:hidden">
-          <div className="text-sm font-semibold">Relic Storage Admin</div>
+          <div className="text-sm font-semibold">Pithosys Storage Admin</div>
           <nav className="mt-3 flex gap-3 overflow-x-auto text-sm">
             {adminNavItems.map((item) => (
               <NavLink

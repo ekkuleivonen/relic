@@ -107,7 +107,7 @@ export function EditBucketDialog({
           <DialogHeader>
             <DialogTitle>Edit bucket</DialogTitle>
             <DialogDescription>
-              Update Relic's connection metadata for this bucket. Stored
+              Update Pithosys's connection metadata for this bucket. Stored
               credentials are left unchanged unless you rotate them below.
               Scheduled scan settings are configured globally under Settings →
               Jobs.

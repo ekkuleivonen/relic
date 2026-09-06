@@ -1,0 +1,15 @@
+@detectDelim
+
+@external propSource pithosysqlHighlight from "./pithosysql-highlight.ts"
+
+@external tokens pithosysOverlay from "./pithosysql-tokens.ts" { pithosysAttr, pithosysRelation, text }
+
+@top Document { segment* }
+
+segment { PithosysAttr | PithosysRelation | Text }
+
+PithosysAttr { pithosysAttr }
+
+PithosysRelation { pithosysRelation }
+
+Text { text }

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/search"
+	"github.com/elei-io/pithosys/packages/search"
 	"github.com/jackc/pgx/v5"
 )
 

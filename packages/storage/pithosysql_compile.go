@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ekkuleivonen/relic/packages/search"
+	"github.com/elei-io/pithosys/packages/search"
 )
 
 type SearchScope struct {
@@ -30,7 +30,7 @@ FROM objects`
 
 func CompileObjectsSearch(bound search.BoundQuery, scope SearchScope) (CompiledQuery, error) {
 	if bound.Query.From != search.TargetObjects {
-		return CompiledQuery{}, fmt.Errorf("compile RelicQL: unsupported target %q", bound.Query.From)
+		return CompiledQuery{}, fmt.Errorf("compile PithosysQL: unsupported target %q", bound.Query.From)
 	}
 
 	ctx := newCompileContext(bound)
@@ -164,13 +164,13 @@ func (c *compileContext) compileExprNested(expr search.Expr, nested bool) (strin
 	case search.BucketPredicate:
 		return c.compileBucketPredicate(typed)
 	default:
-		return "", fmt.Errorf("compile RelicQL: unsupported expression %T", expr)
+		return "", fmt.Errorf("compile PithosysQL: unsupported expression %T", expr)
 	}
 }
 
 func (c *compileContext) compileBoolExpr(expr search.BoolExpr, nested bool) (string, error) {
 	if len(expr.Terms) == 0 {
-		return "", fmt.Errorf("compile RelicQL: boolean expression has no terms")
+		return "", fmt.Errorf("compile PithosysQL: boolean expression has no terms")
 	}
 
 	joiner := " AND "
@@ -232,7 +232,7 @@ func (c *compileContext) compileInComparison(comparison search.InComparison) (st
 		return "", err
 	}
 	if len(comparison.Values) == 0 {
-		return "", fmt.Errorf("compile RelicQL: IN requires at least one value")
+		return "", fmt.Errorf("compile PithosysQL: IN requires at least one value")
 	}
 
 	valueArgs := make([]string, 0, len(comparison.Values))
@@ -312,7 +312,7 @@ func relationObjectMatchSQL(direction search.RelationDirection) (string, error) 
 	case search.RelationAny:
 		return "(r.source_object_id = objects.id OR r.target_object_id = objects.id)", nil
 	default:
-		return "", fmt.Errorf("compile RelicQL: unsupported relation direction %q", direction)
+		return "", fmt.Errorf("compile PithosysQL: unsupported relation direction %q", direction)
 	}
 }
 
@@ -366,7 +366,7 @@ func (c *compileContext) compileValueExpr(expr search.Expr) (string, error) {
 	case search.CastExpr:
 		return c.compileCastExpr(typed)
 	default:
-		return "", fmt.Errorf("compile RelicQL: expected field or attribute reference, got %T", expr)
+		return "", fmt.Errorf("compile PithosysQL: expected field or attribute reference, got %T", expr)
 	}
 }
 
@@ -376,7 +376,7 @@ func (c *compileContext) compileCastExpr(cast search.CastExpr) (string, error) {
 		return attributeSQLExpr(inner.Path, cast.Type)
 	case search.StringLiteral:
 		if cast.Type != search.TypeTimestamp {
-			return "", fmt.Errorf("compile RelicQL: unsupported cast from string to %q", cast.Type)
+			return "", fmt.Errorf("compile PithosysQL: unsupported cast from string to %q", cast.Type)
 		}
 		value, err := parseTimestampText(inner.Value)
 		if err != nil {
@@ -384,7 +384,7 @@ func (c *compileContext) compileCastExpr(cast search.CastExpr) (string, error) {
 		}
 		return c.addArg(value), nil
 	default:
-		return "", fmt.Errorf("compile RelicQL: unsupported cast operand %T", cast.Expr)
+		return "", fmt.Errorf("compile PithosysQL: unsupported cast operand %T", cast.Expr)
 	}
 }
 
@@ -425,7 +425,7 @@ func literalValue(expr search.Expr) (any, error) {
 	case search.TimestampLiteral:
 		return typed.Value, nil
 	default:
-		return nil, fmt.Errorf("compile RelicQL: unsupported literal %T", expr)
+		return nil, fmt.Errorf("compile PithosysQL: unsupported literal %T", expr)
 	}
 }
 
@@ -435,7 +435,7 @@ func parseTimestampText(value string) (time.Time, error) {
 	}
 	parsed, err := time.Parse(time.RFC3339, value)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("compile RelicQL: invalid timestamp value %q", value)
+		return time.Time{}, fmt.Errorf("compile PithosysQL: invalid timestamp value %q", value)
 	}
 
 	return parsed.UTC(), nil
@@ -460,7 +460,7 @@ func comparisonOperator(op search.ComparisonOp) (string, error) {
 	case search.OpILike:
 		return "ILIKE", nil
 	default:
-		return "", fmt.Errorf("compile RelicQL: unsupported comparison operator %q", op)
+		return "", fmt.Errorf("compile PithosysQL: unsupported comparison operator %q", op)
 	}
 }
 
@@ -483,7 +483,7 @@ func attributeSQLExpr(path string, typ search.ValueType) (string, error) {
 	case search.TypeTimestamp:
 		return "(" + base + ")::timestamptz", nil
 	default:
-		return "", fmt.Errorf("compile RelicQL: unsupported attribute type %q for path %q", typ, path)
+		return "", fmt.Errorf("compile PithosysQL: unsupported attribute type %q for path %q", typ, path)
 	}
 }
 
@@ -491,7 +491,7 @@ func jsonbTextPathLiteral(path string) (string, error) {
 	parts := splitAttributePath(path)
 	jsonPath, err := NewJSONBPath(parts...)
 	if err != nil {
-		return "", fmt.Errorf("compile RelicQL attribute path %q: %w", path, err)
+		return "", fmt.Errorf("compile PithosysQL attribute path %q: %w", path, err)
 	}
 
 	segments := make([]string, 0, len(jsonPath))

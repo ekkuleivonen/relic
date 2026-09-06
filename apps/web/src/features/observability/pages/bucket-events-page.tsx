@@ -94,7 +94,7 @@ export function BucketEventsPage() {
       onRetry={handleRefresh}
       isEmpty={eventsQuery.isSuccess && events.length === 0}
       emptyTitle="No bucket events in this range"
-      emptyDescription="Events appear when upstream storage notifications are delivered to Relic through JetStream."
+      emptyDescription="Events appear when upstream storage notifications are delivered to Pithosys through JetStream."
       total={total}
       page={page}
       pageSize={pageSize}

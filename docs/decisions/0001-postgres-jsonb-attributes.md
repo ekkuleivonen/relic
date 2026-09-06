@@ -6,13 +6,13 @@ Accepted
 
 ## Context
 
-Relic's core query pressure will come from attributes.
+Pithosys's core query pressure will come from attributes.
 
 Attributes need to support typed values, nested data, arrays, upstream metadata, plugin output, workflow output, user metadata, filtering, sorting, and collection queries.
 
 Trying to support SQLite and Postgres at the same time would add abstraction burden before the product has proven its core loop.
 
-Postgres gives Relic a strong MVP substrate:
+Postgres gives Pithosys a strong MVP substrate:
 
 * JSONB for flexible attribute documents.
 * GIN indexes for attribute filtering.
@@ -22,15 +22,15 @@ Postgres gives Relic a strong MVP substrate:
 
 ## Decision
 
-Relic will use Postgres as the required database for the MVP.
+Pithosys will use Postgres as the required database for the MVP.
 
-Relic will store object attributes in JSONB and index them with GIN.
+Pithosys will store object attributes in JSONB and index them with GIN.
 
-Relic will not support SQLite for the MVP.
+Pithosys will not support SQLite for the MVP.
 
-Months from now, if JSONB queries become insufficient, Relic may layer a dedicated search engine on top. Until then, Postgres JSONB is the source of truth and primary query substrate.
+Months from now, if JSONB queries become insufficient, Pithosys may layer a dedicated search engine on top. Until then, Postgres JSONB is the source of truth and primary query substrate.
 
-Relic will still use a database access layer as the only supported path for application code to interact with persistence.
+Pithosys will still use a database access layer as the only supported path for application code to interact with persistence.
 
 Route handlers, services, workers, plugins, and workflows must not bypass this abstraction.
 
@@ -40,7 +40,7 @@ Postgres-specific optimizations are allowed and expected, but they must remain b
 
 ## Consequences
 
-This gives Relic:
+This gives Pithosys:
 
 * One database target for the MVP.
 * A flexible attribute model without designing a custom query engine.
@@ -49,7 +49,7 @@ This gives Relic:
 * A clear place to contain SQL and persistence behavior.
 * Less risk from lowest-common-denominator database design.
 
-This also costs Relic:
+This also costs Pithosys:
 
 * Users must run Postgres.
 * Local setup is heavier than SQLite.
@@ -127,9 +127,9 @@ Upstream metadata is evidence, not truth. Upstream-reported values must not be p
 
 Namespaces are not enough for provenance.
 
-The namespace tells Relic who owns the meaning of an attribute, but not which actor, version, job, or run produced a specific value.
+The namespace tells Pithosys who owns the meaning of an attribute, but not which actor, version, job, or run produced a specific value.
 
-Relic should keep provenance separate from the hot JSONB attribute document, but it should still be stored per object rather than per attribute row.
+Pithosys should keep provenance separate from the hot JSONB attribute document, but it should still be stored per object rather than per attribute row.
 
 Objects should have a compact JSONB provenance sidecar.
 
@@ -233,8 +233,8 @@ This keeps provenance explicit without forcing every query to inspect audit logs
 
 ## Initial Direction
 
-Relic should require Postgres for local development and self-hosting.
+Pithosys should require Postgres for local development and self-hosting.
 
-Relic should start with JSONB attributes and GIN indexes.
+Pithosys should start with JSONB attributes and GIN indexes.
 
-Relic should postpone a dedicated search engine until Postgres JSONB queries become a real bottleneck.
+Pithosys should postpone a dedicated search engine until Postgres JSONB queries become a real bottleneck.

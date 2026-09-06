@@ -1,6 +1,5 @@
 CREATE TABLE job_runs (
     id text PRIMARY KEY,
-    trace_id text NOT NULL,
     type text NOT NULL,
     state text NOT NULL DEFAULT 'pending',
     requested_by_type text,
@@ -36,5 +35,3 @@ CREATE INDEX job_runs_target_idx ON job_runs (target_type, target_id);
 CREATE INDEX job_runs_created_at_idx ON job_runs (created_at DESC);
 CREATE INDEX job_runs_target_created_at_idx ON job_runs (target_type, target_id, created_at DESC);
 CREATE INDEX job_runs_pending_claim_idx ON job_runs (available_at, created_at) WHERE state = 'pending';
-CREATE INDEX job_runs_trace_id_idx ON job_runs (trace_id);
-CREATE INDEX job_runs_trace_active_idx ON job_runs (trace_id) WHERE state IN ('pending', 'running');

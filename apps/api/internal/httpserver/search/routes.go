@@ -6,10 +6,10 @@ import (
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/deps"
-	"github.com/ekkuleivonen/relic/apps/api/internal/httpserver/objects"
-	"github.com/ekkuleivonen/relic/packages/search"
-	"github.com/ekkuleivonen/relic/packages/storage"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/objects"
+	"github.com/elei-io/pithosys/packages/search"
+	"github.com/elei-io/pithosys/packages/storage"
 )
 
 func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
@@ -17,7 +17,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 		OperationID: "execute-search",
 		Method:      http.MethodPost,
 		Path:        basePath + "/search",
-		Summary:     "Execute RelicQL search",
+		Summary:     "Execute PithosysQL search",
 		Tags:        []string{"Search"},
 	}, func(ctx context.Context, input *executeSearchInput) (*executeSearchOutput, error) {
 		if dependencies.Storage == nil {
@@ -29,7 +29,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			return nil, huma.Error400BadRequest("query is required")
 		}
 
-		results, err := dependencies.Storage.SearchRelicQL(ctx, queryText, storage.SearchScope{
+		results, err := dependencies.Storage.SearchPithosysQL(ctx, queryText, storage.SearchScope{
 			BucketID: strings.TrimSpace(input.Body.BucketID),
 		})
 		if err != nil {
@@ -51,7 +51,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 		OperationID: "validate-search",
 		Method:      http.MethodPost,
 		Path:        basePath + "/search/validate",
-		Summary:     "Validate RelicQL query",
+		Summary:     "Validate PithosysQL query",
 		Tags:        []string{"Search"},
 	}, func(ctx context.Context, input *validateSearchInput) (*validateSearchOutput, error) {
 		if dependencies.Storage == nil {
@@ -63,7 +63,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			return nil, huma.Error400BadRequest("query is required")
 		}
 
-		bound, err := storage.ValidateRelicQL(ctx, dependencies.Storage.AttributeCatalog(), queryText)
+		bound, err := storage.ValidatePithosysQL(ctx, dependencies.Storage.AttributeCatalog(), queryText)
 		if err != nil {
 			if search.IsValidationError(err) {
 				return nil, huma.Error400BadRequest(err.Error())
@@ -138,7 +138,7 @@ type executeSearchInput struct {
 }
 
 type executeSearchRequest struct {
-	Query    string `json:"query" doc:"RelicQL query text" example:"FROM objects WHERE key = 'photos/a.jpg'"`
+	Query    string `json:"query" doc:"PithosysQL query text" example:"FROM objects WHERE key = 'photos/a.jpg'"`
 	BucketID string `json:"bucket_id,omitempty" doc:"Optional bucket scope" example:"bucket_0123456789abcdef0123456789abcdef"`
 }
 
@@ -155,7 +155,7 @@ type validateSearchInput struct {
 }
 
 type validateSearchRequest struct {
-	Query string `json:"query" doc:"RelicQL query text" example:"FROM objects WHERE key = 'photos/a.jpg'"`
+	Query string `json:"query" doc:"PithosysQL query text" example:"FROM objects WHERE key = 'photos/a.jpg'"`
 }
 
 type validateSearchOutput struct {
@@ -175,7 +175,7 @@ type dependencyResponse struct {
 	Type string `json:"type,omitempty"`
 }
 
-// DependencyResponse is the shared OpenAPI shape for RelicQL query dependencies.
+// DependencyResponse is the shared OpenAPI shape for PithosysQL query dependencies.
 type DependencyResponse = dependencyResponse
 
 type listSearchAttributesInput struct{}

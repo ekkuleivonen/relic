@@ -32,9 +32,9 @@ configure_logging(
 
 POSTGRES_HOST: str = env.str("POSTGRES_HOST", default="localhost")
 POSTGRES_PORT: int = env.int("POSTGRES_PORT", default=5432)
-POSTGRES_DB: str = env.str("POSTGRES_DB", default="relic")
-POSTGRES_USER: str = env.str("POSTGRES_USER", default="relic")
-POSTGRES_PASSWORD: str = env.str("POSTGRES_PASSWORD", default="relic")
+POSTGRES_DB: str = env.str("POSTGRES_DB", default="pithosys")
+POSTGRES_USER: str = env.str("POSTGRES_USER", default="pithosys")
+POSTGRES_PASSWORD: str = env.str("POSTGRES_PASSWORD", default="pithosys")
 
 # Optional override; when set, used instead of POSTGRES_* fields above.
 DATABASE_URL: str | None = env.str("DATABASE_URL", default=None)
@@ -57,17 +57,17 @@ ENCRYPTION_SECRET: str = env.str(
 # Seed Data
 # =============================================================================
 
-RELIC_ADMIN_NAME: str = env.str("RELIC_ADMIN_NAME", default="Relic Admin")
-RELIC_ADMIN_EMAIL: str = env.str("RELIC_ADMIN_EMAIL", default="admin@relic.local")
-RELIC_ADMIN_PASSWORD: str = env.str("RELIC_ADMIN_PASSWORD", default="relic-admin")
-RELIC_SEED_FOLDER_NAME: str = env.str("RELIC_SEED_FOLDER_NAME", default="Uploads")
+PITHOSYS_ADMIN_NAME: str = env.str("PITHOSYS_ADMIN_NAME", default="Pithosys Admin")
+PITHOSYS_ADMIN_EMAIL: str = env.str("PITHOSYS_ADMIN_EMAIL", default="admin@pithosys.local")
+PITHOSYS_ADMIN_PASSWORD: str = env.str("PITHOSYS_ADMIN_PASSWORD", default="pithosys-admin")
+PITHOSYS_SEED_FOLDER_NAME: str = env.str("PITHOSYS_SEED_FOLDER_NAME", default="Uploads")
 
 # =============================================================================
 # Sessions
 # =============================================================================
 
 SESSION_SECRET: str = env.str("SESSION_SECRET", default=ENCRYPTION_SECRET)
-SESSION_COOKIE_NAME: str = env.str("SESSION_COOKIE_NAME", default="relic_session")
+SESSION_COOKIE_NAME: str = env.str("SESSION_COOKIE_NAME", default="pithosys_session")
 SESSION_MAX_AGE_SECONDS: int = env.int(
     "SESSION_MAX_AGE_SECONDS", default=60 * 60 * 24 * 7
 )
@@ -77,27 +77,27 @@ SESSION_COOKIE_SECURE: bool = env.bool("SESSION_COOKIE_SECURE", default=False)
 # S3 Gateway Signing
 # =============================================================================
 
-RELIC_SIGNING_TTL_SECONDS: int = env.int("RELIC_SIGNING_TTL_SECONDS", default=300)
-RELIC_SIGNING_REGION: str = env.str("RELIC_SIGNING_REGION", default="relic")
+PITHOSYS_SIGNING_TTL_SECONDS: int = env.int("PITHOSYS_SIGNING_TTL_SECONDS", default=300)
+PITHOSYS_SIGNING_REGION: str = env.str("PITHOSYS_SIGNING_REGION", default="pithosys")
 # Fixed virtual bucket for the S3 gateway; folder tree lives in object keys.
-RELIC_GATEWAY_BUCKET: str = env.str("RELIC_GATEWAY_BUCKET", default="relic")
+PITHOSYS_GATEWAY_BUCKET: str = env.str("PITHOSYS_GATEWAY_BUCKET", default="pithosys")
 
-_SIGNING_KEY_ID: str = env.str("RELIC_SIGNING_KEY_ID", default="relic-dev")
+_SIGNING_KEY_ID: str = env.str("PITHOSYS_SIGNING_KEY_ID", default="pithosys-dev")
 _SIGNING_SECRET: str = env.str(
-    "RELIC_SIGNING_SECRET",
+    "PITHOSYS_SIGNING_SECRET",
     default=f"{ENCRYPTION_SECRET}:s3-signing",
 )
-RELIC_SIGNING_KEYS: dict[str, str] = env.json(
-    "RELIC_SIGNING_KEYS",
+PITHOSYS_SIGNING_KEYS: dict[str, str] = env.json(
+    "PITHOSYS_SIGNING_KEYS",
     default={_SIGNING_KEY_ID: _SIGNING_SECRET},
 )
-RELIC_SIGNING_CURRENT_KEY_ID: str = env.str(
-    "RELIC_SIGNING_CURRENT_KEY_ID",
+PITHOSYS_SIGNING_CURRENT_KEY_ID: str = env.str(
+    "PITHOSYS_SIGNING_CURRENT_KEY_ID",
     default=_SIGNING_KEY_ID,
 )
 
-if RELIC_SIGNING_CURRENT_KEY_ID not in RELIC_SIGNING_KEYS:
-    raise ValueError("RELIC_SIGNING_CURRENT_KEY_ID must exist in RELIC_SIGNING_KEYS")
+if PITHOSYS_SIGNING_CURRENT_KEY_ID not in PITHOSYS_SIGNING_KEYS:
+    raise ValueError("PITHOSYS_SIGNING_CURRENT_KEY_ID must exist in PITHOSYS_SIGNING_KEYS")
 
 S3_CORS_ALLOWED_ORIGINS: list[str] = env.list("S3_CORS_ALLOWED_ORIGINS", default=[])
 UPLOAD_SPOOL_MAX_MEMORY_BYTES: int = env.int(
@@ -138,7 +138,7 @@ REDIS_PORT: int = env.int("REDIS_PORT", default=6379)
 REDIS_PASSWORD: str = env.str("REDIS_PASSWORD", default="replace_me")
 MAINTENANCE_QUEUE_NAME: str = env.str(
     "MAINTENANCE_QUEUE_NAME",
-    default="relic:maintenance",
+    default="pithosys:maintenance",
 )
 MAINTENANCE_HEARTBEAT_TTL_SECONDS: int = env.int(
     "MAINTENANCE_HEARTBEAT_TTL_SECONDS",

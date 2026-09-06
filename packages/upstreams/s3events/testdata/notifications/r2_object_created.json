@@ -6,7 +6,7 @@
   "body": {
     "account": "3f4b7e3dcab231cbfdaa90a6a28bd548",
     "action": "PutObject",
-    "bucket": "relic-fixtures",
+    "bucket": "pithosys-fixtures",
     "object": {
       "key": "photos/a.jpg",
       "size": 434234,

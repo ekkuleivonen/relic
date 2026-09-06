@@ -3,7 +3,7 @@ package storage
 import (
 	"context"
 
-	"github.com/ekkuleivonen/relic/packages/search"
+	"github.com/elei-io/pithosys/packages/search"
 )
 
 func (s *Store) EnsureConfigured() error {
@@ -14,7 +14,7 @@ func (s *Store) EnsureConfigured() error {
 	return nil
 }
 
-func (s *Store) SearchRelicQL(ctx context.Context, text string, scope SearchScope) ([]Object, error) {
+func (s *Store) SearchPithosysQL(ctx context.Context, text string, scope SearchScope) ([]Object, error) {
 	query, err := search.Parse(text)
 	if err != nil {
 		return nil, search.ValidationError(err)
@@ -23,7 +23,7 @@ func (s *Store) SearchRelicQL(ctx context.Context, text string, scope SearchScop
 		return nil, err
 	}
 
-	bound, err := bindRelicQL(ctx, s.AttributeCatalog(), query)
+	bound, err := bindPithosysQL(ctx, s.AttributeCatalog(), query)
 	if err != nil {
 		return nil, err
 	}
