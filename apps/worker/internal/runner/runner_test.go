@@ -3,15 +3,11 @@ package runner
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
-	workerjobs "github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
-	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/storage"
 	"github.com/ekkuleivonen/relic/packages/testdb"
@@ -110,27 +106,6 @@ func (h failingHandler) Type() storage.JobType {
 
 func (h failingHandler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRunPayload, error) {
 	return nil, errors.New("handler failed")
-}
-
-func newTestRunner(t *testing.T, store *storage.Store, handler workerjobs.Handler) *Runner {
-	t.Helper()
-
-	registry, err := workerjobs.NewRegistry(handler)
-	if err != nil {
-		t.Fatalf("NewRegistry returned error: %v", err)
-	}
-	runner, err := New(Options{
-		Store:        store,
-		Registry:     registry,
-		WorkerID:     "test-worker",
-		Settings:     settings.Static{"WORKER_RUNNER_POLL_INTERVAL": "1ms", "WORKER_RUNNER_RETRY_DELAY": "1ms"},
-		Logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatalf("New returned error: %v", err)
-	}
-
-	return runner
 }
 
 func clearJobRuns(t *testing.T, ctx context.Context) {

@@ -107,7 +107,19 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			return nil, err
 		}
 
-		return &jobRunOutput{Body: jobRunResponseFromStorage(run)}, nil
+		var summary *storage.TraceSummary
+		if includesTraceSummary(input.Include) {
+			if run.TraceID == "" {
+				return nil, huma.Error500InternalServerError("job run is missing trace_id")
+			}
+			traceSummary, err := dependencies.Storage.JobRuns().SummarizeTrace(ctx, run.TraceID)
+			if err != nil {
+				return nil, err
+			}
+			summary = &traceSummary
+		}
+
+		return &jobRunOutput{Body: JobRunDetailResponseFromStorage(run, summary)}, nil
 	})
 
 	huma.Register(api, huma.Operation{
@@ -148,6 +160,7 @@ type listJobRunsInput struct {
 	Type            string `query:"type" example:"sync_bucket"`
 	Types           string `query:"types" example:"sync_bucket,scan_bucket"`
 	State           string `query:"state" example:"pending"`
+	TraceID         string `query:"trace_id" example:"jobrun_0123456789abcdef0123456789abcdef"`
 	RequestedByType string `query:"requested_by_type" example:"job"`
 	RequestedByID   string `query:"requested_by_id" example:"jobrun_0123456789abcdef0123456789abcdef"`
 	TargetType      string `query:"target_type" example:"bucket"`
@@ -171,7 +184,8 @@ type jobRunStatsInput struct {
 }
 
 type getJobRunInput struct {
-	ID string `path:"id" example:"jobrun_0123456789abcdef0123456789abcdef"`
+	ID      string `path:"id" example:"jobrun_0123456789abcdef0123456789abcdef"`
+	Include string `query:"include" example:"trace_summary"`
 }
 
 type createDetectDuplicatesInput struct {
@@ -187,7 +201,7 @@ type createDetectDuplicatesOutput struct {
 }
 
 type jobRunOutput struct {
-	Body jobRunResponse
+	Body JobRunDetailResponse
 }
 
 type listJobRunsOutput struct {
@@ -260,6 +274,7 @@ func listJobRunsParamsFromInput(input *listJobRunsInput) (storage.ListJobRunsPar
 		Type:            storage.JobType(input.Type),
 		Types:           parseJobRunTypes(input.Types),
 		State:           storage.JobRunState(input.State),
+		TraceID:         input.TraceID,
 		RequestedByType: input.RequestedByType,
 		RequestedByID:   input.RequestedByID,
 		TargetType:      input.TargetType,

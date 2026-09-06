@@ -16,9 +16,16 @@ import { useObjects } from "@/features/objects/hooks/use-objects"
 type ObjectsCardProps = {
   bucketId?: string
   prefix?: string
+  syncInProgress?: boolean
+  syncDetailLine?: string
 }
 
-export function ObjectsCard({ bucketId, prefix }: ObjectsCardProps) {
+export function ObjectsCard({
+  bucketId,
+  prefix,
+  syncInProgress = false,
+  syncDetailLine,
+}: ObjectsCardProps) {
   const [keyContains, setKeyContains] = React.useState("")
   const objectsQuery = useObjects(
     {
@@ -57,6 +64,14 @@ export function ObjectsCard({ bucketId, prefix }: ObjectsCardProps) {
         </div>
       </CardHeader>
       <CardContent className="grid gap-4">
+        {syncInProgress && (
+          <div className="rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+            Sync in progress
+            {syncDetailLine ? ` — ${syncDetailLine}` : ""}. Catalog rows appear as
+            import batches complete.
+          </div>
+        )}
+
         <div className="max-w-sm">
           <Input
             value={keyContains}

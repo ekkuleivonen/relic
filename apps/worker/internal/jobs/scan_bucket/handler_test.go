@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
 	syncbucket "github.com/ekkuleivonen/relic/apps/worker/internal/jobs/sync_bucket"
 	"github.com/ekkuleivonen/relic/packages/db"
 	"github.com/ekkuleivonen/relic/packages/secrets"
@@ -94,6 +95,9 @@ func TestHandlerReportsNeedsSyncOnCountDrift(t *testing.T) {
 	if result["status"] != "needs_sync" {
 		t.Fatalf("status = %#v, want needs_sync", result["status"])
 	}
+	if !jobs.AwaitsChildren(result) {
+		t.Fatal("AwaitsChildren(result) = false, want true")
+	}
 
 	mismatched := stringSliceField(result["partitions_mismatched"])
 	if len(mismatched) != 1 || mismatched[0] != partition.ID() {
@@ -101,6 +105,9 @@ func TestHandlerReportsNeedsSyncOnCountDrift(t *testing.T) {
 	}
 
 	syncChild := assertSingleSyncChild(t, ctx, store, run.ID)
+	if syncChild.TraceID != run.TraceID {
+		t.Fatalf("sync child trace_id = %q, want %q", syncChild.TraceID, run.TraceID)
+	}
 	assertPartitionSyncInput(t, syncChild, bucket.ID, "", partition, run.ID)
 }
 

@@ -215,8 +215,53 @@ func TestListAllObjectsAppliesFilter(t *testing.T) {
 	if listed != 1 {
 		t.Fatalf("listed = %d, want 1", listed)
 	}
-	if len(keys) != 1 || keys[0] != "keep.txt" {
+	if keys[0] != "keep.txt" {
 		t.Fatalf("keys = %#v, want [keep.txt]", keys)
+	}
+}
+
+func TestListAllObjectsResumesFromCheckpoint(t *testing.T) {
+	client := &recordingListClient{
+		pages: []s3compat.ObjectPage{
+			{
+				Objects: []s3compat.ListedObject{
+					{Key: "b.txt", Size: 2, LastModified: time.Unix(0, 0).UTC()},
+				},
+			},
+		},
+	}
+
+	var keys []string
+	complete, listed, err := ListAllObjects(context.Background(), ListAllObjectsOptions{
+		Client:      client,
+		BucketName:  "bucket",
+		BucketLabel: "bucket",
+		Start: ListCheckpoint{
+			ContinuationToken: "token-1",
+			ObjectsListed:     1,
+		},
+		OnObject: func(object s3compat.ListedObject) error {
+			keys = append(keys, object.Key)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("ListAllObjects returned error: %v", err)
+	}
+	if !complete {
+		t.Fatal("complete = false, want true")
+	}
+	if listed != 2 {
+		t.Fatalf("listed = %d, want 2", listed)
+	}
+	if len(client.listInputs) != 1 {
+		t.Fatalf("list calls = %d, want 1", len(client.listInputs))
+	}
+	if client.listInputs[0].ContinuationToken != "token-1" {
+		t.Fatalf("continuation token = %q, want token-1", client.listInputs[0].ContinuationToken)
+	}
+	if len(keys) != 1 || keys[0] != "b.txt" {
+		t.Fatalf("keys = %#v, want [b.txt]", keys)
 	}
 }
 

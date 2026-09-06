@@ -62,8 +62,14 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 		return nil, err
 	}
 
+	state, err := h.loadSyncExecutionState(ctx, run)
+	if err != nil {
+		return nil, err
+	}
+
 	listPrefix := EffectiveListPrefix(bucket.Prefix, input.ScopePrefix)
-	upstreamObjects := map[string]s3compat.ListedObject{}
+	scope := ObjectScopeParams(bucket.ID, bucket.Prefix, input)
+	checkpoint := listingCheckpointFromProgress(run.Progress)
 
 	var partitionFilter func(s3compat.ListedObject) bool
 	if input.Partition != nil {
@@ -73,69 +79,119 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 		}
 	}
 
-	_, objectsSeen, err := jobs.ListAllObjects(ctx, jobs.ListAllObjectsOptions{
-		Client:      client,
-		BucketName:  bucket.BucketName,
-		Prefix:      listPrefix,
-		BucketLabel: bucket.ID,
-		Filter:      partitionFilter,
-		OnObject: func(listedObject s3compat.ListedObject) error {
-			upstreamObjects[listedObject.Key] = listedObject
-			return nil
-		},
-		OnPage: func(listed int64) error {
-			_, err := h.store.JobRuns().UpdateJobRunProgress(ctx, storage.UpdateJobRunProgressParams{
-				ID: run.ID,
-				Progress: storage.JobRunPayload{
-					"phase":        "listed",
-					"objects_seen": listed,
-				},
-			})
-			return err
-		},
-	})
-	if err != nil {
+	objectsListed := checkpoint.ObjectsListed
+	if !checkpoint.ListingComplete {
+		listStart := checkpoint.toListStart()
+		listComplete, listed, err := jobs.ListAllObjects(ctx, jobs.ListAllObjectsOptions{
+			Client:      client,
+			BucketName:  bucket.BucketName,
+			Prefix:      listPrefix,
+			BucketLabel: bucket.ID,
+			Start:       listStart,
+			Filter:      partitionFilter,
+			OnObject:    func(s3compat.ListedObject) error { return nil },
+			OnPage: func(page jobs.ListObjectsPageProgress) error {
+				return h.processListingPage(ctx, run, bucket, state, page)
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		if !listComplete {
+			return nil, fmt.Errorf("sync_bucket job %q: upstream listing incomplete", run.ID)
+		}
+
+		objectsListed = listed
+		checkpoint.ListingComplete = true
+		if err := h.updateProgress(ctx, run.ID, listingProgressFields(jobs.ListCheckpoint{
+			ObjectsListed: objectsListed,
+		}, true, state.planCounts)); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := h.updateProgress(ctx, run.ID, planningProgressFields(objectsListed, state.planCounts)); err != nil {
 		return nil, err
 	}
 
-	localObjects, err := collectLocalObjectsInScope(ctx, h.store.Objects(), ObjectScopeParams(bucket.ID, bucket.Prefix, input), input.Partition)
-	if err != nil {
+	if err := h.streamAndEnqueueRemoveObjects(ctx, state, run, bucket.ID, scope, input.Partition); err != nil {
 		return nil, err
 	}
 
-	importObjects, refreshObjects, removeObjects := jobs.PlanObjectMutations(upstreamObjects, localObjects)
-	importJobIDs, err := h.createChildJobs(ctx, run, bucket.ID, storage.JobTypeImportObjects, importObjects)
-	if err != nil {
-		return nil, err
-	}
-	refreshJobIDs, err := h.createChildJobs(ctx, run, bucket.ID, storage.JobTypeRefreshObjects, refreshObjects)
-	if err != nil {
-		return nil, err
-	}
-	removeJobIDs, err := h.createChildJobs(ctx, run, bucket.ID, storage.JobTypeRemoveObjects, removeObjects)
-	if err != nil {
+	if err := h.store.JobSpill().DeleteForJobRun(ctx, run.ID); err != nil {
 		return nil, err
 	}
 
-	result := storage.JobRunPayload{
+	result := state.fanOutResult(storage.JobRunPayload{
 		"phase":                 "planned",
 		"bucket_id":             bucket.ID,
 		"scope_prefix":          input.ScopePrefix,
-		"objects_seen":          objectsSeen,
-		"import_objects_count":  len(importObjects),
-		"refresh_objects_count": len(refreshObjects),
-		"remove_objects_count":  len(removeObjects),
-		"child_job_ids": map[string]any{
-			"import_objects":  importJobIDs,
-			"refresh_objects": refreshJobIDs,
-			"remove_objects":  removeJobIDs,
-		},
-	}
+		"objects_seen":          objectsListed,
+		"objects_listed":        objectsListed,
+		"listing_complete":      true,
+		"import_objects_count":  state.planCounts.Import,
+		"refresh_objects_count": state.planCounts.Refresh,
+		"remove_objects_count":  state.planCounts.Remove,
+	})
 	for key, value := range syncResultScopeFields(input) {
 		result[key] = value
 	}
 
 	return result, nil
+}
+
+func (h *Handler) enqueueMutationJobs(
+	ctx context.Context,
+	state *syncExecutionState,
+	run storage.JobRun,
+	bucketID string,
+	jobType storage.JobType,
+	objects []jobs.ObjectEvidence,
+) error {
+	if len(objects) == 0 {
+		return nil
+	}
+
+	for _, batch := range objectEvidenceBatches(objects, childJobBatchSize) {
+		batchKeys := keysFromObjectEvidence(batch)
+		var childRun storage.JobRun
+		err := h.store.WithTx(ctx, func(ctx context.Context, tx *storage.Tx) error {
+			if err := tx.JobSpill().InsertKeys(ctx, run.ID, batchKeys); err != nil {
+				return err
+			}
+
+			input, err := jobs.PayloadFrom(jobs.ObjectMutationInput{
+				BucketID:       bucketID,
+				Objects:        batch,
+				SourceJobRunID: run.ID,
+			})
+			if err != nil {
+				return err
+			}
+
+			created, err := tx.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+				Type:            jobType,
+				RequestedByType: "job",
+				RequestedByID:   run.ID,
+				TargetType:      "bucket",
+				TargetID:        bucketID,
+				Input:           input,
+			})
+			if err != nil {
+				return err
+			}
+
+			childRun = created
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		state.record(jobType, len(batch), []string{childRun.ID})
+	}
+
+	return nil
 }
 
 func syncResultScopeFields(input SyncBucketInput) storage.JobRunPayload {
@@ -151,32 +207,13 @@ func syncResultScopeFields(input SyncBucketInput) storage.JobRunPayload {
 	return result
 }
 
-func (h *Handler) createChildJobs(ctx context.Context, run storage.JobRun, bucketID string, jobType storage.JobType, objects []jobs.ObjectEvidence) ([]string, error) {
-	jobIDs := []string{}
-	for _, batch := range objectEvidenceBatches(objects, childJobBatchSize) {
-		input, err := jobs.PayloadFrom(jobs.ObjectMutationInput{
-			BucketID:       bucketID,
-			Objects:        batch,
-			SourceJobRunID: run.ID,
-		})
-		if err != nil {
-			return nil, err
-		}
-		childRun, err := h.store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
-			Type:            jobType,
-			RequestedByType: "job",
-			RequestedByID:   run.ID,
-			TargetType:      "bucket",
-			TargetID:        bucketID,
-			Input:           input,
-		})
-		if err != nil {
-			return nil, err
-		}
-		jobIDs = append(jobIDs, childRun.ID)
-	}
+func (h *Handler) updateProgress(ctx context.Context, runID string, fields storage.JobRunPayload) error {
+	_, err := h.store.JobRuns().UpdateJobRunProgress(ctx, storage.UpdateJobRunProgressParams{
+		ID:       runID,
+		Progress: fields,
+	})
 
-	return jobIDs, nil
+	return err
 }
 
 func objectEvidenceBatches(objects []jobs.ObjectEvidence, size int) [][]jobs.ObjectEvidence {

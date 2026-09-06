@@ -1,4 +1,8 @@
-import type { JobRun } from "@/types/job-runs"
+import type { JobRun, TraceSummary } from "@/types/job-runs"
+import {
+  formatSyncProgress,
+  formatTraceProgress,
+} from "@/features/job-runs/lib/format-sync-progress"
 
 export function formatJobRunType(type: string) {
   return type
@@ -20,14 +24,27 @@ export function formatOptionalDate(value: string | undefined) {
 
 export function formatProgressText(jobRun: JobRun) {
   const phase = stringifyPayloadValue(jobRun.progress.phase)
+  const objectsListed = stringifyPayloadValue(jobRun.progress.objects_listed)
   const objectsSeen = stringifyPayloadValue(jobRun.progress.objects_seen)
 
+  if (phase === "listing" && objectsListed) {
+    return `Listing upstream, ${objectsListed} objects found`
+  }
+
+  if (phase && objectsListed) {
+    return `${formatPhaseLabel(phase)}, ${objectsListed} objects listed`
+  }
+
   if (phase && objectsSeen) {
-    return `${phase}, ${objectsSeen} objects seen`
+    return `${formatPhaseLabel(phase)}, ${objectsSeen} objects seen`
   }
 
   if (phase) {
-    return phase
+    return formatPhaseLabel(phase)
+  }
+
+  if (objectsListed) {
+    return `${objectsListed} objects listed`
   }
 
   if (objectsSeen) {
@@ -43,6 +60,37 @@ export function formatProgressText(jobRun: JobRun) {
   }
 
   return "-"
+}
+
+export function formatSyncProgressLine(traceSummary: TraceSummary) {
+  return formatSyncProgress(traceSummary).detailLine
+}
+
+export function formatTraceProgressLine(
+  traceSummary: TraceSummary,
+  jobType: JobRun["type"]
+) {
+  return formatTraceProgress(traceSummary, jobType).detailLine
+}
+
+function formatPhaseLabel(phase: string) {
+  switch (phase.toLowerCase()) {
+    case "listing":
+    case "listed":
+      return "Listing upstream"
+    case "planning":
+      return "Comparing catalog"
+    case "importing":
+      return "Importing objects"
+    case "refreshing":
+      return "Refreshing objects"
+    case "removing":
+      return "Removing objects"
+    case "applying":
+      return "Applying changes"
+    default:
+      return phase
+  }
 }
 
 function stringifyPayloadValue(value: unknown) {

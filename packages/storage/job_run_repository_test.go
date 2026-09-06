@@ -44,6 +44,12 @@ func TestJobRunStoreCreateGetList(t *testing.T) {
 	if created.MaxAttempts != 3 {
 		t.Fatalf("created max attempts = %d, want 3", created.MaxAttempts)
 	}
+	if created.TraceID != created.ID {
+		t.Fatalf("created trace_id = %q, want %q", created.TraceID, created.ID)
+	}
+	if !IsRootJob(created) {
+		t.Fatal("created root job should satisfy IsRootJob")
+	}
 	if created.Input["bucket_id"] != targetID {
 		t.Fatalf("created bucket_id = %#v, want %q", created.Input["bucket_id"], targetID)
 	}
@@ -94,6 +100,9 @@ func TestJobRunStoreCreateGetList(t *testing.T) {
 	}
 	if len(children) != 1 || children[0].ID != child.ID {
 		t.Fatalf("children = %#v, want only %q", children, child.ID)
+	}
+	if child.TraceID != created.TraceID {
+		t.Fatalf("child trace_id = %q, want %q", child.TraceID, created.TraceID)
 	}
 }
 

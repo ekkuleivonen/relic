@@ -5,6 +5,7 @@ import "time"
 type jobRunListFilterArgs struct {
 	types           []string
 	state           string
+	traceID         string
 	requestedByType string
 	requestedByID   string
 	targetType      string
@@ -17,6 +18,7 @@ func jobRunListFilterArgsFromParams(params ListJobRunsParams) jobRunListFilterAr
 	return jobRunListFilterArgs{
 		types:           listJobRunTypeFilter(params),
 		state:           string(params.State),
+		traceID:         params.TraceID,
 		requestedByType: params.RequestedByType,
 		requestedByID:   params.RequestedByID,
 		targetType:      params.TargetType,
@@ -35,6 +37,7 @@ const jobRunListWhereClause = `
 	AND ($6 = '' OR target_id = $6)
 	AND ($7::timestamptz IS NULL OR created_at >= $7)
 	AND ($8::timestamptz IS NULL OR created_at < $8)
+	AND ($9 = '' OR trace_id = $9)
 `
 
 func (a jobRunListFilterArgs) queryArgs() []any {
@@ -47,5 +50,6 @@ func (a jobRunListFilterArgs) queryArgs() []any {
 		a.targetID,
 		a.createdAfter,
 		a.createdBefore,
+		a.traceID,
 	}
 }

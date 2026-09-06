@@ -82,6 +82,15 @@ func PlanObjectMutations(upstreamObjects map[string]s3compat.ListedObject, local
 	return importObjects, refreshObjects, removeObjects
 }
 
+func PlanObjectMutationsForListedObjects(upstreamObjects []s3compat.ListedObject, localObjects []storage.Object) ([]ObjectEvidence, []ObjectEvidence, []ObjectEvidence) {
+	upstreamByKey := make(map[string]s3compat.ListedObject, len(upstreamObjects))
+	for _, upstreamObject := range upstreamObjects {
+		upstreamByKey[upstreamObject.Key] = upstreamObject
+	}
+
+	return PlanObjectMutations(upstreamByKey, localObjects)
+}
+
 func ObjectChanged(upstreamObject s3compat.ListedObject, localObject storage.Object) bool {
 	upstreamAttributes, _ := localObject.Attributes["upstream"].(map[string]any)
 	if upstreamAttributes == nil {

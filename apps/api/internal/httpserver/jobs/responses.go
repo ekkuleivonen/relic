@@ -8,6 +8,7 @@ import (
 
 type JobRunResponse struct {
 	ID              string                `json:"id" example:"jobrun_0123456789abcdef0123456789abcdef"`
+	TraceID         string                `json:"trace_id" example:"jobrun_0123456789abcdef0123456789abcdef"`
 	Type            storage.JobType       `json:"type" example:"sync_bucket"`
 	State           storage.JobRunState   `json:"state" example:"pending"`
 	RequestedByType string                `json:"requested_by_type,omitempty" example:"api"`
@@ -32,6 +33,7 @@ type JobRunResponse struct {
 func JobRunResponseFromStorage(run storage.JobRun) JobRunResponse {
 	return JobRunResponse{
 		ID:              run.ID,
+		TraceID:         run.TraceID,
 		Type:            run.Type,
 		State:           run.State,
 		RequestedByType: run.RequestedByType,

@@ -35,6 +35,10 @@ func (s *Store) JobRuns() *JobRunStore {
 	return NewJobRunStore(s.pool)
 }
 
+func (s *Store) JobSpill() *JobSpillStore {
+	return NewJobSpillStore(s.pool)
+}
+
 func (s *Store) Objects() *ObjectStore {
 	return NewObjectStore(s.pool)
 }
@@ -109,6 +113,10 @@ func (tx *Tx) Buckets() *BucketStore {
 
 func (tx *Tx) JobRuns() *JobRunStore {
 	return NewJobRunStore(tx.tx)
+}
+
+func (tx *Tx) JobSpill() *JobSpillStore {
+	return NewJobSpillStore(tx.tx)
 }
 
 func (tx *Tx) Objects() *ObjectStore {

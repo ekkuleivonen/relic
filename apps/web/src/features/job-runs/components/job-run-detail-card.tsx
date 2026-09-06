@@ -35,7 +35,15 @@ export function JobRunDetailCard({ jobRun }: JobRunDetailCardProps) {
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <Detail label="Target" value={<JobRunTarget jobRun={jobRun} />} />
-          <Detail label="Progress" value={<JobRunProgress jobRun={jobRun} />} />
+          <Detail
+            label="Progress"
+            value={
+              <JobRunProgress
+                jobRun={jobRun}
+                traceSummary={jobRun.trace_summary}
+              />
+            }
+          />
           <Detail label="Attempt" value={`${jobRun.attempt}/${jobRun.max_attempts}`} />
           <Detail label="Requested by" value={formatRequester(jobRun)} />
           <Detail label="Available" value={formatOptionalDate(jobRun.available_at)} />

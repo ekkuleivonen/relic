@@ -13,15 +13,29 @@ type ObjectListBudget interface {
 	ObjectsListed() int64
 }
 
+type ListCheckpoint struct {
+	ContinuationToken string
+	Marker            string
+	ObjectsListed     int64
+}
+
+type ListObjectsPageProgress struct {
+	PageObjects   []s3compat.ListedObject
+	ObjectsListed int64
+	Checkpoint    ListCheckpoint
+	ListingComplete bool
+}
+
 type ListAllObjectsOptions struct {
 	Client      s3compat.ObjectClient
 	BucketName  string
 	Prefix      string
 	BucketLabel string
 	Budget      ObjectListBudget
+	Start       ListCheckpoint
 	Filter      func(s3compat.ListedObject) bool
 	OnObject    func(s3compat.ListedObject) error
-	OnPage      func(objectsListed int64) error
+	OnPage      func(progress ListObjectsPageProgress) error
 }
 
 func ListAllObjects(ctx context.Context, options ListAllObjectsOptions) (complete bool, objectsListed int64, err error) {
@@ -37,9 +51,9 @@ func ListAllObjects(ctx context.Context, options ListAllObjectsOptions) (complet
 		bucketLabel = options.BucketName
 	}
 
-	continuationToken := ""
-	marker := ""
-	objectsListed = 0
+	continuationToken := options.Start.ContinuationToken
+	marker := options.Start.Marker
+	objectsListed = options.Start.ObjectsListed
 
 	for {
 		page, err := options.Client.ListObjects(ctx, s3compat.ListObjectsInput{
@@ -52,6 +66,7 @@ func ListAllObjects(ctx context.Context, options ListAllObjectsOptions) (complet
 			return false, objectsListed, err
 		}
 
+		pageObjects := []s3compat.ListedObject{}
 		for _, listedObject := range page.Objects {
 			if options.Filter != nil && !options.Filter(listedObject) {
 				continue
@@ -66,25 +81,39 @@ func ListAllObjects(ctx context.Context, options ListAllObjectsOptions) (complet
 				options.Budget.Record(1)
 			}
 			objectsListed++
+			pageObjects = append(pageObjects, listedObject)
+		}
+
+		listingComplete := !page.IsTruncated
+		nextContinuationToken := page.NextContinuationToken
+		nextMarker := page.NextMarker
+		if !listingComplete && nextContinuationToken == "" && nextMarker == "" {
+			return false, objectsListed, fmt.Errorf("list all objects %q: truncated page did not include a continuation token or marker", bucketLabel)
 		}
 
 		if options.OnPage != nil {
-			if err := options.OnPage(objectsListed); err != nil {
+			if err := options.OnPage(ListObjectsPageProgress{
+				PageObjects:     pageObjects,
+				ObjectsListed:   objectsListed,
+				ListingComplete: listingComplete,
+				Checkpoint: ListCheckpoint{
+					ContinuationToken: nextContinuationToken,
+					Marker:            nextMarker,
+					ObjectsListed:     objectsListed,
+				},
+			}); err != nil {
 				return false, objectsListed, err
 			}
 		}
 
-		if !page.IsTruncated {
+		if listingComplete {
 			return true, objectsListed, nil
 		}
 		if options.Budget != nil && !options.Budget.Allow(0) {
 			return false, objectsListed, nil
 		}
 
-		continuationToken = page.NextContinuationToken
-		marker = page.NextMarker
-		if continuationToken == "" && marker == "" {
-			return false, objectsListed, fmt.Errorf("list all objects %q: truncated page did not include a continuation token or marker", bucketLabel)
-		}
+		continuationToken = nextContinuationToken
+		marker = nextMarker
 	}
 }

@@ -200,6 +200,7 @@ Suggested fields:
 
 ```text
 id
+trace_id
 type
 state
 requested_by_type
@@ -231,10 +232,14 @@ failed
 cancelled
 ```
 
+Each root job sets `trace_id = id`. Child jobs inherit the parent's `trace_id`. See [ADR 0007: Job run traces](docs/decisions/0007-job-run-traces.md) for the full trace model, fan-out await semantics, and progress rollup API.
+
 Example run for syncing a bucket:
 
 ```json
 {
+  "id": "job_0123456789abcdef0123456789abcdef",
+  "trace_id": "job_0123456789abcdef0123456789abcdef",
   "type": "sync_bucket",
   "state": "pending",
   "requested_by_type": "api",
@@ -390,10 +395,15 @@ The `sync_bucket` handler should:
 5. Load Relic's local object rows for the same scope.
 6. Compare upstream listing evidence against local `attributes.upstream`.
 7. Create `import_objects`, `refresh_objects`, and `remove_objects` child runs in bounded batches.
-8. Update `job_runs.progress`.
-9. Mark the run succeeded or failed.
+8. Update `job_runs.progress` with phase and counters (`listing`, `planning`, `importing`, `refreshing`, `removing`).
+9. Return `await_children: true` with `child_job_ids` instead of marking the root succeeded immediately.
+10. A trace completion pass rolls up child progress and finalizes the root job when every span in the trace reaches a terminal state.
 
 The child handlers own catalog mutations. `import_objects` and `refresh_objects` perform HEAD calls and upsert object attributes/provenance; `remove_objects` performs targeted local deletion.
+
+`GET /api/job-runs/:id?include=trace_summary` exposes the rolled-up trace read model for sync and scan root jobs in the UI.
+
+`scan_bucket` follows the same trace pattern: phases include `sampling_partitions`, `listing_upstream`, `evaluating`, `escalating`, and `awaiting_sync` while scoped `sync_bucket` children finish.
 
 ## Upstream Events
 
@@ -422,7 +432,7 @@ These notifications are evidence, not truth. They may be lost, duplicated, delay
 
 ## Job Run Events
 
-`job_runs.progress` and `job_runs.result` are enough for MVP UI state.
+`job_runs.progress`, `job_runs.result`, and trace summaries are enough for MVP UI state.
 
 Operational debugging may eventually need richer execution history. A future table can capture append-only run events or logs:
 

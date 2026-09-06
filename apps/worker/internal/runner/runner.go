@@ -9,15 +9,17 @@ import (
 
 	"github.com/ekkuleivonen/relic/apps/worker/internal/jobs"
 	"github.com/ekkuleivonen/relic/apps/worker/internal/settings"
+	"github.com/ekkuleivonen/relic/apps/worker/internal/tracecompletion"
 	"github.com/ekkuleivonen/relic/packages/storage"
 )
 
 type Runner struct {
-	store    *storage.Store
-	registry *jobs.Registry
-	workerID string
-	settings settings.Reader
-	logger   *slog.Logger
+	store           *storage.Store
+	registry        *jobs.Registry
+	traceCompletion *tracecompletion.Ticker
+	workerID        string
+	settings        settings.Reader
+	logger          *slog.Logger
 }
 
 type Options struct {
@@ -45,12 +47,21 @@ func New(options Options) (*Runner, error) {
 		options.Logger = slog.Default()
 	}
 
+	traceCompletion, err := tracecompletion.New(tracecompletion.Options{
+		Store:  options.Store,
+		Logger: options.Logger,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	return &Runner{
-		store:    options.Store,
-		registry: options.Registry,
-		workerID: options.WorkerID,
-		settings: options.Settings,
-		logger:   options.Logger,
+		store:           options.Store,
+		registry:        options.Registry,
+		traceCompletion: traceCompletion,
+		workerID:        options.WorkerID,
+		settings:        options.Settings,
+		logger:          options.Logger,
 	}, nil
 }
 
@@ -62,6 +73,16 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 		if claimed {
 			continue
+		}
+
+		if _, err := r.store.JobRuns().ReclaimStaleLockedJobs(ctx, storage.ReclaimStaleLockedJobsParams{
+			StaleAfter: r.settings.Duration(storage.SettingWorkerJobStaleTimeout),
+		}); err != nil {
+			return err
+		}
+
+		if _, err := r.traceCompletion.Tick(ctx); err != nil {
+			return err
 		}
 
 		select {
@@ -101,6 +122,19 @@ func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 	result, err := handler.Handle(ctx, run)
 	if err != nil {
 		return true, r.handleFailure(ctx, run, err)
+	}
+
+	if jobs.AwaitsChildren(result) {
+		progress := jobs.FanOutProgress(result)
+		if _, err := r.store.JobRuns().AwaitJobRunChildren(ctx, storage.AwaitJobRunChildrenParams{
+			ID:       run.ID,
+			Result:   result,
+			Progress: progress,
+		}); err != nil {
+			return true, err
+		}
+		r.logger.Info("job awaiting child completion", "job_run_id", run.ID, "type", run.Type, "trace_id", run.TraceID)
+		return true, nil
 	}
 
 	if _, err := r.store.JobRuns().SucceedJobRun(ctx, storage.SucceedJobRunParams{

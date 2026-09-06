@@ -176,7 +176,9 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 		syncJobIDs = append(syncJobIDs, childRun.ID)
 	}
 
-	result := storage.JobRunPayload{
+	result := jobs.FanOutResult(map[string][]string{
+		"sync_bucket": syncJobIDs,
+	}, storage.JobRunPayload{
 		"phase":                 "completed",
 		"bucket_id":             bucket.ID,
 		"scope":                 map[string]any{"prefix": input.ScopePrefix},
@@ -186,10 +188,7 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 		"partitions_mismatched": mismatched,
 		"listing_pass_complete": listingComplete,
 		"objects_listed":        objectsListed,
-		"child_job_ids": map[string]any{
-			"sync_bucket": syncJobIDs,
-		},
-	}
+	})
 
 	if listingComplete && len(mismatched) == 0 {
 		result["status"] = "healthy"
@@ -214,6 +213,7 @@ func (h *Handler) createPartitionSyncJob(
 		RequestedByID:   run.ID,
 		TargetType:      "bucket",
 		TargetID:        bucketID,
+		MaxAttempts:     storage.DefaultSyncBucketMaxAttempts,
 		Input: storage.JobRunPayload{
 			"bucket_id":         bucketID,
 			"scope_prefix":      scopePrefix,

@@ -21,6 +21,7 @@ const (
 	SettingWorkerDuplicateDetectionSchedulerInterval = "WORKER_DUPLICATE_DETECTION_SCHEDULER_INTERVAL"
 	SettingWorkerUpstreamProcessorInterval           = "WORKER_UPSTREAM_PROCESSOR_INTERVAL"
 	SettingWorkerConfigRefetchInterval               = "WORKER_CONFIG_REFETCH_INTERVAL"
+	SettingWorkerJobStaleTimeout                     = "WORKER_JOB_STALE_TIMEOUT"
 	SettingScanBucketEnabled                         = "SCAN_BUCKET_ENABLED"
 	SettingScanBucketInterval                        = "SCAN_BUCKET_INTERVAL"
 	SettingDuplicateDetectionEnabled                 = "DUPLICATE_DETECTION_ENABLED"
@@ -50,6 +51,7 @@ var SettingDefinitions = []SettingDefinition{
 	{Key: SettingWorkerDuplicateDetectionSchedulerInterval, Default: "2s", Type: SettingTypeDuration},
 	{Key: SettingWorkerUpstreamProcessorInterval, Default: "2s", Type: SettingTypeDuration},
 	{Key: SettingWorkerConfigRefetchInterval, Default: "5m", Type: SettingTypeDuration},
+	{Key: SettingWorkerJobStaleTimeout, Default: "15m", Type: SettingTypeDuration},
 	{Key: SettingScanBucketEnabled, Default: "true", Type: SettingTypeBool},
 	{Key: SettingScanBucketInterval, Default: "24h", Type: SettingTypeDuration},
 	{Key: SettingDuplicateDetectionEnabled, Default: "false", Type: SettingTypeBool},

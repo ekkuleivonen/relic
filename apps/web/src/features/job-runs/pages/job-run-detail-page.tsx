@@ -12,13 +12,16 @@ import {
 } from "@/components/ui/card"
 import { JobRunChainCard } from "@/features/job-runs/components/job-run-chain-card"
 import { JobRunDetailCard } from "@/features/job-runs/components/job-run-detail-card"
+import { JobRunTraceProgress } from "@/features/job-runs/components/job-run-trace-progress"
 import { useJobRun, useJobRuns } from "@/features/job-runs/hooks/use-job-runs"
 import { JobRunObjectsCard } from "@/features/observability/components/job-run-objects-card"
 import type { JobRun } from "@/types/job-runs"
 
 export function JobRunDetailPage() {
   const { jobRunId } = useParams()
-  const jobRunQuery = useJobRun(jobRunId)
+  const jobRunQuery = useJobRun(jobRunId, {
+    includeTraceSummary: true,
+  })
   const jobRun = jobRunQuery.data
   const childRunsQuery = useJobRuns(
     {
@@ -65,6 +68,24 @@ export function JobRunDetailPage() {
 
           {jobRun && (
             <div className="grid gap-6">
+              {jobRun.trace_summary && isTraceRootJob(jobRun) && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>{traceProgressTitle(jobRun.type)}</CardTitle>
+                    <CardDescription>
+                      Rollup for trace{" "}
+                      <span className="font-mono">{jobRun.trace_summary.trace_id}</span>
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <JobRunTraceProgress
+                      jobRun={jobRun}
+                      traceSummary={jobRun.trace_summary}
+                      compact
+                    />
+                  </CardContent>
+                </Card>
+              )}
               <JobRunDetailCard jobRun={jobRun} />
               {isObjectSyncJobRun(jobRun.type) && (
                 <JobRunObjectsCard jobRun={jobRun} />
@@ -136,4 +157,19 @@ function isObjectSyncJobRun(type: JobRun["type"]) {
     type === "remove_objects" ||
     type === "refresh_objects"
   )
+}
+
+function isTraceRootJob(jobRun: JobRun) {
+  return jobRun.id === jobRun.trace_id
+}
+
+function traceProgressTitle(type: JobRun["type"]) {
+  switch (type) {
+    case "scan_bucket":
+      return "Scan progress"
+    case "sync_bucket":
+      return "Sync progress"
+    default:
+      return "Trace progress"
+  }
 }

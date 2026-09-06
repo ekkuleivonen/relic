@@ -91,7 +91,19 @@ func (s *ScanScheduler) enqueueDueScans(ctx context.Context) (int, error) {
 	enqueued := 0
 
 	for _, bucket := range buckets {
-		active, err := s.store.JobRuns().HasActiveJobRun(ctx, storage.HasActiveJobRunParams{
+		activeWork, err := s.store.JobRuns().HasActiveWorkForTarget(ctx, storage.HasActiveWorkForTargetParams{
+			TargetType: "bucket",
+			TargetID:   bucket.ID,
+			StaleAfter: s.settings.Duration(storage.SettingWorkerJobStaleTimeout),
+		})
+		if err != nil {
+			return enqueued, err
+		}
+		if activeWork {
+			continue
+		}
+
+		lastFinished, err := s.store.JobRuns().LastJobRunFinishedAt(ctx, storage.LastJobRunFinishedAtParams{
 			Type:       storage.JobTypeScanBucket,
 			TargetType: "bucket",
 			TargetID:   bucket.ID,
@@ -100,16 +112,7 @@ func (s *ScanScheduler) enqueueDueScans(ctx context.Context) (int, error) {
 			return enqueued, err
 		}
 
-		lastFinished, err := s.store.JobRuns().LastSucceededJobRunFinishedAt(ctx, storage.LastSucceededJobRunFinishedAtParams{
-			Type:       storage.JobTypeScanBucket,
-			TargetType: "bucket",
-			TargetID:   bucket.ID,
-		})
-		if err != nil {
-			return enqueued, err
-		}
-
-		decision := DecideScan(lastFinished, now, active, scanInterval)
+		decision := DecideScan(lastFinished, now, activeWork, scanInterval)
 		if decision != ScanDecisionEnqueue {
 			continue
 		}

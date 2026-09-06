@@ -29,13 +29,22 @@ export function useJobRuns(
   })
 }
 
-export function useJobRun(jobRunId: string | undefined) {
+export function useJobRun(
+  jobRunId: string | undefined,
+  options: { includeTraceSummary?: boolean } = {}
+) {
   return useQuery({
-    queryKey: jobRunKeys.detail(jobRunId),
-    queryFn: () => apiRequest<JobRun>(`/job-runs/${jobRunId}`),
+    queryKey: [...jobRunKeys.detail(jobRunId), options.includeTraceSummary ?? false],
+    queryFn: () => {
+      const query = options.includeTraceSummary ? "?include=trace_summary" : ""
+      return apiRequest<JobRun>(`/job-runs/${jobRunId}${query}`)
+    },
     enabled: Boolean(jobRunId),
     refetchInterval: (query) =>
-      isActiveJobRun(query.state.data) ? 3000 : false,
+      isActiveJobRun(query.state.data) ||
+      isActiveTraceSummary(query.state.data?.trace_summary)
+        ? 3000
+        : false,
   })
 }
 
@@ -45,6 +54,7 @@ function jobRunQueryString(params: ListJobRunsParams) {
   appendParam(searchParams, "type", params.type)
   appendParam(searchParams, "types", params.types?.join(","))
   appendParam(searchParams, "state", params.state)
+  appendParam(searchParams, "trace_id", params.traceId)
   appendParam(searchParams, "requested_by_type", params.requestedByType)
   appendParam(searchParams, "requested_by_id", params.requestedById)
   appendParam(searchParams, "target_type", params.targetType)
@@ -74,4 +84,8 @@ function hasActiveJobRuns(jobRuns: JobRun[] | undefined) {
 
 function isActiveJobRun(jobRun: JobRun | undefined) {
   return jobRun?.state === "pending" || jobRun?.state === "running"
+}
+
+function isActiveTraceSummary(summary: JobRun["trace_summary"]) {
+  return summary?.state === "pending" || summary?.state === "running"
 }

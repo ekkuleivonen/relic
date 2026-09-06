@@ -139,6 +139,110 @@ func TestScanBucketWithOptionalPrefix(t *testing.T) {
 	}
 }
 
+func TestSyncBucketConflictWhenSyncTraceActive(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "")
+	root, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:       storage.JobTypeSyncBucket,
+		TargetType: "bucket",
+		TargetID:   bucket.ID,
+		Input: storage.JobRunPayload{
+			"bucket_id": bucket.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateJobRun returned error: %v", err)
+	}
+	if _, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:            storage.JobTypeImportObjects,
+		RequestedByType: "job",
+		RequestedByID:   root.ID,
+		TargetType:      "bucket",
+		TargetID:        bucket.ID,
+		Input: storage.JobRunPayload{
+			"bucket_id": bucket.ID,
+			"objects":     []any{},
+		},
+	}); err != nil {
+		t.Fatalf("CreateJobRun child returned error: %v", err)
+	}
+
+	handler := testBucketHandler(store)
+	req := httptest.NewRequest(http.MethodPost, "/api/buckets/"+bucket.ID+"/sync", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d; body = %s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
+}
+
+func TestSyncBucketResumesFailedSyncWithCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "")
+	run, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:       storage.JobTypeSyncBucket,
+		TargetType: "bucket",
+		TargetID:   bucket.ID,
+		Input: storage.JobRunPayload{
+			"bucket_id": bucket.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateJobRun returned error: %v", err)
+	}
+	if _, err := store.JobRuns().UpdateJobRunProgress(ctx, storage.UpdateJobRunProgressParams{
+		ID: run.ID,
+		Progress: storage.JobRunPayload{
+			"phase":            "listing",
+			"objects_listed":   int64(59000),
+			"listing_complete": false,
+			"listing_checkpoint": map[string]any{
+				"continuation_token": "token-590",
+				"objects_listed":     int64(59000),
+				"listing_complete":   false,
+			},
+			"import_objects_count": int64(59000),
+		},
+	}); err != nil {
+		t.Fatalf("UpdateJobRunProgress returned error: %v", err)
+	}
+	if _, err := store.JobRuns().FailJobRun(ctx, storage.FailJobRunParams{
+		ID:           run.ID,
+		ErrorMessage: "upstream list timeout",
+	}); err != nil {
+		t.Fatalf("FailJobRun returned error: %v", err)
+	}
+
+	handler := testBucketHandler(store)
+	req := httptest.NewRequest(http.MethodPost, "/api/buckets/"+bucket.ID+"/sync", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d; body = %s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+
+	var body jobs.JobRunResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode sync response: %v", err)
+	}
+	if body.ID != run.ID {
+		t.Fatalf("job id = %q, want resumed job %q", body.ID, run.ID)
+	}
+	if body.State != storage.JobRunStatePending {
+		t.Fatalf("job state = %q, want pending", body.State)
+	}
+}
+
 func testBucketHandler(store *storage.Store) http.Handler {
 	mux := http.NewServeMux()
 	api := humago.New(mux, huma.DefaultConfig("Test API", "0.0.0"))

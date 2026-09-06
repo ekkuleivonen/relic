@@ -11,18 +11,21 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { BucketSyncStatusCard } from "@/features/buckets/components/bucket-sync-status-card"
 import { DeleteBucketDialog } from "@/features/buckets/components/delete-bucket-dialog"
 import { EditBucketDialog } from "@/features/buckets/components/edit-bucket-dialog"
 import { ScanBucketButton } from "@/features/buckets/components/scan-bucket-button"
 import { SyncBucketButton } from "@/features/buckets/components/sync-bucket-button"
-import { ObjectsCard } from "@/features/objects/components/objects-card"
+import { useActiveBucketSync } from "@/features/buckets/hooks/use-active-bucket-sync"
 import { useBucket } from "@/features/buckets/hooks/use-buckets"
+import { ObjectsCard } from "@/features/objects/components/objects-card"
 
 export function BucketDetailPage() {
   const { bucketId } = useParams()
   const navigate = useNavigate()
   const bucketQuery = useBucket(bucketId)
   const bucket = bucketQuery.data
+  const activeSync = useActiveBucketSync(bucket?.id)
 
   return (
     <PageShell maxWidth="5xl">
@@ -121,7 +124,14 @@ export function BucketDetailPage() {
               </CardContent>
             </Card>
 
-            <ObjectsCard bucketId={bucket.id} prefix={bucket.prefix || undefined} />
+            <BucketSyncStatusCard bucketId={bucket.id} />
+
+            <ObjectsCard
+              bucketId={bucket.id}
+              prefix={bucket.prefix || undefined}
+              syncInProgress={activeSync.isActive}
+              syncDetailLine={activeSync.progressView?.detailLine}
+            />
 
             <Card>
               <CardHeader>

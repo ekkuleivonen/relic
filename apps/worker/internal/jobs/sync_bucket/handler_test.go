@@ -103,6 +103,9 @@ func TestHandlerPlansImportJobsForMissingObjects(t *testing.T) {
 	if len(children) != 1 {
 		t.Fatalf("import child count = %d, want 1", len(children))
 	}
+	if children[0].TraceID != run.TraceID {
+		t.Fatalf("import child trace_id = %q, want %q", children[0].TraceID, run.TraceID)
+	}
 	var input jobs.ObjectMutationInput
 	if err := jobs.DecodePayload(children[0].Input, &input); err != nil {
 		t.Fatalf("DecodePayload returned error: %v", err)
@@ -118,11 +121,21 @@ func TestHandlerPlansImportJobsForMissingObjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetJobRun returned error: %v", err)
 	}
-	if progressed.Progress["phase"] != "listed" {
-		t.Fatalf("progress phase = %#v, want listed", progressed.Progress["phase"])
+	if progressed.Progress["phase"] != "planning" {
+		t.Fatalf("progress phase = %#v, want planning", progressed.Progress["phase"])
 	}
-	if progressed.Progress["objects_seen"] != float64(2) {
-		t.Fatalf("progress objects_seen = %#v, want 2", progressed.Progress["objects_seen"])
+	if progressed.Progress["objects_listed"] != float64(2) {
+		t.Fatalf("progress objects_listed = %#v, want 2", progressed.Progress["objects_listed"])
+	}
+	planned, ok := progressed.Progress["objects_planned"].(map[string]any)
+	if !ok {
+		t.Fatalf("progress objects_planned = %#v, want map", progressed.Progress["objects_planned"])
+	}
+	if int(planned["import"].(float64)) != 2 {
+		t.Fatalf("progress objects_planned.import = %#v, want 2", planned["import"])
+	}
+	if !jobs.AwaitsChildren(result) {
+		t.Fatal("AwaitsChildren(result) = false, want true")
 	}
 }
 
@@ -188,6 +201,192 @@ func TestHandlerPlansRemoveJobsForMissingRemoteObjects(t *testing.T) {
 	}
 	if len(input.Objects) != 1 || input.Objects[0].ID != stale.ID {
 		t.Fatalf("remove input objects = %#v, want stale ID %q", input.Objects, stale.ID)
+	}
+}
+
+func TestHandlerStreamsRemoveJobsInBatches(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "photos/")
+	run := createSyncRun(t, ctx, store, bucket.ID)
+
+	const staleCount = 150
+	for i := range staleCount {
+		if _, err := store.Objects().UpsertObject(ctx, storage.UpsertObjectParams{
+			BucketID: bucket.ID,
+			Key:      fmt.Sprintf("photos/stale-%03d.jpg", i),
+		}); err != nil {
+			t.Fatalf("UpsertObject returned error: %v", err)
+		}
+	}
+
+	client := &fakeObjectClient{
+		page: s3compat.ObjectPage{
+			Objects: []s3compat.ListedObject{
+				{
+					Key:          "photos/current.jpg",
+					ETag:         "\"abc123\"",
+					Size:         123,
+					LastModified: time.Now().UTC(),
+					StorageClass: "STANDARD",
+				},
+			},
+		},
+	}
+	handler, err := newTestHandler(store, &fakeObjectClientFactory{client: client})
+	if err != nil {
+		t.Fatalf("newTestHandler returned error: %v", err)
+	}
+
+	result, err := handler.Handle(ctx, run)
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if result["remove_objects_count"] != staleCount {
+		t.Fatalf("remove count = %#v, want %d", result["remove_objects_count"], staleCount)
+	}
+
+	children, err := childJobs(ctx, store, run.ID, storage.JobTypeRemoveObjects)
+	if err != nil {
+		t.Fatalf("childJobs returned error: %v", err)
+	}
+	if len(children) != 2 {
+		t.Fatalf("remove child count = %d, want 2", len(children))
+	}
+
+	objectCounts := map[int]int{}
+	for _, child := range children {
+		var input jobs.ObjectMutationInput
+		if err := jobs.DecodePayload(child.Input, &input); err != nil {
+			t.Fatalf("DecodePayload returned error: %v", err)
+		}
+		objectCounts[len(input.Objects)]++
+	}
+	if objectCounts[100] != 1 {
+		t.Fatalf("100-object remove batches = %d, want 1", objectCounts[100])
+	}
+	if objectCounts[50] != 1 {
+		t.Fatalf("50-object remove batches = %d, want 1", objectCounts[50])
+	}
+}
+
+func TestHandlerDoesNotDuplicateRemoveJobsOnResume(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "photos/")
+	run := createSyncRun(t, ctx, store, bucket.ID)
+
+	staleA, err := store.Objects().UpsertObject(ctx, storage.UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "photos/stale-a.jpg",
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject stale-a returned error: %v", err)
+	}
+	staleB, err := store.Objects().UpsertObject(ctx, storage.UpsertObjectParams{
+		BucketID: bucket.ID,
+		Key:      "photos/stale-b.jpg",
+	})
+	if err != nil {
+		t.Fatalf("UpsertObject stale-b returned error: %v", err)
+	}
+
+	if _, err := store.JobRuns().UpdateJobRunProgress(ctx, storage.UpdateJobRunProgressParams{
+		ID: run.ID,
+		Progress: storage.JobRunPayload{
+			"phase":            "planning",
+			"objects_listed":   int64(1),
+			"listing_complete": true,
+			"listing_checkpoint": map[string]any{
+				"objects_listed":   int64(1),
+				"listing_complete": true,
+			},
+			"remove_objects_count": int64(1),
+			"objects_planned": map[string]any{
+				"remove": 1,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("UpdateJobRunProgress returned error: %v", err)
+	}
+	if err := store.JobSpill().InsertKeys(ctx, run.ID, []string{
+		"photos/current.jpg",
+		"photos/stale-a.jpg",
+	}); err != nil {
+		t.Fatalf("InsertKeys returned error: %v", err)
+	}
+	if _, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:            storage.JobTypeRemoveObjects,
+		RequestedByType: "job",
+		RequestedByID:   run.ID,
+		TargetType:      "bucket",
+		TargetID:        bucket.ID,
+		Input: storage.JobRunPayload{
+			"bucket_id": bucket.ID,
+			"objects": []any{
+				map[string]any{"id": staleA.ID, "key": staleA.Key},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("CreateJobRun returned error: %v", err)
+	}
+
+	client := &fakeObjectClient{
+		page: s3compat.ObjectPage{
+			Objects: []s3compat.ListedObject{
+				{
+					Key:          "photos/current.jpg",
+					ETag:         "\"abc123\"",
+					Size:         123,
+					LastModified: time.Now().UTC(),
+					StorageClass: "STANDARD",
+				},
+			},
+		},
+	}
+	handler, err := newTestHandler(store, &fakeObjectClientFactory{client: client})
+	if err != nil {
+		t.Fatalf("newTestHandler returned error: %v", err)
+	}
+
+	result, err := handler.Handle(ctx, run)
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if result["remove_objects_count"] != 2 {
+		t.Fatalf("remove count = %#v, want 2", result["remove_objects_count"])
+	}
+
+	children, err := childJobs(ctx, store, run.ID, storage.JobTypeRemoveObjects)
+	if err != nil {
+		t.Fatalf("childJobs returned error: %v", err)
+	}
+	if len(children) != 2 {
+		t.Fatalf("remove child count = %d, want 2", len(children))
+	}
+
+	removeKeys := map[string]struct{}{}
+	for _, child := range children {
+		var input jobs.ObjectMutationInput
+		if err := jobs.DecodePayload(child.Input, &input); err != nil {
+			t.Fatalf("DecodePayload returned error: %v", err)
+		}
+		for _, object := range input.Objects {
+			removeKeys[object.Key] = struct{}{}
+		}
+	}
+	if _, ok := removeKeys[staleA.Key]; !ok {
+		t.Fatalf("remove keys = %#v, want stale-a key %q", removeKeys, staleA.Key)
+	}
+	if _, ok := removeKeys[staleB.Key]; !ok {
+		t.Fatalf("remove keys = %#v, want stale-b key %q", removeKeys, staleB.Key)
+	}
+	if len(client.listInputs) != 0 {
+		t.Fatalf("list calls = %d, want 0 when listing already complete", len(client.listInputs))
 	}
 }
 
@@ -564,6 +763,290 @@ func TestHandlerPartitionSyncOnlyReconcilesMatchingKeys(t *testing.T) {
 	}
 	if len(input.Objects) != 1 || input.Objects[0].Key != keyInPartition {
 		t.Fatalf("import input objects = %#v, want only %q", input.Objects, keyInPartition)
+	}
+}
+
+func TestHandlerStreamsImportJobsPerListingPage(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "photos/")
+	run := createSyncRun(t, ctx, store, bucket.ID)
+	listedAt := time.Now().UTC()
+	client := &fakeObjectClient{
+		pages: []s3compat.ObjectPage{
+			{
+				Objects: []s3compat.ListedObject{
+					{Key: "photos/a.jpg", ETag: "\"abc123\"", Size: 123, LastModified: listedAt, StorageClass: "STANDARD"},
+				},
+				IsTruncated:           true,
+				NextContinuationToken: "token-1",
+			},
+			{
+				Objects: []s3compat.ListedObject{
+					{Key: "photos/b.jpg", ETag: "\"def456\"", Size: 456, LastModified: listedAt, StorageClass: "STANDARD"},
+				},
+			},
+		},
+	}
+	handler, err := newTestHandler(store, &fakeObjectClientFactory{client: client})
+	if err != nil {
+		t.Fatalf("NewHandler returned error: %v", err)
+	}
+
+	result, err := handler.Handle(ctx, run)
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if result["import_objects_count"] != 2 {
+		t.Fatalf("import count = %#v, want 2", result["import_objects_count"])
+	}
+	if len(client.listInputs) != 2 {
+		t.Fatalf("list calls = %d, want 2", len(client.listInputs))
+	}
+
+	spillCount, err := store.JobSpill().CountKeys(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("CountKeys returned error: %v", err)
+	}
+	if spillCount != 0 {
+		t.Fatalf("spill count after sync = %d, want 0", spillCount)
+	}
+
+	children, err := store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
+		Type:            storage.JobTypeImportObjects,
+		RequestedByType: "job",
+		RequestedByID:   run.ID,
+		Limit:           10,
+	})
+	if err != nil {
+		t.Fatalf("ListJobRuns returned error: %v", err)
+	}
+	if len(children) != 1 {
+		t.Fatalf("import child count = %d, want 1", len(children))
+	}
+}
+
+func TestHandlerResumesListingFromCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "photos/")
+	run := createSyncRun(t, ctx, store, bucket.ID)
+	listedAt := time.Now().UTC()
+
+	if _, err := store.JobRuns().UpdateJobRunProgress(ctx, storage.UpdateJobRunProgressParams{
+		ID: run.ID,
+		Progress: storage.JobRunPayload{
+			"phase":            "listing",
+			"objects_listed":   1,
+			"listing_complete": false,
+			"listing_checkpoint": map[string]any{
+				"continuation_token": "token-1",
+				"objects_listed":     1,
+				"listing_complete":   false,
+			},
+			"import_objects_count": 1,
+			"objects_planned": map[string]any{
+				"import": 1,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("UpdateJobRunProgress returned error: %v", err)
+	}
+	if err := store.JobSpill().InsertKeys(ctx, run.ID, []string{"photos/a.jpg"}); err != nil {
+		t.Fatalf("InsertKeys returned error: %v", err)
+	}
+	if _, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:            storage.JobTypeImportObjects,
+		RequestedByType: "job",
+		RequestedByID:   run.ID,
+		TargetType:      "bucket",
+		TargetID:        bucket.ID,
+		Input: storage.JobRunPayload{
+			"bucket_id": bucket.ID,
+			"objects": []any{
+				map[string]any{"key": "photos/a.jpg"},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("CreateJobRun returned error: %v", err)
+	}
+
+	client := &fakeObjectClient{
+		pages: []s3compat.ObjectPage{
+			{
+				Objects: []s3compat.ListedObject{
+					{Key: "photos/b.jpg", ETag: "\"def456\"", Size: 456, LastModified: listedAt, StorageClass: "STANDARD"},
+				},
+			},
+		},
+	}
+	handler, err := newTestHandler(store, &fakeObjectClientFactory{client: client})
+	if err != nil {
+		t.Fatalf("NewHandler returned error: %v", err)
+	}
+
+	result, err := handler.Handle(ctx, run)
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if result["import_objects_count"] != 2 {
+		t.Fatalf("import count = %#v, want 2", result["import_objects_count"])
+	}
+	if len(client.listInputs) != 1 {
+		t.Fatalf("list calls = %d, want 1", len(client.listInputs))
+	}
+	if client.listInputs[0].ContinuationToken != "token-1" {
+		t.Fatalf("continuation token = %q, want token-1", client.listInputs[0].ContinuationToken)
+	}
+}
+
+func TestHandlerResumesListingAfterResumeJobRun(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "photos/")
+	run := createSyncRun(t, ctx, store, bucket.ID)
+	listedAt := time.Now().UTC()
+
+	if _, err := store.JobRuns().UpdateJobRunProgress(ctx, storage.UpdateJobRunProgressParams{
+		ID: run.ID,
+		Progress: storage.JobRunPayload{
+			"phase":            "listing",
+			"objects_listed":   1,
+			"listing_complete": false,
+			"listing_checkpoint": map[string]any{
+				"continuation_token": "token-1",
+				"objects_listed":     1,
+				"listing_complete":   false,
+			},
+			"import_objects_count": 1,
+		},
+	}); err != nil {
+		t.Fatalf("UpdateJobRunProgress returned error: %v", err)
+	}
+	if err := store.JobSpill().InsertKeys(ctx, run.ID, []string{"photos/a.jpg"}); err != nil {
+		t.Fatalf("InsertKeys returned error: %v", err)
+	}
+	if _, err := store.JobRuns().FailJobRun(ctx, storage.FailJobRunParams{
+		ID:           run.ID,
+		ErrorMessage: "upstream list timeout",
+	}); err != nil {
+		t.Fatalf("FailJobRun returned error: %v", err)
+	}
+
+	run, err := store.JobRuns().ResumeJobRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("ResumeJobRun returned error: %v", err)
+	}
+
+	client := &fakeObjectClient{
+		pages: []s3compat.ObjectPage{
+			{
+				Objects: []s3compat.ListedObject{
+					{Key: "photos/b.jpg", ETag: "\"def456\"", Size: 456, LastModified: listedAt, StorageClass: "STANDARD"},
+				},
+			},
+		},
+	}
+	handler, err := newTestHandler(store, &fakeObjectClientFactory{client: client})
+	if err != nil {
+		t.Fatalf("NewHandler returned error: %v", err)
+	}
+
+	result, err := handler.Handle(ctx, run)
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if result["import_objects_count"] != 2 {
+		t.Fatalf("import count = %#v, want 2", result["import_objects_count"])
+	}
+	if len(client.listInputs) != 1 {
+		t.Fatalf("list calls = %d, want 1", len(client.listInputs))
+	}
+	if client.listInputs[0].ContinuationToken != "token-1" {
+		t.Fatalf("continuation token = %q, want token-1", client.listInputs[0].ContinuationToken)
+	}
+}
+
+func TestHandlerDoesNotDuplicateImportJobsForSpilledListingPage(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+
+	bucket := createTestBucket(t, ctx, store, "photos/")
+	run := createSyncRun(t, ctx, store, bucket.ID)
+	listedAt := time.Now().UTC()
+
+	if err := store.JobSpill().InsertKeys(ctx, run.ID, []string{"photos/a.jpg"}); err != nil {
+		t.Fatalf("InsertKeys returned error: %v", err)
+	}
+	if _, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:            storage.JobTypeImportObjects,
+		RequestedByType: "job",
+		RequestedByID:   run.ID,
+		TargetType:      "bucket",
+		TargetID:        bucket.ID,
+		Input: storage.JobRunPayload{
+			"bucket_id": bucket.ID,
+			"objects": []any{
+				map[string]any{"key": "photos/a.jpg"},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("CreateJobRun returned error: %v", err)
+	}
+
+	client := &fakeObjectClient{
+		page: s3compat.ObjectPage{
+			Objects: []s3compat.ListedObject{
+				{Key: "photos/a.jpg", ETag: "\"abc123\"", Size: 123, LastModified: listedAt, StorageClass: "STANDARD"},
+				{Key: "photos/b.jpg", ETag: "\"def456\"", Size: 456, LastModified: listedAt, StorageClass: "STANDARD"},
+			},
+		},
+	}
+	handler, err := newTestHandler(store, &fakeObjectClientFactory{client: client})
+	if err != nil {
+		t.Fatalf("NewHandler returned error: %v", err)
+	}
+
+	result, err := handler.Handle(ctx, run)
+	if err != nil {
+		t.Fatalf("Handle returned error: %v", err)
+	}
+	if result["import_objects_count"] != 2 {
+		t.Fatalf("import count = %#v, want 2", result["import_objects_count"])
+	}
+
+	children, err := store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
+		Type:            storage.JobTypeImportObjects,
+		RequestedByType: "job",
+		RequestedByID:   run.ID,
+		Limit:           10,
+	})
+	if err != nil {
+		t.Fatalf("ListJobRuns returned error: %v", err)
+	}
+	if len(children) != 2 {
+		t.Fatalf("import child count = %d, want 2", len(children))
+	}
+
+	var importKeys []string
+	for _, child := range children {
+		var input jobs.ObjectMutationInput
+		if err := jobs.DecodePayload(child.Input, &input); err != nil {
+			t.Fatalf("DecodePayload returned error: %v", err)
+		}
+		for _, object := range input.Objects {
+			importKeys = append(importKeys, object.Key)
+		}
+	}
+	if len(importKeys) != 2 {
+		t.Fatalf("import object count = %d, want 2", len(importKeys))
 	}
 }
 

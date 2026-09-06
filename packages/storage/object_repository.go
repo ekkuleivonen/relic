@@ -18,6 +18,7 @@ type ObjectRepository interface {
 	UpsertObjects(context.Context, []UpsertObjectParams) ([]Object, error)
 	GetObject(context.Context, string) (Object, error)
 	GetObjectByBucketAndKey(context.Context, string, string) (Object, error)
+	GetObjectsByBucketAndKeys(context.Context, string, []string) ([]Object, error)
 	ListObjects(context.Context, ListObjectsParams) ([]Object, error)
 	ListObjectsInScope(context.Context, ObjectScopeParams) ([]Object, error)
 	CountObjectsInScope(context.Context, ObjectScopeParams) (int64, error)
@@ -227,6 +228,47 @@ func (s *ObjectStore) GetObjectByBucketAndKey(ctx context.Context, bucketID, key
 		FROM objects
 		WHERE bucket_id = $1 AND key = $2
 	`, bucketID, key))
+}
+
+func (s *ObjectStore) GetObjectsByBucketAndKeys(ctx context.Context, bucketID string, keys []string) ([]Object, error) {
+	if bucketID == "" {
+		return nil, fmt.Errorf("get objects by bucket and keys: bucket id is required")
+	}
+	if len(keys) == 0 {
+		return []Object{}, nil
+	}
+
+	rows, err := s.runner.Query(ctx, `
+		SELECT
+			id,
+			bucket_id,
+			key,
+			attributes,
+			attribute_provenance,
+			created_at,
+			updated_at
+		FROM objects
+		WHERE bucket_id = $1
+			AND key = ANY($2::text[])
+	`, bucketID, keys)
+	if err != nil {
+		return nil, fmt.Errorf("get objects by bucket and keys: %w", err)
+	}
+	defer rows.Close()
+
+	objects := []Object{}
+	for rows.Next() {
+		object, err := scanObject(rows)
+		if err != nil {
+			return nil, err
+		}
+		objects = append(objects, object)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get objects by bucket and keys: %w", err)
+	}
+
+	return objects, nil
 }
 
 func (s *ObjectStore) ListObjects(ctx context.Context, params ListObjectsParams) ([]Object, error) {

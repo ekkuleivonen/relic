@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -197,8 +198,29 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			return nil, err
 		}
 
-		run, err := createSyncBucketJob(ctx, dependencies, dependencies.Storage.JobRuns(), input.ID)
+		targetParams := storage.HasActiveWorkForTargetParams{
+			TargetType: "bucket",
+			TargetID:   input.ID,
+			StaleAfter: jobStaleTimeout(ctx, dependencies.Storage),
+		}
+
+		if _, err := dependencies.Storage.JobRuns().FailActiveScanJobsForTarget(ctx, targetParams); err != nil {
+			return nil, err
+		}
+
+		run, err := enqueueSyncBucketJob(ctx, dependencies, dependencies.Storage.JobRuns(), input.ID)
 		if err != nil {
+			if errors.Is(err, errSyncAlreadyInProgress) {
+				blocking, findErr := dependencies.Storage.JobRuns().FindActiveWorkForTarget(ctx, targetParams)
+				if findErr == nil {
+					return nil, huma.Error409Conflict(fmt.Sprintf(
+						"catalog work is already in progress for this bucket (%s %s)",
+						blocking.Type,
+						blocking.ID,
+					))
+				}
+				return nil, huma.Error409Conflict("catalog work is already in progress for this bucket")
+			}
 			return nil, err
 		}
 
@@ -223,6 +245,27 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			return nil, huma.Error404NotFound("bucket not found")
 		} else if err != nil {
 			return nil, err
+		}
+
+		targetParams := storage.HasActiveWorkForTargetParams{
+			TargetType: "bucket",
+			TargetID:   input.ID,
+			StaleAfter: jobStaleTimeout(ctx, dependencies.Storage),
+		}
+		active, err := dependencies.Storage.JobRuns().HasActiveWorkForTarget(ctx, targetParams)
+		if err != nil {
+			return nil, err
+		}
+		if active {
+			blocking, findErr := dependencies.Storage.JobRuns().FindActiveWorkForTarget(ctx, targetParams)
+			if findErr == nil {
+				return nil, huma.Error409Conflict(fmt.Sprintf(
+					"catalog work is already in progress for this bucket (%s %s)",
+					blocking.Type,
+					blocking.ID,
+				))
+			}
+			return nil, huma.Error409Conflict("catalog work is already in progress for this bucket")
 		}
 
 		prefix := ""
@@ -264,6 +307,43 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 	})
 }
 
+var errSyncAlreadyInProgress = errors.New("sync already in progress")
+
+func enqueueSyncBucketJob(
+	ctx context.Context,
+	dependencies deps.Dependencies,
+	jobRuns storage.JobRunRepository,
+	bucketID string,
+) (storage.JobRun, error) {
+	targetParams := storage.HasActiveWorkForTargetParams{
+		TargetType: "bucket",
+		TargetID:   bucketID,
+		StaleAfter: jobStaleTimeout(ctx, dependencies.Storage),
+	}
+
+	resumable, err := jobRuns.FindResumableSyncJobRun(ctx, storage.FindResumableSyncJobRunParams{
+		TargetType:  "bucket",
+		TargetID:    bucketID,
+		ScopePrefix: "",
+	})
+	if err == nil {
+		return jobRuns.ResumeJobRun(ctx, resumable.ID)
+	}
+	if !errors.Is(err, storage.ErrNotFound) {
+		return storage.JobRun{}, err
+	}
+
+	blocking, findErr := jobRuns.FindActiveWorkForTarget(ctx, targetParams)
+	if findErr != nil && !errors.Is(findErr, storage.ErrNotFound) {
+		return storage.JobRun{}, findErr
+	}
+	if findErr == nil && blocking.ID != "" {
+		return storage.JobRun{}, errSyncAlreadyInProgress
+	}
+
+	return createSyncBucketJob(ctx, dependencies, jobRuns, bucketID)
+}
+
 func createSyncBucketJob(ctx context.Context, dependencies deps.Dependencies, jobRuns storage.JobRunRepository, bucketID string) (storage.JobRun, error) {
 	requestedBy := middleware.RequestedByFromContext(ctx, dependencies)
 	return jobRuns.CreateJobRun(ctx, storage.CreateJobRunParams{
@@ -272,6 +352,7 @@ func createSyncBucketJob(ctx context.Context, dependencies deps.Dependencies, jo
 		RequestedByID:   requestedBy.ID,
 		TargetType:      "bucket",
 		TargetID:        bucketID,
+		MaxAttempts:     storage.DefaultSyncBucketMaxAttempts,
 		Input: storage.JobRunPayload{
 			"bucket_id": bucketID,
 		},
@@ -421,4 +502,22 @@ func bucketResponseFromStorage(bucket storage.Bucket) bucketResponse {
 		CreatedAt:      bucket.CreatedAt,
 		UpdatedAt:      bucket.UpdatedAt,
 	}
+}
+
+func jobStaleTimeout(ctx context.Context, store *storage.Store) time.Duration {
+	if store == nil {
+		return storage.DefaultJobStaleTimeout
+	}
+
+	setting, err := store.Settings().Get(ctx, storage.SettingWorkerJobStaleTimeout)
+	if err != nil {
+		return storage.DefaultJobStaleTimeout
+	}
+
+	parsed, err := storage.ParseSettingDuration(storage.SettingWorkerJobStaleTimeout, setting.Value)
+	if err != nil {
+		return storage.DefaultJobStaleTimeout
+	}
+
+	return parsed
 }

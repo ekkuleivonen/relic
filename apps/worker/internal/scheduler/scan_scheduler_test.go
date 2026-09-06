@@ -99,6 +99,110 @@ func TestScanSchedulerTickDedupesActiveScan(t *testing.T) {
 	}
 }
 
+func TestScanSchedulerTickSkipsWhenSyncTraceActive(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := schedulerTestStore(t, ctx)
+	defer cleanup()
+
+	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketRelicConfig{
+		Scan: storage.BucketScanConfig{Enabled: storage.BoolPtr(true), Interval: "24h"},
+	})
+	root, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:       storage.JobTypeSyncBucket,
+		TargetType: "bucket",
+		TargetID:   bucket.ID,
+		Input: storage.JobRunPayload{
+			"bucket_id": bucket.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateJobRun returned error: %v", err)
+	}
+	if _, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:            storage.JobTypeImportObjects,
+		RequestedByType: "job",
+		RequestedByID:   root.ID,
+		TargetType:      "bucket",
+		TargetID:        bucket.ID,
+		Input: storage.JobRunPayload{
+			"bucket_id": bucket.ID,
+			"objects":     []any{},
+		},
+	}); err != nil {
+		t.Fatalf("CreateJobRun child returned error: %v", err)
+	}
+
+	scheduler, err := NewScanScheduler(ScanSchedulerOptions{
+		Store:    store,
+		Now:      func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+		Settings: settings.Static(settings.StaticFromRegistry()),
+	})
+	if err != nil {
+		t.Fatalf("NewScanScheduler returned error: %v", err)
+	}
+
+	enqueued, err := scheduler.Tick(ctx)
+	if err != nil {
+		t.Fatalf("Tick returned error: %v", err)
+	}
+	if enqueued != 0 {
+		t.Fatalf("enqueued = %d, want 0 while sync trace active", enqueued)
+	}
+}
+
+func TestScanSchedulerTickSkipsWhenScanTraceSyncChildActive(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := schedulerTestStore(t, ctx)
+	defer cleanup()
+
+	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketRelicConfig{
+		Scan: storage.BucketScanConfig{Enabled: storage.BoolPtr(true), Interval: "24h"},
+	})
+	scanRoot, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:       storage.JobTypeScanBucket,
+		TargetType: "bucket",
+		TargetID:   bucket.ID,
+		Input: storage.JobRunPayload{
+			"bucket_id": bucket.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateJobRun scan root returned error: %v", err)
+	}
+	if _, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:            storage.JobTypeSyncBucket,
+		RequestedByType: "job",
+		RequestedByID:   scanRoot.ID,
+		TargetType:      "bucket",
+		TargetID:        bucket.ID,
+		Input: storage.JobRunPayload{
+			"bucket_id": bucket.ID,
+		},
+	}); err != nil {
+		t.Fatalf("CreateJobRun sync child returned error: %v", err)
+	}
+	if _, err := store.JobRuns().SucceedJobRun(ctx, storage.SucceedJobRunParams{ID: scanRoot.ID}); err != nil {
+		t.Fatalf("SucceedJobRun scan root returned error: %v", err)
+	}
+
+	scheduler, err := NewScanScheduler(ScanSchedulerOptions{
+		Store:    store,
+		Now:      func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
+		Settings: settings.Static(settings.StaticFromRegistry()),
+	})
+	if err != nil {
+		t.Fatalf("NewScanScheduler returned error: %v", err)
+	}
+
+	enqueued, err := scheduler.Tick(ctx)
+	if err != nil {
+		t.Fatalf("Tick returned error: %v", err)
+	}
+	if enqueued != 0 {
+		t.Fatalf("enqueued = %d, want 0 while scan-escalated sync child is active", enqueued)
+	}
+}
+
 func TestScanSchedulerTickSkipsWhenNotDue(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := schedulerTestStore(t, ctx)
@@ -140,6 +244,52 @@ func TestScanSchedulerTickSkipsWhenNotDue(t *testing.T) {
 	}
 	if enqueued != 0 {
 		t.Fatalf("enqueued = %d, want 0", enqueued)
+	}
+}
+
+func TestScanSchedulerTickSkipsWhenRecentFailedScan(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := schedulerTestStore(t, ctx)
+	defer cleanup()
+
+	bucket := createSchedulerTestBucket(t, ctx, store, storage.BucketRelicConfig{
+		Scan: storage.BucketScanConfig{Enabled: storage.BoolPtr(true), Interval: "24h"},
+	})
+	run, err := store.JobRuns().CreateJobRun(ctx, storage.CreateJobRunParams{
+		Type:       storage.JobTypeScanBucket,
+		TargetType: "bucket",
+		TargetID:   bucket.ID,
+		Input: storage.JobRunPayload{
+			"bucket_id": bucket.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateJobRun returned error: %v", err)
+	}
+	if _, err := store.JobRuns().FailJobRun(ctx, storage.FailJobRunParams{
+		ID:           run.ID,
+		ErrorMessage: "upstream list timeout",
+	}); err != nil {
+		t.Fatalf("FailJobRun returned error: %v", err)
+	}
+
+	scheduler, err := NewScanScheduler(ScanSchedulerOptions{
+		Store: store,
+		Now: func() time.Time {
+			return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
+		},
+		Settings: settings.Static(settings.StaticFromRegistry()),
+	})
+	if err != nil {
+		t.Fatalf("NewScanScheduler returned error: %v", err)
+	}
+
+	enqueued, err := scheduler.Tick(ctx)
+	if err != nil {
+		t.Fatalf("Tick returned error: %v", err)
+	}
+	if enqueued != 0 {
+		t.Fatalf("enqueued = %d, want 0 after recent failed scan", enqueued)
 	}
 }
 
