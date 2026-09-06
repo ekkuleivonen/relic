@@ -17,3 +17,7 @@ The API checks write permissions centrally, protects browser writes against cros
 The September 2026 audit identified credential-like values in old Git history. Deleting current files does not revoke credentials or erase clones/caches. Owner confirmation and credential rotation/revocation remain required before the exposure can be considered resolved. Do not reuse historical example credentials.
 
 CI scans the current tracked snapshot and new commits. The separately dispatched **Full history secret audit** scans all fetched refs and is expected to report the known historical findings until cleanup is approved and completed. A green normal CI run is not a clean-history certification.
+
+## Dependency audit scope
+
+Both package-manager audits and GitHub advisories are reviewed: their databases and reachability models differ. The September 2026 update removes the known vulnerable frontend versions and upgrades Go cryptography/compression dependencies to patched releases. `govulncheck` reports no affected symbols or imported packages. It still identifies the unmaintained `golang.org/x/crypto/openpgp` package at module level; Pithosys does not import that package, and the advisory has no patched release. This is retained as an explicit audit limitation, not silently dismissed as a fixed vulnerability.
