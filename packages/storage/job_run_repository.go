@@ -487,7 +487,7 @@ func (s *JobRunStore) UpdateJobRunProgress(ctx context.Context, params UpdateJob
 	return scanJobRun(s.runner.QueryRow(ctx, `
 		UPDATE job_runs
 		SET
-			progress = $2,
+			progress = progress || $2::jsonb,
 			updated_at = now()
 		WHERE id = $1
 		RETURNING `+jobRunColumns+`
@@ -501,6 +501,7 @@ func (s *JobRunStore) SucceedJobRun(ctx context.Context, params SucceedJobRunPar
 	}
 
 	return scanJobRun(s.runner.QueryRow(ctx, `
+		WITH completed AS (
 		UPDATE job_runs
 		SET
 			state = 'succeeded',
@@ -512,6 +513,10 @@ func (s *JobRunStore) SucceedJobRun(ctx context.Context, params SucceedJobRunPar
 			updated_at = now()
 		WHERE id = $1
 		RETURNING `+jobRunColumns+`
+        ), cleared AS (
+            DELETE FROM job_spill WHERE job_run_id IN (SELECT id FROM completed)
+        )
+        SELECT `+jobRunColumns+` FROM completed
 	`, params.ID, result))
 }
 

@@ -8,7 +8,13 @@ import (
 	"unicode"
 )
 
+const MaxQueryBytes = 16 * 1024
+const maxExpressionDepth = 64
+
 func Parse(input string) (Query, error) {
+	if len(input) > MaxQueryBytes {
+		return Query{}, fmt.Errorf("query exceeds %d bytes", MaxQueryBytes)
+	}
 	tokens, err := lex(input)
 	if err != nil {
 		return Query{}, err
@@ -29,6 +35,7 @@ func Parse(input string) (Query, error) {
 type queryParser struct {
 	tokens []token
 	pos    int
+	depth  int
 }
 
 func (p *queryParser) parseQuery() (Query, error) {
@@ -142,6 +149,11 @@ func (p *queryParser) parseAndExpr() (Expr, error) {
 }
 
 func (p *queryParser) parseUnaryExpr() (Expr, error) {
+	p.depth++
+	defer func() { p.depth-- }()
+	if p.depth > maxExpressionDepth {
+		return nil, p.errorf("expression nesting exceeds %d", maxExpressionDepth)
+	}
 	if p.consumeKeyword("NOT") {
 		expr, err := p.parseUnaryExpr()
 		if err != nil {
@@ -390,6 +402,11 @@ func (p *queryParser) parseCastOperand() (Expr, error) {
 }
 
 func (p *queryParser) parsePrimary() (Expr, error) {
+	p.depth++
+	defer func() { p.depth-- }()
+	if p.depth > maxExpressionDepth {
+		return nil, p.errorf("expression nesting exceeds %d", maxExpressionDepth)
+	}
 	if p.isKeyword("CAST") {
 		return p.parseCastCall()
 	}

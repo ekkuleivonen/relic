@@ -186,7 +186,7 @@ Trace semantics do not change the listing algorithm, but the root `sync_bucket` 
 - `GET /job-runs?trace_id=` provides a generic debug view for any composite job.
 - Fan-out handlers and the runner must be updated: return `child_job_ids`, defer root completion, run the trace completion pass.
 - `CreateJobRun` must set `trace_id` on every insert; existing code paths that create child jobs inherit automatically.
-- `jobs_proposal.md` should be updated: step "mark succeeded" applies when the trace completes, not when children are enqueued.
+- `docs/design/job-traces.md` should be updated: step "mark succeeded" applies when the trace completes, not when children are enqueued.
 - Over-granular spans (per upstream page, per HEAD call) are explicitly discouraged. Spans are job boundaries; phase counters live in `progress`.
 
 ## Alternatives considered

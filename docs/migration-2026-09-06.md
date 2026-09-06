@@ -16,7 +16,9 @@ Migration 13 upgrades the bucket configuration column and index, backfills job t
 
 API clients must use `pithosys_config` and `pithosysql.v1`. Renamed session cookies require a fresh sign-in. Default JetStream consumer names now start with `pithosys-`; explicitly configured consumer names remain unchanged. Coordinate consumers when switching a running installation to avoid unintended replay. Database names, credentials, external resources, and running services are not renamed by this repository migration.
 
-## Validation
+## Validation at migration time
+
+These were the findings at the migration commit. The subsequent public-readiness work fixes the inherited lint/integration failures; see the current CI and release checklist.
 
 - Backend compilation and tests without an external database pass; database-dependent tests skip in that mode.
 - Frontend TypeScript checking and production build pass.

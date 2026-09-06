@@ -20,6 +20,10 @@ func TestCollectionStoreCreateGetListUpdateDelete(t *testing.T) {
 		t.Fatalf("PrepareCollectionQuery returned error: %v", err)
 	}
 
+	owner, err := store.Users().CreateUser(ctx, CreateUserParams{Email: "owner@example.test", Role: UserRoleAdmin})
+	if err != nil {
+		t.Fatal(err)
+	}
 	collections := store.Collections()
 	created, err := collections.CreateCollection(ctx, CreateCollectionParams{
 		Name:          "Finance reports",
@@ -31,7 +35,7 @@ func TestCollectionStoreCreateGetListUpdateDelete(t *testing.T) {
 		Status:        CollectionStatusValidEnum,
 		CreatedByType: "user",
 		CreatedByID:   "user_admin",
-		OwnerUserID:   "user_admin",
+		OwnerUserID:   owner.ID,
 	})
 	if err != nil {
 		t.Fatalf("CreateCollection returned error: %v", err)
@@ -68,15 +72,15 @@ func TestCollectionStoreCreateGetListUpdateDelete(t *testing.T) {
 	}
 	queryText := "FROM objects WHERE key LIKE 'finance/%'"
 	updated, err := collections.UpdateCollection(ctx, UpdateCollectionParams{
-		ID:            created.ID,
-		Name:          strPtr("Finance files"),
-		Description:   strPtr("All finance keys"),
-		QueryText:     &queryText,
-		QueryAST:      updatedQuery.AST,
-		QueryVersion:  &updatedQuery.QueryVersion,
-		Dependencies:  DependenciesFromSearch(updatedQuery.Dependencies),
-		Status:        collectionStatusPtr(CollectionStatusValidEnum),
-		UpdateQuery:   true,
+		ID:           created.ID,
+		Name:         strPtr("Finance files"),
+		Description:  strPtr("All finance keys"),
+		QueryText:    &queryText,
+		QueryAST:     updatedQuery.AST,
+		QueryVersion: &updatedQuery.QueryVersion,
+		Dependencies: DependenciesFromSearch(updatedQuery.Dependencies),
+		Status:       collectionStatusPtr(CollectionStatusValidEnum),
+		UpdateQuery:  true,
 	})
 	if err != nil {
 		t.Fatalf("UpdateCollection returned error: %v", err)

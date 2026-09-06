@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -17,11 +16,6 @@ import (
 	"github.com/elei-io/pithosys/packages/db"
 	"github.com/elei-io/pithosys/packages/storage"
 	"github.com/elei-io/pithosys/packages/testdb"
-)
-
-var (
-	migrateTestStoreOnce sync.Once
-	migrateTestStoreErr  error
 )
 
 func TestListUpstreamCaptureFields(t *testing.T) {
@@ -129,13 +123,10 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
-	migrateTestStoreOnce.Do(func() {
-		migrateTestStoreErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
-			return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
-		})
-	})
-	if migrateTestStoreErr != nil {
-		t.Fatal(testdb.MigrationTimeoutError(migrateTestStoreErr))
+	if err := testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
+		return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	}); err != nil {
+		t.Fatal(testdb.MigrationTimeoutError(err))
 	}
 
 	pool, err := db.Connect(ctx, databaseURL)

@@ -110,3 +110,33 @@ func TestJobSpillStoreInsertAndQuery(t *testing.T) {
 		t.Fatalf("count after delete = %d, want 0", count)
 	}
 }
+
+func TestSpillSurvivesFailureAndClearsOnSuccess(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+	run, err := store.JobRuns().CreateJobRun(ctx, CreateJobRunParams{Type: JobTypeSyncBucket, TargetType: "bucket", TargetID: "spill-recovery"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.JobSpill().InsertKeys(ctx, run.ID, []string{"present.json"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.JobRuns().FailJobRun(ctx, FailJobRunParams{ID: run.ID, ErrorMessage: "interrupted"}); err != nil {
+		t.Fatal(err)
+	}
+	count, err := store.JobSpill().CountKeys(ctx, run.ID)
+	if err != nil || count != 1 {
+		t.Fatalf("failed job lost spill: count=%d err=%v", count, err)
+	}
+	if _, err := store.JobRuns().ResumeJobRun(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.JobRuns().SucceedJobRun(ctx, SucceedJobRunParams{ID: run.ID}); err != nil {
+		t.Fatal(err)
+	}
+	count, err = store.JobSpill().CountKeys(ctx, run.ID)
+	if err != nil || count != 0 {
+		t.Fatalf("successful job retained spill: count=%d err=%v", count, err)
+	}
+}

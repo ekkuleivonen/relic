@@ -25,24 +25,31 @@ func newSyncExecutionState() *syncExecutionState {
 func (h *Handler) loadSyncExecutionState(ctx context.Context, run storage.JobRun) (*syncExecutionState, error) {
 	state := newSyncExecutionState()
 
-	children, err := h.store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
-		RequestedByType: "job",
-		RequestedByID:   run.ID,
-		Limit:           10000,
-	})
-	if err != nil {
-		return nil, err
-	}
+	for offset := 0; ; offset += 500 {
+		children, err := h.store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
+			RequestedByType: "job",
+			RequestedByID:   run.ID,
+			Limit:           500,
+			Offset:          offset,
+		})
+		if err != nil {
+			return nil, err
+		}
 
-	for _, child := range children {
-		state.childJobIDs[string(child.Type)] = append(state.childJobIDs[string(child.Type)], child.ID)
-		switch child.Type {
-		case storage.JobTypeImportObjects:
-			state.planCounts.Import += mutationObjectCount(child.Input)
-		case storage.JobTypeRefreshObjects:
-			state.planCounts.Refresh += mutationObjectCount(child.Input)
-		case storage.JobTypeRemoveObjects:
-			state.planCounts.Remove += mutationObjectCount(child.Input)
+		for _, child := range children {
+			state.childJobIDs[string(child.Type)] = append(state.childJobIDs[string(child.Type)], child.ID)
+			switch child.Type {
+			case storage.JobTypeImportObjects:
+				state.planCounts.Import += mutationObjectCount(child.Input)
+			case storage.JobTypeRefreshObjects:
+				state.planCounts.Refresh += mutationObjectCount(child.Input)
+			case storage.JobTypeRemoveObjects:
+				state.planCounts.Remove += mutationObjectCount(child.Input)
+			}
+		}
+
+		if len(children) < 500 {
+			break
 		}
 	}
 

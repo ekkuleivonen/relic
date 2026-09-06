@@ -43,7 +43,7 @@ func (s *JobRunStore) AwaitJobRunChildren(ctx context.Context, params AwaitJobRu
 			result = $2,
 			progress = CASE
 				WHEN $3::jsonb = '{}'::jsonb THEN progress
-				ELSE $3::jsonb
+				ELSE progress || $3::jsonb
 			END,
 			locked_by = NULL,
 			locked_at = NULL,

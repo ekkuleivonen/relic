@@ -112,6 +112,15 @@ func TestCollectionCRUDAndObjects(t *testing.T) {
 		t.Fatalf("Status = %q, want valid", created.Status)
 	}
 
+	createUserReq := httptest.NewRequest(http.MethodPost, "/api/users", strings.NewReader(`{"email":"member@example.com","password":"member-password","role":"user"}`))
+	createUserReq.Header.Set("Content-Type", "application/json")
+	createUserReq.AddCookie(adminCookie)
+	createUserRec := httptest.NewRecorder()
+	handler.ServeHTTP(createUserRec, createUserReq)
+	if createUserRec.Code != http.StatusOK {
+		t.Fatalf("create user status = %d, want %d; body = %s", createUserRec.Code, http.StatusOK, createUserRec.Body.String())
+	}
+
 	memberCookie := loginIntegrationUser(t, handler, "member@example.com", "member-password")
 
 	listReq := httptest.NewRequest(http.MethodGet, "/api/collections", nil)

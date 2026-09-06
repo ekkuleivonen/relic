@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -15,11 +14,6 @@ import (
 	"github.com/elei-io/pithosys/packages/storage"
 	"github.com/elei-io/pithosys/packages/testdb"
 	"github.com/elei-io/pithosys/packages/upstreams/s3compat"
-)
-
-var (
-	migrateTestStoreOnce sync.Once
-	migrateTestStoreErr  error
 )
 
 func TestHandlerRefreshesObjectsFromHead(t *testing.T) {
@@ -53,7 +47,9 @@ func TestHandlerRefreshesObjectsFromHead(t *testing.T) {
 	client := &fakeObjectClient{
 		headAttributes: storage.ObjectAttributes{
 			"upstream": map[string]any{
-				"etag": "\"new\"",
+				"last_modified": "2026-06-27T12:00:00Z",
+				"size":          int64(123),
+				"etag":          "\"new\"",
 				"header": map[string]any{
 					"content_type": "image/jpeg",
 				},
@@ -164,13 +160,10 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
-	migrateTestStoreOnce.Do(func() {
-		migrateTestStoreErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
-			return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
-		})
-	})
-	if migrateTestStoreErr != nil {
-		t.Fatal(testdb.MigrationTimeoutError(migrateTestStoreErr))
+	if err := testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
+		return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	}); err != nil {
+		t.Fatal(testdb.MigrationTimeoutError(err))
 	}
 
 	pool, err := db.Connect(ctx, databaseURL)

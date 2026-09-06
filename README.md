@@ -1,32 +1,53 @@
 # Pithosys
 
-Pithosys catalogs and searches objects in existing S3-compatible storage. It indexes metadata, tracks bucket synchronization, and organizes objects into collections without moving their bytes.
+[![CI](https://github.com/elei-io/pithosys/actions/workflows/ci.yml/badge.svg)](https://github.com/elei-io/pithosys/actions/workflows/ci.yml)
 
-The active implementation is a Go API and worker with a React frontend:
+**Find and organize objects across S3-compatible storage without moving their bytes.**
 
-- `apps/api`: HTTP API, authentication, and database migrations.
-- `apps/worker`: bucket synchronization, scans, and background jobs.
-- `apps/web`: React application and PithosysQL editor.
-- `packages`: shared storage, search, authentication, and upstream integrations.
-- `_old_ref_dont_touch`: archived Python/React implementation, retained for reference.
+Pithosys is a metadata catalog built with Go, PostgreSQL, and React. It reconciles bucket listings, captures metadata and its provenance, and lets you search using PithosysQL and save queries as collections.
 
-## Development
+![Object search with synthetic demo data](docs/images/objects.png)
 
-Use Go 1.25 or newer, Node.js 22.12 or newer, and PostgreSQL. Copy `.env.example` to `.env` and supply your database connection, administrator credentials, and encryption/session keys. Preserve existing encryption keys when connecting an existing database. For local PostgreSQL without TLS, append `?sslmode=disable` to the database URL.
+## Try the local demo
 
-Run the API from the repository root; it applies database migrations on startup:
+Requires Docker with Compose, a shell, and OpenSSL. From a checkout:
 
 ```sh
-go run ./apps/api
+./scripts/demo.sh up
 ```
 
-Run the worker in another terminal:
+Open **http://localhost:8088**. Sign in as `admin@example.com` using `SUPERUSER_PASSWORD` from the generated `.demo/env` file. The command builds the API, worker, and frontend, starts private PostgreSQL and S3 containers, seeds 128 synthetic objects, and verifies indexing, search, annotation, and collection creation. First startup downloads images and builds dependencies.
+
+Only the web port is bound, on localhost. Demo data and generated secrets are separate from `.env` and existing services. To stop, use `./scripts/demo.sh down`; Docker volumes and credentials are retained. To rerun the smoke check, use `./scripts/demo.sh check`. The demo is intended for local evaluation, not public hosting.
+
+## What works today
+
+- S3-compatible bucket catalogs with paginated synchronization and metadata capture.
+- Durable background jobs, listing checkpoints, parent/child traces, and progress reporting.
+- PithosysQL search, user annotations, and saved-query collections.
+- Password authentication, administrator controls, and optional OIDC.
+- Optional JetStream event ingestion, verification scans, and duplicate relations.
+
+**Status: alpha.** The local demo covers the primary catalog workflow. OIDC, notification integration, large catalogs, and multi-worker failure recovery need deployment-specific validation. The repository's license/ownership review and historical credential remediation remain open; this is not yet a completed open-source release. See the [release checklist](docs/public-release-checklist.md) and [security boundary](SECURITY.md).
+
+## A query example
+
+```sql
+FROM objects
+WHERE attr('user.reviewed') = true
+LIMIT 100
+```
+
+Queries bind known attribute paths and compile to parameterized PostgreSQL queries. Search results are capped at 1,000 objects per request. The [architecture notes](docs/architecture/overview.md) explain the design, crash-recovery tradeoffs, and limitations. [Demo measurements](docs/demo-measurements.md) report a small local run, not a scalability claim.
+
+## Develop
+
+Use Go 1.26.7+, Node.js 24, and PostgreSQL 17. Copy `.env.example` to `.env`, supply a database connection and administrator password, and generate distinct session/encryption keys with `openssl rand -base64 32`. Preserve encryption keys for existing databases. Do not reuse demo credentials for real deployments.
 
 ```sh
-go run ./apps/worker
+go run ./apps/api     # Applies migrations on startup.
+go run ./apps/worker  # In another terminal.
 ```
-
-Start the frontend:
 
 ```sh
 cd apps/web
@@ -34,17 +55,26 @@ npm ci
 npm run dev
 ```
 
-The web development server proxies `/api` to `http://localhost:8080` by default. Bucket event ingestion uses the JetStream connection configured for that bucket.
+The web development server proxies `/api` to localhost:8080. API documentation is available at `/api/docs`.
 
-## Checks
+## Validate
+
+Use a dedicated test database and leave `TEST_DATABASE_SCHEMA` unset; tests create and remove isolated schemas. Database tests skip if `TEST_DATABASE_URL` is absent.
 
 ```sh
-go test ./apps/api/... ./apps/worker/... ./packages/...
+export TEST_DATABASE_URL='postgres://pithosys:pithosys@localhost:5432/pithosys_test?sslmode=disable'
+go test -race -p 4 -timeout 180s ./...
+go vet ./...
+go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
 cd apps/web
-npm run build
+npm ci
 npm run lint
+npm run build
+npm audit --audit-level=moderate
+npx playwright install chromium
+npm run test:e2e # Requires the running, seeded Docker demo.
 ```
 
-Database tests require `TEST_DATABASE_URL` pointing to a dedicated test database. Without it, database tests skip. Do not point it at the application database.
+[Contributing](CONTRIBUTING.md) · [Design decisions](docs/decisions) · [Product vision](docs/design/product-vision.md) · [Migration history](docs/migration-2026-09-06.md)
 
-See [migration notes](docs/migration-2026-09-06.md) for the recovered work, database upgrade behavior, and known inherited test failures. Product direction is described in [the manifest](manifest.md).
+The earlier Python implementation is archived in Git history at `archive/python-reference`.

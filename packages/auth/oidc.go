@@ -37,7 +37,9 @@ func NewOIDCProvider(cfg OIDCConfig, sessionSecret []byte) (*OIDCProvider, error
 		return nil, nil
 	}
 
-	provider, err := oidc.NewProvider(context.Background(), cfg.IssuerURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	provider, err := oidc.NewProvider(ctx, cfg.IssuerURL)
 	if err != nil {
 		return nil, fmt.Errorf("create oidc provider: %w", err)
 	}
@@ -91,7 +93,7 @@ func (p *OIDCProvider) Exchange(ctx context.Context, code string) (*oidc.IDToken
 	}
 
 	email := strings.TrimSpace(strings.ToLower(claims.Email))
-	if email == "" {
+	if email == "" || !claims.EmailVerified {
 		return nil, "", "", ErrOIDCEmailMissing
 	}
 
@@ -150,4 +152,15 @@ func (p *OIDCProvider) VerifyState(signed string) (string, error) {
 	}
 
 	return state, nil
+}
+
+func (p *OIDCProvider) VerifyCallbackState(returnedState, signedState string) error {
+	expected, err := p.VerifyState(signedState)
+	if err != nil {
+		return err
+	}
+	if returnedState == "" || !hmac.Equal([]byte(returnedState), []byte(expected)) {
+		return ErrOIDCStateInvalid
+	}
+	return nil
 }

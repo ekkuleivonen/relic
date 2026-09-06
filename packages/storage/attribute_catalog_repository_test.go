@@ -47,8 +47,8 @@ func TestAttributeCatalogStoreList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
 	}
-	if len(entries) != len(search.BuiltinAttributeDefinitions()) {
-		t.Fatalf("list length = %d, want %d", len(entries), len(search.BuiltinAttributeDefinitions()))
+	if len(entries) != (len(search.BuiltinAttributeDefinitions()) + len(search.RegisteredAttributeDefinitions())) {
+		t.Fatalf("list length = %d, want %d", len(entries), (len(search.BuiltinAttributeDefinitions()) + len(search.RegisteredAttributeDefinitions())))
 	}
 }
 

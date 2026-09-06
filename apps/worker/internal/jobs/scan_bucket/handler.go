@@ -86,7 +86,8 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 		return nil, err
 	}
 
-	epoch := verification.DailyEpoch(h.now())
+	startedAt := h.now()
+	epoch := verification.DailyEpoch(startedAt)
 	sampled := verification.SamplePartitions(h.modulus, objectCount, epoch)
 	if err := h.updateProgress(ctx, run.ID, "sampling_partitions", map[string]any{
 		"partitions_sampled": len(sampled),
@@ -105,7 +106,7 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 	}
 
 	upstreamAccumulators := verification.NewPartitionAccumulators(h.modulus)
-	budget := NewScanBudget(h.budget, h.now(), h.now)
+	budget := NewScanBudget(h.budget, startedAt, h.now)
 	listPrefix := scope.Prefix
 	listingComplete, objectsListed, err := jobs.ListAllObjects(ctx, jobs.ListAllObjectsOptions{
 		Client:      client,

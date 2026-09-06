@@ -42,7 +42,7 @@ func ShouldSample(partition Partition, rate float64, epoch time.Time) bool {
 }
 
 func SamplePartitions(modulus uint32, objectCount int64, epoch time.Time) []Partition {
-	if objectCount > 0 && objectCount < mediumScopeObjectThreshold {
+	if objectCount < mediumScopeObjectThreshold {
 		return AllPartitions(modulus)
 	}
 

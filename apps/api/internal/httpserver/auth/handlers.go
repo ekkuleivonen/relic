@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
+	"github.com/elei-io/pithosys/apps/api/internal/httpserver/middleware"
 	"github.com/elei-io/pithosys/packages/auth"
 	"github.com/elei-io/pithosys/packages/storage"
 )
@@ -32,9 +33,9 @@ type sessionResponse struct {
 }
 
 func RegisterRawHandlers(mux *http.ServeMux, dependencies deps.Dependencies) {
-	mux.HandleFunc("POST /api/auth/login", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /api/auth/login", middleware.LimitLogin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handleLogin(w, r, dependencies)
-	})
+	})))
 	mux.HandleFunc("POST /api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
 		handleLogout(w, r, dependencies)
 	})
@@ -128,7 +129,7 @@ func handleOIDCCallback(w http.ResponseWriter, r *http.Request, dependencies dep
 	signedState := oidcStateFromRequest(r)
 	clearOIDCStateCookie(w, authConfig(dependencies))
 
-	_, token, err := dependencies.Auth.OIDCCallback(r.Context(), code, signedState)
+	_, token, err := dependencies.Auth.OIDCCallback(r.Context(), code, r.URL.Query().Get("state"), signedState)
 	if err != nil {
 		switch err {
 		case auth.ErrInvalidCredentials, auth.ErrUserDisabled, auth.ErrOIDCStateInvalid:

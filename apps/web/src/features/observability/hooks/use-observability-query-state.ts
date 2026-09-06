@@ -13,13 +13,13 @@ import {
 
 export function useObservabilityQueryState() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [anchor, setAnchor] = useState(0)
+  const [anchor, setAnchor] = useState(() => new Date())
   const rangeParam = searchParams.get("range")
   const range: TimeRangePreset = isTimeRangePreset(rangeParam)
     ? rangeParam
     : DEFAULT_OBSERVABILITY_RANGE
   const page = Math.max(1, Number(searchParams.get("page") ?? "1") || 1)
-  const timeRange = useMemo(() => presetToRange(range), [range, anchor])
+  const timeRange = useMemo(() => presetToRange(range, anchor), [range, anchor])
   const offset = (page - 1) * OBSERVABILITY_PAGE_SIZE
 
   const setRange = useCallback(
@@ -30,7 +30,7 @@ export function useObservabilityQueryState() {
         next.set("page", "1")
         return next
       })
-      setAnchor((value) => value + 1)
+      setAnchor(new Date())
     },
     [setSearchParams]
   )
@@ -47,7 +47,7 @@ export function useObservabilityQueryState() {
   )
 
   const refreshTimeRange = useCallback(() => {
-    setAnchor((value) => value + 1)
+    setAnchor(new Date())
   }, [])
 
   return {

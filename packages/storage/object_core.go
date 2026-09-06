@@ -25,9 +25,9 @@ func injectCoreAttributes(attributes ObjectAttributes, objectID string, seenAt t
 	}
 
 	core["object_id"] = objectID
-	core["last_seen_at"] = seenAt.UTC().Format(time.RFC3339)
+	core["last_seen_at"] = seenAt.UTC().Format(time.RFC3339Nano)
 	if _, exists := core["first_seen_at"]; !exists {
-		core["first_seen_at"] = seenAt.UTC().Format(time.RFC3339)
+		core["first_seen_at"] = seenAt.UTC().Format(time.RFC3339Nano)
 	}
 
 	attributes[CoreNamespace] = core
@@ -95,7 +95,7 @@ func attributeValue(attributes ObjectAttributes, path string) (any, bool) {
 
 	current := any(attributes)
 	for _, part := range parts {
-		asMap, ok := current.(map[string]any)
+		asMap, ok := asNestedAttributeMap(current)
 		if !ok {
 			return nil, false
 		}

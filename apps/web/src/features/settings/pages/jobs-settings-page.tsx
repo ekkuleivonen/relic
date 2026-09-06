@@ -25,23 +25,8 @@ import {
 export function JobsSettingsPage() {
   const settingsQuery = useSettings()
   const patchSettings = usePatchSettings()
-  const [values, setValues] = React.useState<Record<string, string>>({})
-
-  React.useEffect(() => {
-    if (!settingsQuery.data) {
-      return
-    }
-
-    const map = settingValueMap(settingsQuery.data)
-    setValues(
-      Object.fromEntries(
-        jobsSettingFields.map((field) => [
-          field.key,
-          map[field.key] ?? field.defaultValue,
-        ]),
-      ),
-    )
-  }, [settingsQuery.data])
+  const [edits, setValues] = React.useState<Record<string, string>>({})
+  const values = { ...settingValueMap(settingsQuery.data ?? []), ...edits }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -66,6 +51,9 @@ export function JobsSettingsPage() {
 
     try {
       await patchSettings.mutateAsync(updates)
+      setValues((current) => Object.fromEntries(
+        Object.entries(current).filter(([key, value]) => updates[key] !== value),
+      ))
     } catch {
       // Toast handled by mutation onError.
     }

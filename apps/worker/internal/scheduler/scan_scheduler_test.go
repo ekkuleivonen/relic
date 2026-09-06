@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -12,11 +11,6 @@ import (
 	"github.com/elei-io/pithosys/packages/secrets"
 	"github.com/elei-io/pithosys/packages/storage"
 	"github.com/elei-io/pithosys/packages/testdb"
-)
-
-var (
-	migrateSchedulerTestStoreOnce sync.Once
-	migrateSchedulerTestStoreErr  error
 )
 
 func TestScanSchedulerTickEnqueuesDueScan(t *testing.T) {
@@ -31,7 +25,7 @@ func TestScanSchedulerTickEnqueuesDueScan(t *testing.T) {
 	scheduler, err := NewScanScheduler(ScanSchedulerOptions{
 		Store:    store,
 		Now:      func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
-		Settings: settings.Static(settings.StaticFromRegistry()),
+		Settings: schedulerTestSettings(),
 	})
 	if err != nil {
 		t.Fatalf("NewScanScheduler returned error: %v", err)
@@ -84,7 +78,7 @@ func TestScanSchedulerTickDedupesActiveScan(t *testing.T) {
 	scheduler, err := NewScanScheduler(ScanSchedulerOptions{
 		Store:    store,
 		Now:      func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
-		Settings: settings.Static(settings.StaticFromRegistry()),
+		Settings: schedulerTestSettings(),
 	})
 	if err != nil {
 		t.Fatalf("NewScanScheduler returned error: %v", err)
@@ -126,7 +120,7 @@ func TestScanSchedulerTickSkipsWhenSyncTraceActive(t *testing.T) {
 		TargetID:        bucket.ID,
 		Input: storage.JobRunPayload{
 			"bucket_id": bucket.ID,
-			"objects":     []any{},
+			"objects":   []any{},
 		},
 	}); err != nil {
 		t.Fatalf("CreateJobRun child returned error: %v", err)
@@ -135,7 +129,7 @@ func TestScanSchedulerTickSkipsWhenSyncTraceActive(t *testing.T) {
 	scheduler, err := NewScanScheduler(ScanSchedulerOptions{
 		Store:    store,
 		Now:      func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
-		Settings: settings.Static(settings.StaticFromRegistry()),
+		Settings: schedulerTestSettings(),
 	})
 	if err != nil {
 		t.Fatalf("NewScanScheduler returned error: %v", err)
@@ -188,7 +182,7 @@ func TestScanSchedulerTickSkipsWhenScanTraceSyncChildActive(t *testing.T) {
 	scheduler, err := NewScanScheduler(ScanSchedulerOptions{
 		Store:    store,
 		Now:      func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
-		Settings: settings.Static(settings.StaticFromRegistry()),
+		Settings: schedulerTestSettings(),
 	})
 	if err != nil {
 		t.Fatalf("NewScanScheduler returned error: %v", err)
@@ -232,7 +226,7 @@ func TestScanSchedulerTickSkipsWhenNotDue(t *testing.T) {
 	scheduler, err := NewScanScheduler(ScanSchedulerOptions{
 		Store:    store,
 		Now:      func() time.Time { return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC) },
-		Settings: settings.Static(settings.StaticFromRegistry()),
+		Settings: schedulerTestSettings(),
 	})
 	if err != nil {
 		t.Fatalf("NewScanScheduler returned error: %v", err)
@@ -278,7 +272,7 @@ func TestScanSchedulerTickSkipsWhenRecentFailedScan(t *testing.T) {
 		Now: func() time.Time {
 			return time.Date(2026, 6, 28, 12, 0, 0, 0, time.UTC)
 		},
-		Settings: settings.Static(settings.StaticFromRegistry()),
+		Settings: schedulerTestSettings(),
 	})
 	if err != nil {
 		t.Fatalf("NewScanScheduler returned error: %v", err)
@@ -301,13 +295,10 @@ func schedulerTestStore(t *testing.T, ctx context.Context) (*storage.Store, func
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
-	migrateSchedulerTestStoreOnce.Do(func() {
-		migrateSchedulerTestStoreErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
-			return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
-		})
-	})
-	if migrateSchedulerTestStoreErr != nil {
-		t.Fatal(testdb.MigrationTimeoutError(migrateSchedulerTestStoreErr))
+	if err := testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
+		return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	}); err != nil {
+		t.Fatal(testdb.MigrationTimeoutError(err))
 	}
 
 	pool, err := db.Connect(ctx, databaseURL)
@@ -358,4 +349,10 @@ func createSchedulerTestBucket(t *testing.T, ctx context.Context, store *storage
 	})
 
 	return bucket
+}
+
+func schedulerTestSettings() settings.Static {
+	values := settings.StaticFromRegistry()
+	values[storage.SettingWorkerScanStagger] = "0s"
+	return settings.Static(values)
 }

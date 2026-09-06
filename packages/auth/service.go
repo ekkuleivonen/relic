@@ -13,13 +13,13 @@ import (
 )
 
 type Config struct {
-	SuperuserEmail   string
+	SuperuserEmail    string
 	SuperuserPassword string
-	SessionTTL       time.Duration
-	SessionSecret    []byte
-	SecureCookies    bool
-	WebAppURL        string
-	OIDC             OIDCConfig
+	SessionTTL        time.Duration
+	SessionSecret     []byte
+	SecureCookies     bool
+	WebAppURL         string
+	OIDC              OIDCConfig
 }
 
 type Service struct {
@@ -212,12 +212,12 @@ func (s *Service) OIDCStartURL() (string, string, time.Time, error) {
 	return s.oidc.AuthCodeURL(state), signedState, expiresAt, nil
 }
 
-func (s *Service) OIDCCallback(ctx context.Context, code, signedState string) (Principal, SessionToken, error) {
+func (s *Service) OIDCCallback(ctx context.Context, code, returnedState, signedState string) (Principal, SessionToken, error) {
 	if !s.OIDCEnabled() {
 		return Principal{}, SessionToken{}, ErrOIDCNotConfigured
 	}
 
-	if _, err := s.oidc.VerifyState(signedState); err != nil {
+	if err := s.oidc.VerifyCallbackState(returnedState, signedState); err != nil {
 		return Principal{}, SessionToken{}, err
 	}
 

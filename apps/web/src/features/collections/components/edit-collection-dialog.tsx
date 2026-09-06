@@ -67,16 +67,15 @@ export function EditCollectionDialog({ collection }: EditCollectionDialogProps) 
     [bucketsQuery.data?.buckets]
   )
 
-  React.useEffect(() => {
-    if (!open) {
-      return
-    }
-
+  function handleOpenChange(nextOpen: boolean) {
+    if (nextOpen) {
     setName(collection.name)
     setDescription(collection.description)
     setQuery(collection.query)
     setValidationError(null)
-  }, [open, collection])
+    }
+    setOpen(nextOpen)
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -118,7 +117,7 @@ export function EditCollectionDialog({ collection }: EditCollectionDialogProps) 
   const isSubmitting = updateCollection.isPending || validateSearch.isPending
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">
           <PencilIcon />

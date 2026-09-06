@@ -36,7 +36,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			if search.IsValidationError(err) {
 				return nil, huma.Error400BadRequest(err.Error())
 			}
-			return nil, huma.Error500InternalServerError(err.Error())
+			return nil, huma.Error500InternalServerError("Internal server error.")
 		}
 
 		body := executeSearchBody{Objects: make([]objects.ObjectResponse, 0, len(results))}
@@ -68,7 +68,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 			if search.IsValidationError(err) {
 				return nil, huma.Error400BadRequest(err.Error())
 			}
-			return nil, huma.Error500InternalServerError(err.Error())
+			return nil, huma.Error500InternalServerError("Internal server error.")
 		}
 
 		return &validateSearchOutput{
@@ -94,7 +94,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 
 		entries, err := dependencies.Storage.AttributeCatalog().List(ctx)
 		if err != nil {
-			return nil, huma.Error500InternalServerError(err.Error())
+			return nil, huma.Error500InternalServerError("Internal server error.")
 		}
 
 		attributes := make([]attributeResponse, 0, len(entries))
@@ -124,7 +124,7 @@ func Register(api huma.API, dependencies deps.Dependencies, basePath string) {
 
 		types, err := dependencies.Storage.ListSearchRelationTypes(ctx)
 		if err != nil {
-			return nil, huma.Error500InternalServerError(err.Error())
+			return nil, huma.Error500InternalServerError("Internal server error.")
 		}
 
 		return &listSearchRelationTypesOutput{
@@ -163,10 +163,10 @@ type validateSearchOutput struct {
 }
 
 type validateSearchBody struct {
-	Query        string                `json:"query"`
-	QueryVersion string                `json:"query_version"`
-	From         string                `json:"from"`
-	Dependencies []dependencyResponse  `json:"dependencies"`
+	Query        string               `json:"query"`
+	QueryVersion string               `json:"query_version"`
+	From         string               `json:"from"`
+	Dependencies []dependencyResponse `json:"dependencies"`
 }
 
 type dependencyResponse struct {

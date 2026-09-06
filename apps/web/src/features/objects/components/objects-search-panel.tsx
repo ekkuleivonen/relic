@@ -27,7 +27,7 @@ type ObjectsSearchPanelProps = {
 
 export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
   const [draftQuery, setDraftQuery] = React.useState(DEFAULT_PITHOSYSQL_QUERY)
-  const [submittedQuery, setSubmittedQuery] = React.useState<string | null>(null)
+  const [submittedQuery, setSubmittedQuery] = React.useState<string | null>(DEFAULT_PITHOSYSQL_QUERY)
   const [validationError, setValidationError] = React.useState<string | null>(
     null
   )
@@ -91,11 +91,6 @@ export function ObjectsSearchPanel({ bucketId }: ObjectsSearchPanelProps) {
     [draftQuery, validateSearch]
   )
 
-  React.useEffect(() => {
-    void handleSubmit(DEFAULT_PITHOSYSQL_QUERY)
-    // Validate and run the default query once on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const objects = executeQuery.data?.objects ?? []
   const isRunning = validateSearch.isPending || executeQuery.isFetching

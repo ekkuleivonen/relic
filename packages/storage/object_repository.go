@@ -295,7 +295,7 @@ func (s *ObjectStore) ListObjects(ctx context.Context, params ListObjectsParams)
 			updated_at
 		FROM objects
 		WHERE ($1 = '' OR bucket_id = $1)
-			AND ($2 = '' OR key LIKE $2 || '%')
+			AND ($2 = '' OR starts_with(key, $2))
 			AND ($3 = '' OR attributes #>> '{upstream,header,content_type}' = $3)
 			AND ($4 = '' OR key ILIKE '%' || $4 || '%')
 		ORDER BY bucket_id ASC, key ASC
@@ -321,7 +321,15 @@ func (s *ObjectStore) ListObjects(ctx context.Context, params ListObjectsParams)
 	return objects, nil
 }
 
+const MaxSearchResults = 1000
+
 func (s *ObjectStore) Search(ctx context.Context, bound search.BoundQuery, scope SearchScope) ([]Object, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if bound.Query.Limit == nil || *bound.Query.Limit > MaxSearchResults {
+		limit := MaxSearchResults
+		bound.Query.Limit = &limit
+	}
 	compiled, err := CompileObjectsSearch(bound, scope)
 	if err != nil {
 		return nil, fmt.Errorf("search objects: %w", err)
@@ -366,7 +374,7 @@ func (s *ObjectStore) CountObjectsInScope(ctx context.Context, params ObjectScop
 		SELECT count(*)
 		FROM objects
 		WHERE ($1 = '' OR bucket_id = $1)
-			AND ($2 = '' OR key LIKE $2 || '%')
+			AND ($2 = '' OR starts_with(key, $2))
 	`, params.BucketID, params.Prefix)
 
 	var count int64
@@ -393,7 +401,7 @@ func (s *ObjectStore) StreamObjectsInScope(ctx context.Context, params ObjectSco
 			updated_at
 		FROM objects
 		WHERE ($1 = '' OR bucket_id = $1)
-			AND ($2 = '' OR key LIKE $2 || '%')
+			AND ($2 = '' OR starts_with(key, $2))
 		ORDER BY bucket_id ASC, key ASC
 	`, params.BucketID, params.Prefix)
 	if err != nil {
@@ -446,7 +454,7 @@ func (s *ObjectStore) DeleteObjectsNotSeenSince(ctx context.Context, params Dele
 	tag, err := s.runner.Exec(ctx, `
 		DELETE FROM objects
 		WHERE bucket_id = $1
-			AND ($2 = '' OR key LIKE $2 || '%')
+			AND ($2 = '' OR starts_with(key, $2))
 			AND (attributes #>> '{core,last_seen_at}')::timestamptz < $3
 	`, params.BucketID, params.Prefix, params.SeenAt)
 	if err != nil {

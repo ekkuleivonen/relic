@@ -118,9 +118,11 @@ func (s *JobRunStore) ResumeJobRun(ctx context.Context, id string) (JobRun, erro
 	}
 
 	return scanJobRun(s.runner.QueryRow(ctx, `
+		WITH resumed AS (
 		UPDATE job_runs
 		SET
 			state = 'pending',
+            result = result - 'await_children',
 			available_at = now(),
 			locked_by = NULL,
 			locked_at = NULL,
@@ -130,5 +132,14 @@ func (s *JobRunStore) ResumeJobRun(ctx context.Context, id string) (JobRun, erro
 		WHERE id = $1
 			AND state IN ('failed', 'cancelled')
 		RETURNING `+jobRunColumns+`
+        ), children AS (
+            UPDATE job_runs SET state = 'pending', available_at = now(),
+                result = result - 'await_children',
+                locked_by = NULL, locked_at = NULL, finished_at = NULL,
+                error_message = NULL, updated_at = now()
+            WHERE trace_id IN (SELECT trace_id FROM resumed WHERE id = trace_id)
+                AND id <> $1 AND state IN ('failed', 'cancelled')
+        )
+        SELECT `+jobRunColumns+` FROM resumed
 	`, id))
 }

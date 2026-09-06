@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -20,11 +19,6 @@ import (
 	"github.com/elei-io/pithosys/packages/secrets"
 	"github.com/elei-io/pithosys/packages/storage"
 	"github.com/elei-io/pithosys/packages/testdb"
-)
-
-var (
-	migrateTestStoreOnce sync.Once
-	migrateTestStoreErr  error
 )
 
 func TestScanBucketRequiresStorage(t *testing.T) {
@@ -164,7 +158,7 @@ func TestSyncBucketConflictWhenSyncTraceActive(t *testing.T) {
 		TargetID:        bucket.ID,
 		Input: storage.JobRunPayload{
 			"bucket_id": bucket.ID,
-			"objects":     []any{},
+			"objects":   []any{},
 		},
 	}); err != nil {
 		t.Fatalf("CreateJobRun child returned error: %v", err)
@@ -262,13 +256,10 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
-	migrateTestStoreOnce.Do(func() {
-		migrateTestStoreErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
-			return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
-		})
-	})
-	if migrateTestStoreErr != nil {
-		t.Fatal(testdb.MigrationTimeoutError(migrateTestStoreErr))
+	if err := testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
+		return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	}); err != nil {
+		t.Fatal(testdb.MigrationTimeoutError(err))
 	}
 
 	pool, err := db.Connect(ctx, databaseURL)

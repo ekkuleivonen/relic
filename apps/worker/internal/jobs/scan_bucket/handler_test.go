@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -21,11 +20,6 @@ import (
 )
 
 const testModulus uint32 = 8
-
-var (
-	migrateTestStoreOnce sync.Once
-	migrateTestStoreErr  error
-)
 
 func TestHandlerReportsHealthyWhenFingerprintsMatch(t *testing.T) {
 	ctx := context.Background()
@@ -472,10 +466,10 @@ func TestHandlerEscalationSyncReconcilesPartition(t *testing.T) {
 }
 
 type fakeObjectClient struct {
-	page        s3compat.ObjectPage
-	pages       []s3compat.ObjectPage
-	err         error
-	listInputs  []s3compat.ListObjectsInput
+	page       s3compat.ObjectPage
+	pages      []s3compat.ObjectPage
+	err        error
+	listInputs []s3compat.ListObjectsInput
 }
 
 type fakeObjectClientFactory struct {
@@ -562,13 +556,10 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
-	migrateTestStoreOnce.Do(func() {
-		migrateTestStoreErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
-			return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
-		})
-	})
-	if migrateTestStoreErr != nil {
-		t.Fatal(testdb.MigrationTimeoutError(migrateTestStoreErr))
+	if err := testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
+		return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	}); err != nil {
+		t.Fatal(testdb.MigrationTimeoutError(err))
 	}
 
 	pool, err := db.Connect(ctx, databaseURL)
@@ -775,6 +766,9 @@ func assertPartitionSyncInput(t *testing.T, run storage.JobRun, bucketID, scopeP
 }
 
 func stringSliceField(value any) []string {
+	if typed, ok := value.([]string); ok {
+		return typed
+	}
 	raw, ok := value.([]any)
 	if !ok {
 		return nil

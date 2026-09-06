@@ -136,7 +136,7 @@ func (s *JobSpillStore) StreamObjectsInScopeMissingFromSpill(
 			o.updated_at
 		FROM objects AS o
 		WHERE ($1 = '' OR o.bucket_id = $1)
-			AND ($2 = '' OR o.key LIKE $2 || '%')
+			AND ($2 = '' OR starts_with(o.key, $2))
 			AND NOT EXISTS (
 				SELECT 1
 				FROM job_spill AS spill

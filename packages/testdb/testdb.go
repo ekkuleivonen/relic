@@ -2,6 +2,7 @@ package testdb
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"net/url"
 	"os"
@@ -40,7 +41,10 @@ func URL(t testing.TB, ctx context.Context) string {
 
 	schema := os.Getenv(SchemaEnv)
 	if schema == "" {
-		schema = DefaultSchema
+		// Independent schemas prevent cross-test fixtures and parallel packages
+		// from corrupting each other's state. Keep names below Postgres's limit.
+		digest := sha256.Sum256([]byte(fmt.Sprintf("%d/%s", os.Getpid(), t.Name())))
+		schema = fmt.Sprintf("%s_%x", DefaultSchema, digest[:12])
 	}
 	if !schemaNamePattern.MatchString(schema) {
 		t.Fatalf("%s = %q is not a valid Postgres schema name", SchemaEnv, schema)
@@ -69,6 +73,20 @@ func ensureSchema(t testing.TB, ctx context.Context, databaseURL string, schema 
 		createdSchemas.Delete(key)
 		t.Fatalf("create test schema %q: %v", schema, err)
 	}
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		cleanupPool, err := connect(cleanupCtx, withTimeoutOptions(t, databaseURL))
+		if err != nil {
+			t.Errorf("connect for schema cleanup: %v", err)
+			return
+		}
+		defer cleanupPool.Close()
+		if _, err := cleanupPool.Exec(cleanupCtx, "DROP SCHEMA IF EXISTS "+quoteIdentifier(schema)+" CASCADE"); err != nil {
+			t.Errorf("drop test schema: %v", err)
+		}
+		createdSchemas.Delete(key)
+	})
 }
 
 func WithMigrationLock(t testing.TB, migrate func() error) error {

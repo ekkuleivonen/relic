@@ -23,24 +23,17 @@ export function UsersPage() {
   const updateUser = useUpdateUser()
 
   const [isCreateOpen, setIsCreateOpen] = React.useState(false)
-  const [editingUser, setEditingUser] = React.useState<User | null>(null)
+  const editingUserId = searchParams.get("edit")
+  const editingUser = usersQuery.data?.find((user) => user.id === editingUserId) ?? null
 
-  React.useEffect(() => {
-    const editUserId = searchParams.get("edit")
-    if (!editUserId || !usersQuery.data) {
-      return
-    }
-
-    const user = usersQuery.data.find((entry) => entry.id === editUserId)
-    if (!user) {
-      return
-    }
-
-    setEditingUser(user)
-    const nextParams = new URLSearchParams(searchParams)
-    nextParams.delete("edit")
-    setSearchParams(nextParams, { replace: true })
-  }, [searchParams, setSearchParams, usersQuery.data])
+  function setEditingUser(user: User | null) {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      if (user) next.set("edit", user.id)
+      else next.delete("edit")
+      return next
+    }, { replace: true })
+  }
 
   async function handleCreate(values: UserCreateInput) {
     await createUser.mutateAsync(values)

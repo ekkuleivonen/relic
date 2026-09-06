@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -12,11 +11,6 @@ import (
 	"github.com/elei-io/pithosys/packages/secrets"
 	"github.com/elei-io/pithosys/packages/storage"
 	"github.com/elei-io/pithosys/packages/testdb"
-)
-
-var (
-	migrateIngestTestStoreOnce sync.Once
-	migrateIngestTestStoreErr  error
 )
 
 func TestIngestS3NotificationJetstreamTransport(t *testing.T) {
@@ -82,14 +76,15 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 		t.Fatalf("connect test database: %v", err)
 	}
 
-	migrateIngestTestStoreOnce.Do(func() {
-		migrateIngestTestStoreErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "upstream_events", func() error {
-			return storage.RunMigrations(ctx, databaseURL, "")
-		})
-	})
-	if migrateIngestTestStoreErr != nil {
+	migrationDir, err := filepath.Abs("../storage/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := testdb.MigrateIfNeeded(t, ctx, databaseURL, "upstream_events", func() error {
+		return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	}); err != nil {
 		database.Close()
-		t.Fatal(testdb.MigrationTimeoutError(migrateIngestTestStoreErr))
+		t.Fatal(testdb.MigrationTimeoutError(err))
 	}
 
 	store, err := storage.New(database)

@@ -121,7 +121,9 @@ func (r *Runner) RunOnce(ctx context.Context) (bool, error) {
 
 	result, err := handler.Handle(ctx, run)
 	if err != nil {
-		return true, r.handleFailure(ctx, run, err)
+		failureCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		return true, r.handleFailure(failureCtx, run, err)
 	}
 
 	if jobs.AwaitsChildren(result) {

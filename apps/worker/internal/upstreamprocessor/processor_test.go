@@ -3,7 +3,6 @@ package upstreamprocessor
 import (
 	"context"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -12,11 +11,6 @@ import (
 	"github.com/elei-io/pithosys/packages/secrets"
 	"github.com/elei-io/pithosys/packages/storage"
 	"github.com/elei-io/pithosys/packages/testdb"
-)
-
-var (
-	migrateProcessorTestStoreOnce sync.Once
-	migrateProcessorTestStoreErr  error
 )
 
 func TestProcessorTickEnqueuesImportObjects(t *testing.T) {
@@ -166,13 +160,10 @@ func processorTestStore(t *testing.T, ctx context.Context) (*storage.Store, func
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
-	migrateProcessorTestStoreOnce.Do(func() {
-		migrateProcessorTestStoreErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
-			return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
-		})
-	})
-	if migrateProcessorTestStoreErr != nil {
-		t.Fatal(testdb.MigrationTimeoutError(migrateProcessorTestStoreErr))
+	if err := testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
+		return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	}); err != nil {
+		t.Fatal(testdb.MigrationTimeoutError(err))
 	}
 
 	pool, err := db.Connect(ctx, databaseURL)

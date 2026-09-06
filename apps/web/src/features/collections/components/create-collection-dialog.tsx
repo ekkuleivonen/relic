@@ -34,7 +34,21 @@ type CreateCollectionDialogProps = {
   hideTrigger?: boolean
 }
 
-export function CreateCollectionDialog({
+export function CreateCollectionDialog(props: CreateCollectionDialogProps) {
+  const [internalOpen, setInternalOpen] = React.useState(false)
+  const open = props.open ?? internalOpen
+  const onOpenChange = props.onOpenChange ?? setInternalOpen
+  return (
+    <CreateCollectionDialogContent
+      key={`${open}:${props.initialQuery ?? ""}`}
+      {...props}
+      open={open}
+      onOpenChange={onOpenChange}
+    />
+  )
+}
+
+function CreateCollectionDialogContent({
   triggerLabel = "Create collection",
   initialQuery,
   open: controlledOpen,
@@ -82,16 +96,6 @@ export function CreateCollectionDialog({
     [bucketsQuery.data?.buckets]
   )
 
-  React.useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    setName("")
-    setDescription("")
-    setQuery(initialQuery ?? DEFAULT_PITHOSYSQL_QUERY)
-    setValidationError(null)
-  }, [open, initialQuery])
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()

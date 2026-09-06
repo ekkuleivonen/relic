@@ -1,5 +1,5 @@
 import { sql, PostgreSQL } from "@codemirror/lang-sql"
-import { Compartment, Prec, type Extension } from "@codemirror/state"
+import { Prec, type Extension } from "@codemirror/state"
 import { EditorView, keymap } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
 import * as React from "react"
@@ -21,7 +21,6 @@ const pithosysqlLanguage = sql({
   upperCaseKeywords: true,
 })
 
-const submitKeymapCompartment = new Compartment()
 
 const baseExtensions: Extension[] = [
   pithosysqlLanguage,
@@ -63,9 +62,6 @@ export function PithosysqlEditor({
   bucketNames = [],
   onSubmit,
 }: PithosysqlEditorProps) {
-  const editorViewRef = React.useRef<EditorView | null>(null)
-  const onSubmitRef = React.useRef(onSubmit)
-  onSubmitRef.current = onSubmit
 
   React.useEffect(() => {
     setPithosysqlAttributeCatalog(attributes)
@@ -80,29 +76,9 @@ export function PithosysqlEditor({
   }, [bucketNames])
 
   const extensions = React.useMemo(
-    () => [
-      ...baseExtensions,
-      submitKeymapCompartment.of(createSubmitKeymap(() => onSubmitRef.current?.())),
-    ],
-    // Submit keymap is reconfigured below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    () => [...baseExtensions, createSubmitKeymap(() => onSubmit?.())],
+    [onSubmit],
   )
-
-  React.useEffect(() => {
-    const view = editorViewRef.current
-    if (!view) {
-      return
-    }
-
-    view.dispatch({
-      effects: [
-        submitKeymapCompartment.reconfigure(
-          createSubmitKeymap(() => onSubmitRef.current?.())
-        ),
-      ],
-    })
-  }, [])
 
   return (
     <div className="relative overflow-hidden rounded-lg border">
@@ -112,8 +88,7 @@ export function PithosysqlEditor({
         theme="none"
         extensions={extensions}
         onChange={onChange}
-        onCreateEditor={(view) => {
-          editorViewRef.current = view
+        onCreateEditor={() => {
           setPithosysqlAttributeCatalog(attributes)
           setPithosysqlRelationTypes(relationTypes)
           setPithosysqlBucketNames(bucketNames)

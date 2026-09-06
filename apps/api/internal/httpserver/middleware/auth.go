@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
@@ -30,6 +29,11 @@ func Auth(next http.Handler, dependencies deps.Dependencies) http.Handler {
 			return
 		}
 
+		if requiresAdmin(r.Method, r.URL.Path) && auth.RequireAdmin(principal) != nil {
+			writeForbidden(w)
+			return
+		}
+
 		next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), principal)))
 	})
 }
@@ -40,10 +44,8 @@ func isPublicPath(path string) bool {
 		return true
 	}
 
-	if strings.HasPrefix(path, "/api/auth/login") ||
-		strings.HasPrefix(path, "/api/auth/logout") ||
-		strings.HasPrefix(path, "/api/auth/config") ||
-		strings.HasPrefix(path, "/api/auth/oidc/") {
+	switch path {
+	case "/api/auth/login", "/api/auth/logout", "/api/auth/config", "/api/auth/oidc/start", "/api/auth/oidc/callback":
 		return true
 	}
 
@@ -113,4 +115,19 @@ func writeForbidden(w http.ResponseWriter) {
 		"status": "403",
 		"detail": "You do not have permission to perform this action.",
 	})
+}
+
+// Read-only catalog access is shared within an instance. All operational
+// mutations require an administrator except these explicit self-service routes.
+func requiresAdmin(method, path string) bool {
+	if method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions {
+		return false
+	}
+	if method == http.MethodPost && (path == "/api/search" || path == "/api/search/validate") {
+		return false
+	}
+	if method == http.MethodPatch && path == "/api/auth/password" {
+		return false
+	}
+	return true
 }

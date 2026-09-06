@@ -23,11 +23,6 @@ import (
 	"github.com/elei-io/pithosys/packages/verification"
 )
 
-var (
-	migrateTestStoreOnce sync.Once
-	migrateTestStoreErr  error
-)
-
 func TestHandlerPlansImportJobsForMissingObjects(t *testing.T) {
 	ctx := context.Background()
 	store, cleanup := testStore(t, ctx)
@@ -67,7 +62,7 @@ func TestHandlerPlansImportJobsForMissingObjects(t *testing.T) {
 		t.Fatalf("Handle returned error: %v", err)
 	}
 
-	if result["objects_seen"] != 2 {
+	if storage.PayloadInt64(result, "objects_seen") != 2 {
 		t.Fatalf("objects_seen result = %#v, want 2", result["objects_seen"])
 	}
 	if result["import_objects_count"] != 2 {
@@ -333,6 +328,13 @@ func TestHandlerDoesNotDuplicateRemoveJobsOnResume(t *testing.T) {
 		},
 	}); err != nil {
 		t.Fatalf("CreateJobRun returned error: %v", err)
+	}
+
+	// The runner passes the persisted checkpoint when claiming a resumed job.
+	if refreshed, err := store.JobRuns().GetJobRun(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	} else {
+		run = refreshed
 	}
 
 	client := &fakeObjectClient{
@@ -641,7 +643,16 @@ func TestHandlerFailsWhenListObjectsFailsMidPage(t *testing.T) {
 	if _, err := handler.Handle(ctx, run); err == nil {
 		t.Fatal("Handle returned nil error, want second page error")
 	}
-	assertChildJobCount(t, ctx, store, run.ID, storage.JobTypeImportObjects, 0)
+	assertChildJobCount(t, ctx, store, run.ID, storage.JobTypeImportObjects, 1)
+	assertChildJobCount(t, ctx, store, run.ID, storage.JobTypeRemoveObjects, 0)
+	persisted, err := store.JobRuns().GetJobRun(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := listingCheckpointFromProgress(persisted.Progress)
+	if checkpoint.ContinuationToken != "next-page" || checkpoint.ListingComplete {
+		t.Fatalf("checkpoint = %#v, want completed first page with more listing pending", checkpoint)
+	}
 }
 
 func TestHandlerFailsWhenTruncatedPageHasNoCursor(t *testing.T) {
@@ -810,8 +821,8 @@ func TestHandlerStreamsImportJobsPerListingPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountKeys returned error: %v", err)
 	}
-	if spillCount != 0 {
-		t.Fatalf("spill count after sync = %d, want 0", spillCount)
+	if spillCount != 2 {
+		t.Fatalf("spill count before terminal commit = %d, want 2", spillCount)
 	}
 
 	children, err := store.JobRuns().ListJobRuns(ctx, storage.ListJobRunsParams{
@@ -823,8 +834,8 @@ func TestHandlerStreamsImportJobsPerListingPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListJobRuns returned error: %v", err)
 	}
-	if len(children) != 1 {
-		t.Fatalf("import child count = %d, want 1", len(children))
+	if len(children) != 2 {
+		t.Fatalf("import child count = %d, want 2", len(children))
 	}
 }
 
@@ -873,6 +884,13 @@ func TestHandlerResumesListingFromCheckpoint(t *testing.T) {
 		},
 	}); err != nil {
 		t.Fatalf("CreateJobRun returned error: %v", err)
+	}
+
+	// The runner passes the persisted checkpoint when claiming a resumed job.
+	if refreshed, err := store.JobRuns().GetJobRun(ctx, run.ID); err != nil {
+		t.Fatal(err)
+	} else {
+		run = refreshed
 	}
 
 	client := &fakeObjectClient{
@@ -1271,6 +1289,7 @@ func newRemoveHandler(t *testing.T, store *storage.Store) *removeobjects.Handler
 }
 
 type fakeObjectClient struct {
+	mu                  sync.Mutex
 	page                s3compat.ObjectPage
 	pages               []s3compat.ObjectPage
 	err                 error
@@ -1340,6 +1359,8 @@ func (c *fakeObjectClient) ListObjects(ctx context.Context, input s3compat.ListO
 }
 
 func (c *fakeObjectClient) HeadObject(ctx context.Context, input s3compat.HeadObjectInput) (s3compat.HeadObjectData, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.headInputs = append(c.headInputs, input)
 	if err := c.headErrByKey[input.Key]; err != nil {
 		return s3compat.HeadObjectData{}, err
@@ -1367,13 +1388,10 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
-	migrateTestStoreOnce.Do(func() {
-		migrateTestStoreErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
-			return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
-		})
-	})
-	if migrateTestStoreErr != nil {
-		t.Fatal(testdb.MigrationTimeoutError(migrateTestStoreErr))
+	if err := testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
+		return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	}); err != nil {
+		t.Fatal(testdb.MigrationTimeoutError(err))
 	}
 
 	pool, err := db.Connect(ctx, databaseURL)

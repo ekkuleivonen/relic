@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -17,11 +16,6 @@ import (
 	"github.com/elei-io/pithosys/packages/db"
 	"github.com/elei-io/pithosys/packages/storage"
 	"github.com/elei-io/pithosys/packages/testdb"
-)
-
-var (
-	migrateJobsTestStoreOnce sync.Once
-	migrateJobsTestStoreErr  error
 )
 
 func TestListJobRunsFiltersByTraceID(t *testing.T) {
@@ -278,13 +272,10 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
-	migrateJobsTestStoreOnce.Do(func() {
-		migrateJobsTestStoreErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "jobs", func() error {
-			return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
-		})
-	})
-	if migrateJobsTestStoreErr != nil {
-		t.Fatal(testdb.MigrationTimeoutError(migrateJobsTestStoreErr))
+	if err := testdb.MigrateIfNeeded(t, ctx, databaseURL, "jobs", func() error {
+		return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	}); err != nil {
+		t.Fatal(testdb.MigrationTimeoutError(err))
 	}
 
 	pool, err := db.Connect(ctx, databaseURL)

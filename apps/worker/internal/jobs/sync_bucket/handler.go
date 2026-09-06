@@ -118,9 +118,7 @@ func (h *Handler) Handle(ctx context.Context, run storage.JobRun) (storage.JobRu
 		return nil, err
 	}
 
-	if err := h.store.JobSpill().DeleteForJobRun(ctx, run.ID); err != nil {
-		return nil, err
-	}
+	// Keep spill evidence until terminal success is committed atomically.
 
 	result := state.fanOutResult(storage.JobRunPayload{
 		"phase":                 "planned",

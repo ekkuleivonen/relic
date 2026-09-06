@@ -1,0 +1,67 @@
+name: pithosys-demo
+x-app: &app
+  build: .
+  image: pithosys-demo-app:local
+  environment: &app-env
+    DATABASE_URL: postgres://pithosys:${POSTGRES_PASSWORD:?run scripts/demo.sh}@db:5432/pithosys?sslmode=disable
+    ENCRYPTION_KEY_ID: demo
+    ENCRYPTION_KEY_BASE64: ${ENCRYPTION_KEY_BASE64:?run scripts/demo.sh}
+    SESSION_SECRET_BASE64: ${SESSION_SECRET_BASE64:?run scripts/demo.sh}
+    SUPERUSER_EMAIL: admin@example.com
+    SUPERUSER_PASSWORD: ${SUPERUSER_PASSWORD:?run scripts/demo.sh}
+    WEB_APP_URL: http://localhost:8088
+  restart: unless-stopped
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pithosys
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run scripts/demo.sh}
+      POSTGRES_DB: pithosys
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U pithosys -d pithosys']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  s3:
+    image: ghcr.io/versity/versitygw:v1.4.1
+    command: [posix, /data]
+    environment:
+      ROOT_ACCESS_KEY: ${S3_ACCESS_KEY:?run scripts/demo.sh}
+      ROOT_SECRET_KEY: ${S3_SECRET_KEY:?run scripts/demo.sh}
+    volumes: [s3-data:/data]
+  api:
+    <<: *app
+    command: [/app/api]
+    depends_on:
+      db: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8080/api/healthz']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  worker:
+    <<: *app
+    command: [/app/worker]
+    depends_on:
+      api: {condition: service_healthy}
+  web:
+    build: apps/web
+    ports: ['127.0.0.1:8088:8080']
+    depends_on:
+      api: {condition: service_healthy}
+  seed:
+    <<: *app
+    profiles: [tools]
+    restart: 'no'
+    command: [/app/demo]
+    environment:
+      API_URL: http://api:8080
+      S3_ENDPOINT: http://s3:7070
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?run scripts/demo.sh}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?run scripts/demo.sh}
+      SUPERUSER_PASSWORD: ${SUPERUSER_PASSWORD:?run scripts/demo.sh}
+volumes:
+  postgres-data:
+  s3-data:

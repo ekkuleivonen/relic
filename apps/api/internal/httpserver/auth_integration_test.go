@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -18,11 +17,6 @@ import (
 	"github.com/elei-io/pithosys/packages/secrets"
 	"github.com/elei-io/pithosys/packages/storage"
 	"github.com/elei-io/pithosys/packages/testdb"
-)
-
-var (
-	migrateAuthIntegrationOnce sync.Once
-	migrateAuthIntegrationErr  error
 )
 
 func TestAuthConfigReportsOIDCStatus(t *testing.T) {
@@ -157,13 +151,10 @@ func testAuthIntegrationStore(t *testing.T, ctx context.Context) (*storage.Store
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
-	migrateAuthIntegrationOnce.Do(func() {
-		migrateAuthIntegrationErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "auth-integration", func() error {
-			return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
-		})
-	})
-	if migrateAuthIntegrationErr != nil {
-		t.Fatal(testdb.MigrationTimeoutError(migrateAuthIntegrationErr))
+	if err := testdb.MigrateIfNeeded(t, ctx, databaseURL, "auth-integration", func() error {
+		return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	}); err != nil {
+		t.Fatal(testdb.MigrationTimeoutError(err))
 	}
 
 	pool, err := db.Connect(ctx, databaseURL)
@@ -206,4 +197,40 @@ func authIntegrationBytes32(value string) []byte {
 	padded := make([]byte, 32)
 	copy(padded, raw)
 	return padded
+}
+
+func TestMemberCannotMutateCatalogThroughServer(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testAuthIntegrationStore(t, ctx)
+	defer cleanup()
+	service, err := auth.NewService(auth.Config{SessionTTL: time.Hour, SessionSecret: authIntegrationSessionSecret()}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreateUser(ctx, auth.CreateUserParams{Email: "reader@example.com", Role: auth.RoleUser, Password: "reader-test-password"}); err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := service.Login(ctx, "reader@example.com", "reader-test-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := Handler(deps.Dependencies{Storage: store, Auth: service, Secrets: authIntegrationSecretManager(t)})
+	for _, path := range []string{"/api/buckets", "/api/buckets/id/sync", "/api/buckets/id/scan", "/api/detect-duplicates", "/api/collections", "/api/upstream-capture-fields"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token.Value})
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("%s returned %d, want 403", path, rec.Code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/search", strings.NewReader(`{"query":"FROM objects LIMIT 1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: token.Value})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("member search returned %d: %s", rec.Code, rec.Body.String())
+	}
 }

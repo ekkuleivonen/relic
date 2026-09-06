@@ -5,18 +5,11 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
-	"strings"
-	"sync"
 	"testing"
 
 	"github.com/elei-io/pithosys/packages/db"
 	"github.com/elei-io/pithosys/packages/storage"
 	"github.com/elei-io/pithosys/packages/testdb"
-)
-
-var (
-	migrateTestStoreOnce sync.Once
-	migrateTestStoreErr  error
 )
 
 func TestTickerFinalizesAwaitingJobWithManyChildren(t *testing.T) {
@@ -122,19 +115,15 @@ func TestTickerFinalizesAwaitingJobWithManyChildren(t *testing.T) {
 func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	t.Helper()
 
-	t.Setenv(testdb.SchemaEnv, "pithosys_test_tracecompletion_"+schemaSuffix(t.Name()))
 	databaseURL := testdb.URL(t, ctx)
 	migrationDir, err := filepath.Abs("../../../../packages/storage/migrations")
 	if err != nil {
 		t.Fatalf("resolve migration dir: %v", err)
 	}
-	migrateTestStoreOnce.Do(func() {
-		migrateTestStoreErr = testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
-			return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
-		})
-	})
-	if migrateTestStoreErr != nil {
-		t.Fatal(testdb.MigrationTimeoutError(migrateTestStoreErr))
+	if err := testdb.MigrateIfNeeded(t, ctx, databaseURL, "buckets", func() error {
+		return storage.RunMigrations(ctx, databaseURL, "file://"+migrationDir)
+	}); err != nil {
+		t.Fatal(testdb.MigrationTimeoutError(err))
 	}
 
 	pool, err := db.Connect(ctx, databaseURL)
@@ -152,18 +141,4 @@ func testStore(t *testing.T, ctx context.Context) (*storage.Store, func()) {
 	}
 
 	return store, pool.Close
-}
-
-func schemaSuffix(value string) string {
-	value = strings.ToLower(value)
-	var builder strings.Builder
-	for _, char := range value {
-		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') {
-			builder.WriteRune(char)
-			continue
-		}
-		builder.WriteRune('_')
-	}
-
-	return builder.String()
 }

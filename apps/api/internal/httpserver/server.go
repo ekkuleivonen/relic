@@ -7,6 +7,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	authhttp "github.com/elei-io/pithosys/apps/api/internal/httpserver/auth"
+	bucketeventshttp "github.com/elei-io/pithosys/apps/api/internal/httpserver/bucketevents"
 	"github.com/elei-io/pithosys/apps/api/internal/httpserver/buckets"
 	collectionshttp "github.com/elei-io/pithosys/apps/api/internal/httpserver/collections"
 	"github.com/elei-io/pithosys/apps/api/internal/httpserver/deps"
@@ -17,7 +18,6 @@ import (
 	settingshttp "github.com/elei-io/pithosys/apps/api/internal/httpserver/settings"
 	"github.com/elei-io/pithosys/apps/api/internal/httpserver/system"
 	"github.com/elei-io/pithosys/apps/api/internal/httpserver/upstreamcapture"
-	bucketeventshttp "github.com/elei-io/pithosys/apps/api/internal/httpserver/bucketevents"
 )
 
 const apiBasePath = "/api"
@@ -48,7 +48,7 @@ func Handler(dependencies deps.Dependencies) http.Handler {
 	bucketeventshttp.Register(api, dependencies, apiBasePath)
 	settingshttp.Register(api, dependencies, apiBasePath)
 
-	return noStoreMiddleware(middleware.Auth(mux, dependencies))
+	return noStoreMiddleware(middleware.ProtectRequests(middleware.Auth(mux, dependencies), dependencies.Config.WebAppURL))
 }
 
 func noStoreMiddleware(next http.Handler) http.Handler {

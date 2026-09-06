@@ -109,8 +109,8 @@ func TestFindResumableSyncJobRunIgnoresOlderFailedAfterNewerSync(t *testing.T) {
 			"listing_complete": false,
 			"listing_checkpoint": map[string]any{
 				"continuation_token": "token-1",
-				"objects_listed":   int64(1000),
-				"listing_complete": false,
+				"objects_listed":     int64(1000),
+				"listing_complete":   false,
 			},
 		},
 	}); err != nil {
@@ -277,4 +277,39 @@ func errorsIsNotFound(err error) bool {
 
 func storagePayloadInt64(payload JobRunPayload, key string) int64 {
 	return PayloadInt64(payload, key)
+}
+
+func TestResumeRootRequeuesFailedChildrenAndPreservesSucceededChildren(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+	root, err := store.JobRuns().CreateJobRun(ctx, CreateJobRunParams{Type: JobTypeSyncBucket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed, err := store.JobRuns().CreateJobRun(ctx, CreateJobRunParams{Type: JobTypeImportObjects, RequestedByType: "job", RequestedByID: root.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done, err := store.JobRuns().CreateJobRun(ctx, CreateJobRunParams{Type: JobTypeImportObjects, RequestedByType: "job", RequestedByID: root.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.JobRuns().SucceedJobRun(ctx, SucceedJobRunParams{ID: done.ID}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{root.ID, failed.ID} {
+		if _, err := store.JobRuns().FailJobRun(ctx, FailJobRunParams{ID: id, ErrorMessage: "interrupted"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.JobRuns().ResumeJobRun(ctx, root.ID); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]JobRunState{root.ID: JobRunStatePending, failed.ID: JobRunStatePending, done.ID: JobRunStateSucceeded} {
+		run, err := store.JobRuns().GetJobRun(ctx, id)
+		if err != nil || run.State != want {
+			t.Fatalf("run %s state=%s want=%s err=%v", id, run.State, want, err)
+		}
+	}
 }

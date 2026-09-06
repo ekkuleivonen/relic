@@ -35,7 +35,7 @@ export function LoginPage() {
   }
 
   if (sessionQuery.data) {
-    return <Navigate to="/" replace />
+    return <Navigate to={from} replace />
   }
 
   return (

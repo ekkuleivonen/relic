@@ -26,8 +26,8 @@ export function isTimeRangePreset(value: string | null): value is TimeRangePrese
   return value === "1h" || value === "24h" || value === "7d" || value === "30d"
 }
 
-export function presetToRange(preset: TimeRangePreset): TimeRangeBounds {
-  const to = new Date()
+export function presetToRange(preset: TimeRangePreset, anchor = new Date()): TimeRangeBounds {
+  const to = anchor
   const from = new Date(to.getTime() - PRESET_DURATIONS[preset])
 
   return {
