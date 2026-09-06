@@ -10,13 +10,15 @@ Status: preparation in progress. The GitHub repository was already public when t
 
 ## Engineering acceptance
 
-- [ ] Full PostgreSQL tests with the race detector and Go vet pass.
-- [ ] Frontend lint/build and dependency audits pass.
-- [ ] Isolated synthetic demo works from a clean checkout.
+- [x] Full PostgreSQL tests with the race detector and Go vet pass.
+- [x] Frontend lint/build and dependency audits pass.
+- [x] Isolated synthetic demo works from a clean checkout.
 - [ ] CI runs on GitHub and required checks protect main.
-- [ ] Current snapshot/new commits pass secret scanning.
+- [x] Current snapshot/new commits pass secret scanning.
 - [ ] Full published history passes secret scanning after approved cleanup.
-- [ ] Screenshots and a reproducible small-scale measurement are documented.
-- [ ] Review deployment boundaries and alpha limitations before inviting real workloads.
+- [x] Screenshots and a reproducible small-scale measurement are documented.
+- [x] Review deployment boundaries and alpha limitations before inviting real workloads.
 
 This checklist tracks evidence, not a guarantee of security or production readiness. OIDC needs a deployment-specific identity-provider test; large-scale behavior and multi-worker failure recovery need broader operational validation.
+
+A private candidate history was scrubbed and scanned across 102 commits with no findings. It has not been published; the live history remains unchanged pending owner decisions.
