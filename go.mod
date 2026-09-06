@@ -9,7 +9,7 @@ require (
 	github.com/coreos/go-oidc/v3 v3.19.0
 	github.com/danielgtaylor/huma/v2 v2.38.0
 	github.com/golang-migrate/migrate/v4 v4.19.1
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/nats-io/nats.go v1.48.0
 	golang.org/x/crypto v0.56.0
 	golang.org/x/oauth2 v0.36.0
