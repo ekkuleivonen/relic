@@ -140,3 +140,35 @@ func TestSpillSurvivesFailureAndClearsOnSuccess(t *testing.T) {
 		t.Fatalf("successful job retained spill: count=%d err=%v", count, err)
 	}
 }
+
+func TestSyncScopeTreatsSQLWildcardsAsLiteralKeyCharacters(t *testing.T) {
+	ctx := context.Background()
+	store, cleanup := testStore(t, ctx)
+	defer cleanup()
+	bucket, err := store.Buckets().CreateBucket(ctx, CreateBucketParams{Name: "literal-prefix", Upstream: BucketUpstreamS3, EndpointURL: "https://s3.example.test", Region: "us-east-1", BucketName: "literal-prefix", EncryptedCredentials: secretsEnvelope()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"data_100%/present", "data_100%/missing", "dataX100other/outside"} {
+		if _, err := store.Objects().UpsertObject(ctx, UpsertObjectParams{BucketID: bucket.ID, Key: key}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scope := ObjectScopeParams{BucketID: bucket.ID, Prefix: "data_100%/"}
+	count, err := store.Objects().CountObjectsInScope(ctx, scope)
+	if err != nil || count != 2 {
+		t.Fatalf("scope count=%d err=%v", count, err)
+	}
+	run, err := store.JobRuns().CreateJobRun(ctx, CreateJobRunParams{Type: JobTypeSyncBucket})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.JobSpill().InsertKeys(ctx, run.ID, []string{"data_100%/present"}); err != nil {
+		t.Fatal(err)
+	}
+	var missing []string
+	err = store.JobSpill().StreamObjectsInScopeMissingFromSpill(ctx, run.ID, scope, func(object Object) error { missing = append(missing, object.Key); return nil })
+	if err != nil || len(missing) != 1 || missing[0] != "data_100%/missing" {
+		t.Fatalf("removal candidates=%v err=%v", missing, err)
+	}
+}

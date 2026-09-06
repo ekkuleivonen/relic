@@ -13,7 +13,7 @@ Status: preparation in progress. The GitHub repository was already public when t
 - [x] Full PostgreSQL tests with the race detector and Go vet pass.
 - [x] Frontend lint/build and dependency audits pass.
 - [x] Isolated synthetic demo works from a clean checkout.
-- [ ] CI runs on GitHub and required checks protect main.
+- [x] CI runs on GitHub and required checks protect main.
 - [x] Current snapshot/new commits pass secret scanning.
 - [ ] Full published history passes secret scanning after approved cleanup.
 - [x] Screenshots and a reproducible small-scale measurement are documented.
